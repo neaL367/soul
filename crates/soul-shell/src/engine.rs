@@ -1,7 +1,6 @@
 //! Wired end-to-end pipeline: navigation state machine → HTTP fetch (CORS/mixed
 //! content enforced) → HTML parse → CSS cascade → layout → display list → raster.
 
-use browser_core::{NavigationController, NavigationError, NavigationId};
 use css::{CascadeResolver, Origin, parse_stylesheet};
 use dom::{Document, NodeData, NodeId};
 use html::parse_html_with_styles;
@@ -10,6 +9,7 @@ use layout::{Dimensions, IntrinsicSize, Rect, build_box_tree_with_intrinsics, la
 use networking::{HttpClient, HttpRequest};
 use paint::DisplayListBuilder;
 use raster::{CpuRasterizer, PixelBuffer};
+use soul_core::{NavigationController, NavigationError, NavigationId};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use url::Url;

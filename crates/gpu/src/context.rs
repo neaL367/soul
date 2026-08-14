@@ -39,7 +39,7 @@ impl GpuContext {
         let (device, queue) = adapter
             .request_device(
                 &DeviceDescriptor {
-                    label: Some("Soul Browser GPU Device"),
+                    label: Some("Soul GPU Device"),
                     required_features: Features::empty(),
                     required_limits: Limits::default(),
                     memory_hints: wgpu::MemoryHints::Performance,

@@ -1,6 +1,6 @@
 //! Tab strip model, tab items, pinning, and reordering state management.
 
-use browser_core::TabId;
+use soul_core::TabId;
 
 /// Visual representation of a single browser tab in the tab strip.
 #[derive(Debug, Clone, PartialEq, Eq)]

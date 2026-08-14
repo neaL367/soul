@@ -29,7 +29,7 @@ pub struct HttpClientConfig {
 impl Default for HttpClientConfig {
     fn default() -> Self {
         Self {
-            user_agent: "SoulBrowser/0.1 (Windows NT 10.0; Win64; x64)".to_string(),
+            user_agent: "Soul/0.1 (Windows NT 10.0; Win64; x64)".to_string(),
             timeout: std::time::Duration::from_secs(30),
         }
     }

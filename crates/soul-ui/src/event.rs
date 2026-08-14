@@ -1,4 +1,4 @@
-//! Event types delivered between browser chrome and core state machines.
+//! Event types delivered between the browser UI and core state machines.
 
 /// Events originating from user interaction with the browser chrome or native window.
 #[derive(Debug, Clone, PartialEq)]

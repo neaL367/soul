@@ -1,7 +1,7 @@
 //! End-to-end integration tests: local HTTP server → navigation state machine →
 //! security-checked fetch → parse → style → layout → paint → raster → a11y tree.
 
-use browser_shell::engine::{
+use soul_shell::engine::{
     A11yRole, RenderOptions, a11y_lines, has_visible_pixels, navigate_and_render,
     render_html_to_buffer,
 };
@@ -157,7 +157,7 @@ fn test_render_html_to_buffer_inline_styles() {
     assert!(tree.is_some());
 }
 
-fn collect_roles(node: &browser_shell::engine::A11yNode, roles: &mut Vec<A11yRole>) {
+fn collect_roles(node: &soul_shell::engine::A11yNode, roles: &mut Vec<A11yRole>) {
     roles.push(node.role);
     for child in &node.children {
         collect_roles(child, roles);

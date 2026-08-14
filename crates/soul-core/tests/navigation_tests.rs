@@ -1,6 +1,6 @@
 //! Integration tests for the navigation state machine, race condition prevention, and tab management.
 
-use browser_core::{NavigationController, NavigationId, NavigationState, TabManager, TabTier};
+use soul_core::{NavigationController, NavigationId, NavigationState, TabManager, TabTier};
 use url::Url;
 
 #[test]

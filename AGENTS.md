@@ -12,7 +12,7 @@ Section numbers below (`§N`) refer to `docs/architecture-plan.md` unless stated
 
 - **If it does not exist:** the project is at or before **M0 (Project Foundation)**. Your task is almost certainly bootstrapping work. Do not invent a different structure — scaffold exactly the crate layout in §24, with each crate as an empty-but-compiling stub (`lib.rs` with a doc comment stating its future responsibility, no speculative code). Do not implement M5+ functionality inside an M0 task just because it seems natural to "get ahead" — see §12 Change-Scope Discipline.
 - **If it exists:** find the furthest-completed milestone by checking `docs/architecture-plan.md` §31 against what's actually implemented (don't trust a stale changelog — verify against code). Confirm which milestone your task belongs to, and confirm its stated dependencies (the "Depends on" field per milestone) are actually satisfied before starting. If asked to implement something whose milestone dependency isn't done yet, say so instead of implementing it out of order.
-- **Spike 0 status matters disproportionately.** Two architectural questions are load-bearing for everything downstream: (a) which GPUI integration path (ADR-1) — is `browser-ui`'s `SoulBackend` trait implemented against mainline GPUI or the `gpui-ce`/wgpu fork? (b) is Boa confirmed viable against the target-site JS corpus, or has a pivot to `rquickjs` already happened (ADR-4)? Check for a `docs/spike-0-results.md` or equivalent before assuming either answer. If it doesn't exist and you're asked to do JS-engine or GPUI-integration work, that's a signal the spike itself is the actual missing prerequisite — flag it rather than guessing an answer and building on top of the guess.
+- **Spike 0 status matters disproportionately.** Two architectural questions are load-bearing for everything downstream: (a) which GPUI integration path (ADR-1) — is `soul-ui`'s `SoulBackend` trait implemented against mainline GPUI or the `gpui-ce`/wgpu fork? (b) is Boa confirmed viable against the target-site JS corpus, or has a pivot to `rquickjs` already happened (ADR-4)? Check for a `docs/spike-0-results.md` or equivalent before assuming either answer. If it doesn't exist and you're asked to do JS-engine or GPUI-integration work, that's a signal the spike itself is the actual missing prerequisite — flag it rather than guessing an answer and building on top of the guess.
 
 ---
 
@@ -51,9 +51,9 @@ Canonical target layout — reproduce exactly, don't improvise a "better" struct
 browser/
 ├── Cargo.toml, Cargo.lock, rust-toolchain.toml
 ├── crates/
-│   ├── browser-shell/        bin — entry point, wires everything together
-│   ├── browser-core/         tab/window/nav/session/profile/permission state machines
-│   ├── browser-ui/           SoulBackend trait + backend-agnostic browser-UI view logic
+│   ├── soul-shell/        bin — entry point, wires everything together
+│   ├── soul-core/         tab/window/nav/session/profile/permission state machines
+│   ├── soul-ui/           SoulBackend trait + backend-agnostic browser-UI view logic
 │   ├── soul-backend-gpui/  the ONLY crate allowed to depend on `gpui`
 │   ├── ipc/                  command/event message types + Phase-1/Phase-2 transports
 │   ├── html/                 html5ever TreeSink impl → dom
@@ -83,14 +83,14 @@ browser/
 ```
 
 **Where things belong:**
-- Application/business logic → `browser-core`. Browser-UI view logic (backend-agnostic) → `browser-ui`. GPUI-specific code → `soul-backend-gpui` **only**.
+- Application/business logic → `soul-core`. Browser-UI view logic (backend-agnostic) → `soul-ui`. GPUI-specific code → `soul-backend-gpui` **only**.
 - Anything touching DOM/CSS/layout/paint/JS → the matching crate above; these must never depend on `networking` or `storage` directly (they operate on already-fetched bytes/values — this is what keeps them unit-testable without IO; see §7 Dependency Direction below).
 - Platform (Win32) code that isn't browser-UI-window-lifecycle (which GPUI owns) → `platform-windows`.
 - Generated/build artifacts (`target/`, `Cargo.lock` is source-controlled but never hand-edited) are never manually modified — regenerate via `cargo build`/`cargo update`, don't patch them directly.
 - **Before creating a new file, search for an existing home first** (see §9). A new top-level crate is a significant structural decision — don't add one without confirming it doesn't fit into an existing crate's stated responsibility above, and flag it explicitly if you believe a new crate is genuinely warranted rather than silently creating one.
 
 **Dependency direction (enforced, not aspirational):**
-`browser-shell` → `soul-backend-gpui` → `browser-ui`/`browser-core` → `ipc` → {`html`,`css`,`dom`,`layout`,`javascript`,`networking`,`storage`,`compositor`} → {`gpu`,`text-shaping`,`raster`,`image-decode`,`media`,`platform-windows`} → `common`. No cycles. `gpui` appears in exactly one `Cargo.toml` in the whole workspace (`soul-backend-gpui`'s). Verify with:
+`soul-shell` → `soul-backend-gpui` → `soul-ui`/`soul-core` → `ipc` → {`html`,`css`,`dom`,`layout`,`javascript`,`networking`,`storage`,`compositor`} → {`gpu`,`text-shaping`,`raster`,`image-decode`,`media`,`platform-windows`} → `common`. No cycles. `gpui` appears in exactly one `Cargo.toml` in the whole workspace (`soul-backend-gpui`'s). Verify with:
 
 ```sh
 cargo metadata --format-version 1 | jq '.packages[] | select(.name != "soul-backend-gpui") | select(.dependencies[].name == "gpui")'
@@ -105,16 +105,16 @@ Full detail lives in `docs/architecture-plan.md` §4–§23; ADRs in §30. The l
 
 - **Ownership axis:** GPUI/`soul-backend-gpui` owns the *browser UI* (windows, tabs, omnibox, menus) exclusively. The engine (`html`→`dom`→`css`→`layout`→`paint`→`compositor`) owns *page content* exclusively. Never let one draw or parse the other's domain.
 - **Process axis:** currently single-process, multi-threaded (§6, §7). Every cross-boundary call is still a typed command/event enum sent over a channel (`ipc` crate), not a direct function call, even though no OS process boundary exists yet. This is not optional ceremony — it's what avoids the M14–M16 rewrite.
-- **GPUI boundary:** `SoulBackend` trait in `browser-ui`. GPUI never receives DOM/layout/CSS data — only a composited texture and routed input events. The compositor never draws browser UI.
+- **GPUI boundary:** `SoulBackend` trait in `soul-ui`. GPUI never receives DOM/layout/CSS data — only a composited texture and routed input events. The compositor never draws browser UI.
 - **JS engine:** `boa` (pure Rust) is the default per ADR-4, unless Spike 0(b) triggered a documented pivot to `rquickjs`. Check which is actually wired into `javascript` before assuming.
-- **Threading:** UI thread (GPUI, non-blocking) · browser-core thread · renderer thread(s) (one per active tab/window) · compositor thread (independent of renderer — this is what keeps scrolling smooth) · tokio network runtime · IO/disk thread pool. Don't block the UI or compositor thread on network/disk/layout work — route through the appropriate channel instead.
+- **Threading:** UI thread (GPUI, non-blocking) · soul-core thread · renderer thread(s) (one per active tab/window) · compositor thread (independent of renderer — this is what keeps scrolling smooth) · tokio network runtime · IO/disk thread pool. Don't block the UI or compositor thread on network/disk/layout work — route through the appropriate channel instead.
 - **Storage:** SQLite (`rusqlite`, WAL mode) for cookies/history/bookmarks/LocalStorage; blob files + SQLite index for HTTP cache/Cache Storage; SessionStorage is in-memory only, never persisted (this is a correctness requirement, not an optimization — don't "fix" it by persisting it).
 
 ---
 
 ## 5. Implementation Rules
 
-- **Error handling:** library crates (everything except `browser-shell`) define their own error enum via `thiserror`, never `anyhow`. `anyhow` is permitted only in `browser-shell`'s top-level glue where errors are terminal. Don't `unwrap()`/`expect()` on anything derived from network, disk, or parsed-content data — those are the untrusted/fallible boundary (§21). `unwrap()` is acceptable only on invariants the type system already guarantees (e.g., a `NodeId` you just inserted).
+- **Error handling:** library crates (everything except `soul-shell`) define their own error enum via `thiserror`, never `anyhow`. `anyhow` is permitted only in `soul-shell`'s top-level glue where errors are terminal. Don't `unwrap()`/`expect()` on anything derived from network, disk, or parsed-content data — those are the untrusted/fallible boundary (§21). `unwrap()` is acceptable only on invariants the type system already guarantees (e.g., a `NodeId` you just inserted).
 - **Logging:** `tracing`, not `println!`/`eprintln!`, anywhere outside throwaway spike code. Use `tracing::instrument` on cross-crate entry points (command handlers, navigation state transitions) so a trace can be followed across the message-passing boundaries described above. Log at the boundary where a decision is made, not at every intermediate call.
 - **Async/threading:** `tokio` is confined to `networking`, `storage`, and IO-bound work — never introduce `tokio` into `dom`/`css`/`layout`/`paint`, which are synchronous by design (§4 ownership axis; these run on the renderer thread, not an async runtime). Cross-thread communication is `tokio::sync::mpsc` (async boundaries) or `crossbeam-channel` (sync, latency-sensitive boundaries like renderer→compositor) — match the existing pattern for the boundary you're touching rather than picking whichever you personally reach for.
 - **State management:** DOM state lives in the arena-based `NodeId` system in `dom` — never introduce a parallel `Rc<RefCell<_>>` tree alongside it. Mutation goes through the one mutation API that also records invalidation (§13) — don't add a second mutation path that bypasses dirty-bit tracking, even for a "simple" internal case.
@@ -191,11 +191,11 @@ Before creating any of the following, search first — a duplicate is worse than
 
 - Utilities/helpers (check `common` first)
 - Error types (check whether the target crate already has a `thiserror` enum to extend)
-- Configuration/state containers (check `browser-core` for existing state-machine patterns before adding a new one)
+- Configuration/state containers (check `soul-core` for existing state-machine patterns before adding a new one)
 - Platform wrappers (check `platform-windows` before writing new raw `windows`-crate FFI)
 - Rendering/raster utilities (check `raster`/`paint`/`compositor` before adding drawing primitives elsewhere)
 - Logging setup (check `common`'s `tracing` init — don't re-initialize per crate)
-- Resource-management/lifecycle code (check whether `browser-core`'s tab-tiering lifecycle already covers the resource-cleanup case you're solving)
+- Resource-management/lifecycle code (check whether `soul-core`'s tab-tiering lifecycle already covers the resource-cleanup case you're solving)
 
 If you're confident something doesn't exist yet after actually searching (§9), say so explicitly in your plan rather than silently assuming.
 
@@ -225,7 +225,7 @@ A feature is not complete because one function/module works in isolation. Before
 - **Shutdown paths** — is cleanup handled on tab close / app quit, not just creation?
 - **Platform integration** — does this need a `platform-windows` hook (clipboard, file dialog, notifications, etc.)?
 - **Tests** — per §25.
-- **Build/release integration** — does this affect `browser-shell`'s wiring, CI, or (post-M23) packaging?
+- **Build/release integration** — does this affect `soul-shell`'s wiring, CI, or (post-M23) packaging?
 
 ---
 
@@ -283,7 +283,7 @@ cargo test -p <crate> --test wpt_subset                      # conditional — o
 ## 16. Common Failure Modes (explicit warnings)
 
 Do not:
-- Implement only the visible UI/API surface without wiring the backend (`browser-core`/relevant engine crate) — see §13.
+- Implement only the visible UI/API surface without wiring the backend (`soul-core`/relevant engine crate) — see §13.
 - Add a duplicate system where one already exists (§11).
 - Bypass an existing abstraction (e.g., mutating DOM state outside the mutation API, or calling `gpui` directly instead of going through `SoulBackend`) because it's momentarily more convenient.
 - Silently change existing behavior as a side effect of an unrelated fix.

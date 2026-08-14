@@ -1,17 +1,17 @@
 //! Browser application entry point: CLI dispatch and end-to-end navigation wiring.
 //!
-//! Usage: `browser-shell [url] [--output=page.png] [--width=N] [--height=N] [--dump-a11y]`
+//! Usage: `soul [url] [--output=page.png] [--width=N] [--height=N] [--dump-a11y]`
 //!
 //! With a URL: fetches the page over the network (CORS/mixed-content enforced),
 //! renders it through the full engine pipeline, and presents the frame to the
 //! chrome backend. Without a URL: renders the built-in start page.
 
 use anyhow::{Context, Result};
-use browser_shell::engine::{
+use soul_backend_gpui::GpuiSoulBackend;
+use soul_shell::engine::{
     RenderOptions, a11y_lines, has_visible_pixels, navigate_and_render, render_html_to_buffer,
 };
-use browser_ui::{SoulBackend, SoulConfig, ViewportFrame, WindowSpec};
-use soul_backend_gpui::GpuiSoulBackend;
+use soul_ui::{SoulBackend, SoulConfig, ViewportFrame, WindowSpec};
 use std::path::PathBuf;
 use url::Url;
 
@@ -59,7 +59,7 @@ fn main() -> Result<()> {
     let mut backend = Box::new(GpuiSoulBackend::new());
     backend
         .init(SoulConfig {
-            app_name: "Soul Browser".to_string(),
+            app_name: "Soul".to_string(),
             resource_dir: None,
         })
         .context("failed to initialize chrome backend")?;
@@ -70,7 +70,7 @@ fn main() -> Result<()> {
 
     let window_id = backend
         .open_window(WindowSpec {
-            title: "Soul Browser".to_string(),
+            title: "Soul".to_string(),
             width: cli.width,
             height: cli.height,
             min_width: Some(400),
@@ -162,9 +162,9 @@ fn render_start_page(cli: &Cli) -> Result<Option<ViewportFrame>> {
     };
     let start_html = r#"
         <html>
-        <head><title>Soul Browser</title></head>
+        <head><title>Soul</title></head>
         <body style="margin: 20px; background-color: #1e1e2e; color: #cdd6f4; font-family: sans-serif;">
-            <h1 style="color: #89b4fa;">Welcome to Soul Browser</h1>
+            <h1 style="color: #89b4fa;">Welcome to Soul</h1>
             <p style="color: #a6adc8; font-size: 18px;">A complete, modern browser engine built from scratch in Rust with GPUI.</p>
             <div style="background-color: #313244; padding: 15px; border-width: 1px; color: #a6e3a1;">
                 <p>Status: End-to-end navigation pipeline active — pass a URL to browse.</p>

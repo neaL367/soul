@@ -8,7 +8,7 @@ This document records the empirical results and architectural resolutions for **
 
 | Spike | Target Subsystem | Decision Question | Status | Outcome / Decision |
 |---|---|---|---|---|
-| **Spike 0(a)** | Browser-UI & Compositor Interop | ADR-1: Mainline GPUI vs `gpui-wgpu` fork & `SoulBackend` contract | **Resolved** | Adopt mainline GPUI strictly encapsulated behind `SoulBackend` trait in `browser-ui`. Deliver M10a via software pixel buffers and M10b via DXGI shared texture handles. |
+| **Spike 0(a)** | Browser-UI & Compositor Interop | ADR-1: Mainline GPUI vs `gpui-wgpu` fork & `SoulBackend` contract | **Resolved** | Adopt mainline GPUI strictly encapsulated behind `SoulBackend` trait in `soul-ui`. Deliver M10a via software pixel buffers and M10b via DXGI shared texture handles. |
 | **Spike 0(b)** | JavaScript Engine | ADR-4: Boa viability against real-world target JS corpus | **Resolved** | **Confirmed Viable (100% test pass rate)** on target corpus. No pivot to V8 or QuickJS required for MVP. |
 
 Both high-uncertainty architectural questions are resolved with evidence before beginning **Milestone 1 (GPUI Browser Shell)**.
@@ -28,13 +28,13 @@ ADR-1 evaluated two potential paths for browser UI rendering on Windows 11:
 
 ### 2.2 Architectural Resolution
 - **Encapsulation via `SoulBackend` Trait**:
-  Per §9 amendment, `gpui` is strictly isolated inside `soul-backend-gpui`. No other crate (`browser-core`, `browser-ui`, `compositor`, `layout`) imports `gpui`.
+  Per §9 amendment, `gpui` is strictly isolated inside `soul-backend-gpui`. No other crate (`soul-core`, `soul-ui`, `compositor`, `layout`) imports `gpui`.
 - **Two-Stage Presentation Strategy**:
   - **Stage 1 (M10a Software Raster Checkpoint)**: The `raster` crate outputs CPU RGBA pixel buffers (`&[u8]`) to the `SoulBackend` viewport element, completely decoupling rendering correctness from GPU driver/texture synchronization bugs.
   - **Stage 2 (M10b GPU Compositor)**: `wgpu` compositor renders to a DXGI-backed surface/texture, passed to `SoulBackend` via native Windows shared surface handles.
 
 ### 2.3 `SoulBackend` Trait Contract
-The `SoulBackend` trait in `browser-ui` defines:
+The `SoulBackend` trait in `soul-ui` defines:
 ```rust
 pub trait SoulBackend: Send + Sync + 'static {
     fn run_app(self, init: Box<dyn FnOnce(&mut AppContext) + Send>) -> Result<(), SoulError>;
@@ -87,7 +87,7 @@ test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 ### 3.3 Evaluation & ADR-4 Confirmation
 - **Viability**: `boa_engine` demonstrates complete syntax and runtime coverage for the static-to-moderately-dynamic web subset targeted by the Soul browser engine.
 - **Integration Plan**: The hand-written event loop in `crates/javascript` (M11/M12) will manage task and microtask queues, binding directly to DOM manipulation APIs in `crates/web-api`.
-- **Verdict on ADR-4**: **Boa is officially confirmed as the JavaScript engine for Soul Browser.** The fallback to V8 or QuickJS is not required for MVP.
+- **Verdict on ADR-4**: **Boa is officially confirmed as the JavaScript engine for Soul.** The fallback to V8 or QuickJS is not required for MVP.
 
 ---
 
@@ -95,4 +95,4 @@ test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 With Spike 0 complete and documented:
 - **ADR-1** and **ADR-4** are formally validated.
-- **Milestone 1 (M1 — GPUI Browser Shell)** is unblocked to begin implementing the `SoulBackend` trait and native window lifecycle in `browser-ui` and `soul-backend-gpui`.
+- **Milestone 1 (M1 — GPUI Browser Shell)** is unblocked to begin implementing the `SoulBackend` trait and native window lifecycle in `soul-ui` and `soul-backend-gpui`.

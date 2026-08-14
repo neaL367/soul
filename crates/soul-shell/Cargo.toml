@@ -1,17 +1,20 @@
 [package]
-name = "browser-shell"
+name = "soul-shell"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [lints]
+[[bin]]
+name = "soul"
+path = "src/main.rs"
 workspace = true
 
 [dependencies]
 anyhow = "1"
-browser-core = { path = "../browser-core" }
-browser-ui = { path = "../browser-ui" }
+soul-core = { path = "../soul-core" }
+soul-ui = { path = "../soul-ui" }
 soul-backend-gpui = { path = "../soul-backend-gpui" }
 common = { path = "../common" }
 css = { path = "../css" }

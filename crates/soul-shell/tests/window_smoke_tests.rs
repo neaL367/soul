@@ -1,8 +1,8 @@
-//! Real-window smoke test: launches `browser-shell`, verifies a native window
+//! Real-window smoke test: launches `soul_shell`, verifies a native window
 //! with the expected title exists (via Win32 `EnumWindows`), then terminates it.
 //!
 //! Requires an interactive desktop session; skipped by default (`#[ignore]`).
-//! Run with: `cargo test -p browser-shell --test window_smoke_tests -- --ignored --nocapture`
+//! Run with: `cargo test -p soul_shell --test window_smoke_tests -- --ignored --nocapture`
 
 // Win32 window enumeration is a well-known FFI boundary (AGENTS.md §2): the
 // unsafe surface here is a single callback + one EnumWindows call.
@@ -63,30 +63,30 @@ fn find_window_by_title(expected: &str) -> bool {
     WINDOW_FOUND.load(Ordering::SeqCst)
 }
 
-fn spawn_browser_shell() -> Child {
-    Command::new(env!("CARGO_BIN_EXE_browser-shell"))
+fn spawn_shell() -> Child {
+    Command::new(env!("CARGO_BIN_EXE_soul"))
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .expect("failed to spawn browser-shell")
+        .expect("failed to spawn soul")
 }
 
 #[test]
 #[ignore = "requires an interactive desktop session"]
-fn test_browser_shell_opens_native_window() {
-    let mut child = spawn_browser_shell();
+fn test_shell_opens_native_window() {
+    let mut child = spawn_shell();
 
     // Give the engine + GPUI time to start and present the first frame.
     let mut window_found = false;
     for _ in 0..40 {
         std::thread::sleep(Duration::from_millis(250));
-        if find_window_by_title("Soul Browser") {
+        if find_window_by_title("Soul") {
             window_found = true;
             break;
         }
         assert!(
             child.try_wait().ok().flatten().is_none(),
-            "browser-shell exited before opening a window"
+            "soul exited before opening a window"
         );
     }
 
@@ -95,7 +95,7 @@ fn test_browser_shell_opens_native_window() {
 
     assert!(
         window_found,
-        "no native window titled 'Soul Browser' appeared within 10s"
+        "no native window titled 'Soul' appeared within 10s"
     );
-    eprintln!("PASS: native window 'Soul Browser' observed via EnumWindows");
+    eprintln!("PASS: native window 'Soul' observed via EnumWindows");
 }

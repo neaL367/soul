@@ -1,7 +1,7 @@
 //! Integration tests for browser chrome view models, tab strip, omnibox, and toolbar.
 
-use browser_core::{NavigationController, TabId, TabManager};
-use browser_ui::{OmniboxEngine, OmniboxSuggestionType, SoulModel, TabStripModel, ToolbarModel};
+use soul_core::{NavigationController, TabId, TabManager};
+use soul_ui::{OmniboxEngine, OmniboxSuggestionType, SoulModel, TabStripModel, ToolbarModel};
 use storage::{BookmarkEntry, HistoryEntry};
 
 #[test]
@@ -86,7 +86,7 @@ fn test_omnibox_engine_scoring_and_ranking() {
     let bookmarks = vec![BookmarkEntry {
         id: 1,
         url: "https://github.com/neaL367/soul".to_string(),
-        title: "Soul Browser Engine".to_string(),
+        title: "Soul Engine".to_string(),
         folder: None,
         created_at: 800,
     }];

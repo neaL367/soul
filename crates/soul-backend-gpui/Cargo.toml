@@ -9,7 +9,7 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-browser-ui = { path = "../browser-ui" }
+soul-ui = { path = "../soul-ui" }
 common = { path = "../common" }
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }

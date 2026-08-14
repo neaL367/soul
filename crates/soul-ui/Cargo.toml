@@ -1,5 +1,5 @@
 [package]
-name = "browser-ui"
+name = "soul-ui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,7 +9,7 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-browser-core = { path = "../browser-core" }
+soul-core = { path = "../soul-core" }
 common = { path = "../common" }
 storage = { path = "../storage" }
 thiserror.workspace = true

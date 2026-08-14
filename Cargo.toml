@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/browser-shell",
-    "crates/browser-core",
-    "crates/browser-ui",
+    "crates/soul-shell",
+    "crates/soul-core",
+    "crates/soul-ui",
     "crates/soul-backend-gpui",
     "crates/ipc",
     "crates/html",

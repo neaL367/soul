@@ -1,6 +1,6 @@
 //! Navigation toolbar model (Back, Forward, Reload, Stop, Bookmark).
 
-use browser_core::NavigationController;
+use soul_core::NavigationController;
 
 /// State model managing the navigation buttons and toolbar state.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

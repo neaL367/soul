@@ -29,7 +29,7 @@ pub struct WindowSpec {
 impl Default for WindowSpec {
     fn default() -> Self {
         Self {
-            title: "Soul Browser".to_string(),
+            title: "Soul".to_string(),
             width: 1280,
             height: 800,
             min_width: Some(400),

@@ -13,11 +13,7 @@ fn test_history_recording_and_search() {
         .record_visit("https://rust-lang.org", Some("Rust Programming"), 1000)
         .unwrap();
     history
-        .record_visit(
-            "https://github.com/neaL367/soul",
-            Some("Soul Browser"),
-            1010,
-        )
+        .record_visit("https://github.com/neaL367/soul", Some("Soul"), 1010)
         .unwrap();
     history
         .record_visit(

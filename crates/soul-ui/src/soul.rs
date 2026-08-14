@@ -4,7 +4,7 @@ use crate::bookmarks_bar::BookmarksBarModel;
 use crate::omnibox::{OmniboxEngine, OmniboxModel};
 use crate::tab_strip::TabStripModel;
 use crate::toolbar::ToolbarModel;
-use browser_core::{TabId, TabManager};
+use soul_core::{TabId, TabManager};
 use storage::{BookmarkEntry, HistoryEntry};
 
 /// High-level user actions dispatched from the browser chrome UI.

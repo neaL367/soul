@@ -1,9 +1,7 @@
 //! Integration tests for `GpuiSoulBackend`.
 
-use browser_ui::{
-    SoulBackend, SoulConfig, SoulError, SoulEvent, ViewportFrame, WindowId, WindowSpec,
-};
 use soul_backend_gpui::GpuiSoulBackend;
+use soul_ui::{SoulBackend, SoulConfig, SoulError, SoulEvent, ViewportFrame, WindowId, WindowSpec};
 use std::sync::{Arc, Mutex};
 
 #[test]
@@ -11,13 +9,13 @@ fn test_gpui_backend_lifecycle() {
     let mut backend = GpuiSoulBackend::new();
     backend
         .init(SoulConfig {
-            app_name: "Soul Browser Test".to_string(),
+            app_name: "Soul Test".to_string(),
             resource_dir: None,
         })
         .expect("init failed");
 
     let spec = WindowSpec {
-        title: "Soul Browser - Window 1".to_string(),
+        title: "Soul - Window 1".to_string(),
         width: 1280,
         height: 800,
         min_width: Some(400),

@@ -72,7 +72,7 @@ async fn test_async_stream_transport_duplex() {
         MessageId(99),
         MessagePayload::RendererToBrowser(RendererToBrowserMsg::TitleChanged {
             tab_id: 5,
-            title: "Soul Browser Home".to_string(),
+            title: "Soul Home".to_string(),
         }),
     );
 
@@ -84,7 +84,7 @@ async fn test_async_stream_transport_duplex() {
         received.payload
     {
         assert_eq!(tab_id, 5);
-        assert_eq!(title, "Soul Browser Home");
+        assert_eq!(title, "Soul Home");
     } else {
         panic!("unexpected payload");
     }

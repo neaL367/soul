@@ -22,7 +22,7 @@ This plan is honest about scope: a fully HTML5/CSS3/ES2024-compliant, GPU-accele
 ## 2. Design Goals
 
 - **Memory safety first.** `unsafe` is isolated to FFI boundaries (Win32, GPU, font/media libraries) and reviewed as a distinct category of code.
-- **Incremental usability.** After every milestone, `browser-shell.exe` should build and let you browse *something* real — even if it's one static HTML page with inline CSS.
+- **Incremental usability.** After every milestone, `soul-shell.exe` should build and let you browse *something* real — even if it's one static HTML page with inline CSS.
 - **No rewrite architecture.** Crate boundaries are drawn where process boundaries will eventually go (renderer, network, GPU, storage). Internal APIs are message-shaped, not just function-shaped.
 - **Reuse for solved problems, build for the differentiator.** HTML tokenization, TLS, and DNS are solved problems — use mature crates. Layout, style cascade tuned to this engine, tab/process lifecycle, and the compositor integration with GPUI are where the actual engineering work is.
 - **Explicit phase boundaries.** Every feature is tagged MVP / Phase 2 / Phase 3 / Advanced / Extremely Difficult, and nothing is implemented out of order without a documented reason.
@@ -51,10 +51,10 @@ Two axes define the architecture:
 ```text
 Phase 1 (M0–M13): Single Process, Multi-Threaded
 ┌─────────────────────────────────────────────────────────────┐
-│                         browser-shell.exe                    │
+│                         soul-shell.exe                    │
 │                                                                │
 │  ┌───────────────┐   commands/events   ┌───────────────────┐ │
-│  │  GPUI (UI      │◄───────────────────►│  browser-core      │ │
+│  │  GPUI (UI      │◄───────────────────►│  soul-core      │ │
 │  │  thread)       │   (in-proc channel) │  (tabs, nav, state) │ │
 │  └───────┬────────┘                     └─────────┬─────────┘ │
 │          │ Surface texture                         │           │
@@ -111,7 +111,7 @@ The critical property: **the arrows above don't change meaning** between Phase 1
                      │           │ commands             │ routed input       │       │
                      │           ▼                       ▼                    ▼       │
                      │   ┌────────────────────────────────────────────────────────┐  │
-                     │   │                     browser-core                        │  │
+                     │   │                     soul-core                        │  │
                      │   │  Window Mgr │ Tab Mgr │ Navigation │ Session │ Profile   │  │
                      │   │  Permission Mgr │ History │ Bookmarks │ Downloads       │  │
                      │   └──────┬───────────────────────┬───────────────┬─────────┘  │
@@ -211,20 +211,20 @@ GPUI element tree dispatch (browser-UI elements get first refusal — e.g. click
    ↓
 Surface element (if event falls inside the active tab's viewport and the browser UI didn't consume it)
    ↓
-Input Router (browser-core) — translates GPUI coordinates → page (CSS pixel) coordinates, accounts for zoom/DPI/scroll offset
+Input Router (soul-core) — translates GPUI coordinates → page (CSS pixel) coordinates, accounts for zoom/DPI/scroll offset
    ↓
 Hit Testing (renderer) — walks the paint/layout tree's hit-test data structure (not the raw DOM — a spatial index built during layout)
    ↓
 DOM event dispatch (capture → target → bubble) → JS event listeners
 ```
 
-Menus, context menus, notifications, downloads UI, history, and bookmarks UI are **entirely GPUI views** backed by `browser-core` state (they read/write history/bookmarks/downloads through the same command/event API the renderer uses — no special-cased path).
+Menus, context menus, notifications, downloads UI, history, and bookmarks UI are **entirely GPUI views** backed by `soul-core` state (they read/write history/bookmarks/downloads through the same command/event API the renderer uses — no special-cased path).
 
 ### Isolating the GPUI dependency (amendment)
 
 GPUI is a comparatively young, still-fast-moving framework, and a fork of it (`gpui-ce`) more so. Betting the entire browser-UI layer — tabs, omnibox, menus, input routing — directly on it is a **project-survival risk**, not just a rendering-backend choice: an upstream breaking change, a stalled fork, or an API surface that doesn't cover a needed capability can stall the whole project, not just the UI polish.
 
-The mitigation costs little and pays for itself the first time GPUI's API shifts: define a `SoulBackend` trait in `browser-ui` (window/view lifecycle, input event delivery, surface/texture embedding, basic layout primitives for the browser UI) and put all direct `gpui::*` usage behind a `soul-backend-gpui` implementation crate. `browser-core` and `compositor` depend only on the trait, never on `gpui` directly. If GPUI becomes untenable, the fallback path is "write a new backend crate against `egui`, `slint`, or raw Win32," not "rewrite the browser." This is the same message-shaped-API discipline already applied to IPC (§8, ADR-5) applied one layer up, to the UI framework itself.
+The mitigation costs little and pays for itself the first time GPUI's API shifts: define a `SoulBackend` trait in `soul-ui` (window/view lifecycle, input event delivery, surface/texture embedding, basic layout primitives for the browser UI) and put all direct `gpui::*` usage behind a `soul-backend-gpui` implementation crate. `soul-core` and `compositor` depend only on the trait, never on `gpui` directly. If GPUI becomes untenable, the fallback path is "write a new backend crate against `egui`, `slint`, or raw Win32," not "rewrite the browser." This is the same message-shaped-API discipline already applied to IPC (§8, ADR-5) applied one layer up, to the UI framework itself.
 
 ---
 
@@ -252,7 +252,7 @@ IDLE → PENDING → (REDIRECTING)* → RESPONSE_RECEIVED → COMMITTED → LOAD
 
 - **Navigation races**: each navigation gets a monotonically increasing `NavigationId`. A tab holds only its *current* `NavigationId`; any response arriving for a stale ID is discarded. This single rule eliminates the classic "slow response from an old navigation overwrites the new page" bug class.
 - **Back/forward**: a per-tab `Vec<SessionEntry>` + cursor; back/forward re-navigates by replaying the entry (with a cache-preferring fetch) rather than reconstructing DOM state from scratch in MVP (true bfcache — freezing and resuming a live renderer state — is Phase 3+; see feature matrix).
-- **New windows / popups / `target="_blank"`**: routed through `browser-core`'s window manager, subject to a popup policy (MVP: allow only user-gesture-triggered `window.open`, deny script-triggered popups without a gesture flag propagated from the JS engine's event dispatch).
+- **New windows / popups / `target="_blank"`**: routed through `soul-core`'s window manager, subject to a popup policy (MVP: allow only user-gesture-triggered `window.open`, deny script-triggered popups without a gesture flag propagated from the JS engine's event dispatch).
 - **External URL schemes** (`mailto:`, `tel:`, custom schemes) are handed to `ShellExecute`/`ShellExecuteEx` via Win32, after an explicit allowlist check (see Security, §13 — this is a classic Windows browser CVE class).
 - **Crash recovery**: if a renderer thread/process for a tab panics or a GPU device-lost event occurs, the tab is shown an "Aw, Snap"-style error view and can be reloaded independently of other tabs — this requires the M16 process split to be a true guarantee (a panic in an in-process renderer thread in Phase 1 can be caught with `catch_unwind` at the task boundary as a partial mitigation, but a genuine memory-safety violation in `unsafe` FFI code cannot be caught this way, which is itself an argument for prioritizing the process split once `unsafe` surface area grows in M14+).
 
@@ -539,9 +539,9 @@ browser/
 ├── Cargo.lock
 ├── rust-toolchain.toml         # pins 1.97.1, edition 2024
 ├── crates/
-│   ├── browser-shell/          # bin: entry point, wires everything together
-│   ├── browser-core/           # tab/window/nav/session/profile/permission state machines
-│   ├── browser-ui/             # `SoulBackend` trait + backend-agnostic view logic (tabs, omnibox,
+│   ├── soul-shell/          # bin: entry point, wires everything together
+│   ├── soul-core/           # tab/window/nav/session/profile/permission state machines
+│   ├── soul-ui/             # `SoulBackend` trait + backend-agnostic view logic (tabs, omnibox,
 │   │                           #   toolbar, menus, settings, downloads UI) — no direct `gpui` import
 │   ├── soul-backend-gpui/    # concrete `SoulBackend` impl against GPUI; the ONLY crate that
 │   │                           #   depends on `gpui` directly (see §9 amendment)
@@ -561,7 +561,7 @@ browser/
 │   ├── storage/                # SQLite-backed cookie/history/bookmarks/LocalStorage/cache/profiles
 │   ├── image-decode/            # `image`/`resvg` integration, background decode pool
 │   ├── media/                  # Media Foundation bindings for <audio>/<video>
-│   ├── gpu/                    # wgpu device/surface management shared by compositor + browser-ui
+│   ├── gpu/                    # wgpu device/surface management shared by compositor + soul-ui
 │   ├── platform-windows/        # Win32 wrappers not owned by GPUI: shell execute, MOTW, UIA, notifications
 │   ├── sandbox/                # (Phase 2+) Job Objects, restricted tokens, AppContainer setup
 │   ├── downloads/               # download manager (networking + storage + platform-windows glue)
@@ -573,7 +573,7 @@ browser/
 └── docs/                         # this document + ADRs (see §26) + per-crate design notes
 ```
 
-**Dependency direction** (no cycles, enforced by workspace lint or CI check): `browser-shell` → `soul-backend-gpui` → `browser-ui` (trait only) / `browser-core` → `ipc` → {`html`, `css`, `dom`, `layout`, `javascript`, `networking`, `storage`, `compositor`} → {`gpu`, `text-shaping`, `raster`, `image-decode`, `media`, `platform-windows`} → `common`. `dom`, `css`, and `layout` deliberately do not depend on `networking` or `storage` — they operate on bytes/values already fetched, keeping them unit-testable without any IO. **`gpui` itself appears only in `soul-backend-gpui`'s `Cargo.toml` — no other crate in the workspace, including `browser-core` and `compositor`, depends on it directly** (§9 amendment); this is the concrete enforcement mechanism behind the trait-boundary decision, checkable in CI via `cargo metadata`.
+**Dependency direction** (no cycles, enforced by workspace lint or CI check): `soul-shell` → `soul-backend-gpui` → `soul-ui` (trait only) / `soul-core` → `ipc` → {`html`, `css`, `dom`, `layout`, `javascript`, `networking`, `storage`, `compositor`} → {`gpu`, `text-shaping`, `raster`, `image-decode`, `media`, `platform-windows`} → `common`. `dom`, `css`, and `layout` deliberately do not depend on `networking` or `storage` — they operate on bytes/values already fetched, keeping them unit-testable without any IO. **`gpui` itself appears only in `soul-backend-gpui`'s `Cargo.toml` — no other crate in the workspace, including `soul-core` and `compositor`, depends on it directly** (§9 amendment); this is the concrete enforcement mechanism behind the trait-boundary decision, checkable in CI via `cargo metadata`.
 
 ---
 
@@ -860,7 +860,7 @@ Each milestone lists: **Objective · Components · Depends on · Tasks · Tests 
 | M0 Foundation | 25-crate workspace, tracing, CI | **Complete** — 25 crates + benchmarks, Edition 2024, Rust 1.97.1, CI green |
 | M1 GPUI shell | real window via `SoulBackend` | **Complete** — real native window via GPUI (git zed gpui 0.2.2 + gpui-component, confined to `soul-backend-gpui`); engine frames presented via `ImageSource::Render`; window existence proven by Win32 `EnumWindows` smoke test |
 | M2 Window + input | OS input events, DPI | **Partial** — `InputRouter` + `DpiScale` real; GPUI input events not yet forwarded into them (wiring outstanding) |
-| M3 URL + navigation | nav state machine, stub fetch | **Complete** — `NavigationController` state machine, `NavigationId` race handling, wired into the browser-shell live-navigation path |
+| M3 URL + navigation | nav state machine, stub fetch | **Complete** — `NavigationController` state machine, `NavigationId` race handling, wired into the soul-shell live-navigation path |
 | M4 Networking | HTTP(S), DNS, redirects, cookies | **Partial** — real HTTP/1.1 + TLS 1.2/1.3 (hyper 1, rustls, webpki-roots) wired into shell live navigation; bounded redirect following (5 hops, POST→GET on 301/302/303); no hickory DNS, no cookie jar, no HTTP/2 |
 | M5 HTML parser | html5ever → DOM | **Complete** — plus `parse_html_with_styles` extracting author `<style>` sheets |
 | M6 DOM API | NodeId arena, mutation, query | **Complete** |
@@ -868,7 +868,7 @@ Each milestone lists: **Objective · Components · Depends on · Tasks · Tests 
 | M8 Layout | block/inline + text shaping | **Complete** — block + inline, cosmic-text shaping; taffy flex/grid deferred to Phase 2 |
 | M9 Paint | display list | **Complete** |
 | M9.5 A11y skeleton | semantic data in fragment tree | **Partial** — `A11yNode` tree (roles, aria-label, bounds) real + tested; no UIA provider, not wired to `platform-windows` |
-| M10a Software raster | CPU pixels on screen | **Partial** — `tiny-skia` rasterizer real; frames reach disk as PNG via `browser-shell --output` (verified against live sites incl. image subresources); still no window/screen presentation |
+| M10a Software raster | CPU pixels on screen | **Partial** — `tiny-skia` rasterizer real; frames reach disk as PNG via `soul-shell --output` (verified against live sites incl. image subresources); still no window/screen presentation |
 | M10b GPU compositor | wgpu compositor | **Partial** — wgpu 24 `GpuContext`/`GpuTexture` real but headless (no surface/DXGI/swapchain); `GpuCompositor` composites on CPU then uploads the whole frame; no GPU render pass, no damage-rect upload, not wired into the shell |
 | M11 Basic JS | boa + event loop + DOM bindings | **Complete** — boa 0.21, task/microtask queues, console & DOM bindings |
 | M12 Web APIs | fetch, timers, Promises | **Partial** — timers + Promise/microtask ordering real; `window.fetch()` Promise binding real but no networking I/O behind it (`web-api` has no networking dependency; handler is embedder-supplied, zero non-test callers) |
@@ -884,7 +884,7 @@ Each milestone lists: **Objective · Components · Depends on · Tasks · Tests 
 | M22 Security | CSP, DPAPI, private browsing | **Partial** — `CspPolicy` directive parse, `Dpapi`, `PrivateBrowsing` real; CORS + mixed-content now **enforced in the live subresource path** (`<img>` fetches go through `fetch_with_security_context` against the document origin); no preflight/credentials support, no CSP enforcement on resources |
 | M23 Production | signed installer, updates, crash reporting | **Partial** — shell wires the engine crates and navigates live URLs end-to-end (fetch → parse → style → layout → paint → raster → PNG + a11y tree, incl. author `<style>` sheets and `<img>` subresources) presented in a real GPUI window; `--type=` CLI flags are log-and-exit stubs, no child process spawned, no signing/updater/crash pipeline; workspace test suite green (113 passed) |
 
-**Note (uncommitted wiring work):** `browser-shell` now has a real connected path — `NavigationController` drives live HTTP(S) fetches through the full rendering pipeline, with per-stage timings, PNG screenshot output, accessibility-tree extraction (verified against `https://example.com` and `https://www.wikipedia.org` incl. image subresources), and presentation in a genuine native GPUI window (`crates/browser-shell/tests/window_smoke_tests.rs`, run with `-- --ignored`). e2e integration tests live in `crates/browser-shell/tests/e2e_tests.rs`. Still unwired: named pipes, `ProcessLauncher`, `register_*` bindings, GPUI input events → `InputRouter` (M2); CSS/JS subresource fetch beyond images.
+**Note (uncommitted wiring work):** `soul-shell` now has a real connected path — `NavigationController` drives live HTTP(S) fetches through the full rendering pipeline, with per-stage timings, PNG screenshot output, accessibility-tree extraction (verified against `https://example.com` and `https://www.wikipedia.org` incl. image subresources), and presentation in a genuine native GPUI window (`crates/soul-shell/tests/window_smoke_tests.rs`, run with `-- --ignored`). e2e integration tests live in `crates/soul-shell/tests/e2e_tests.rs`. Still unwired: named pipes, `ProcessLauncher`, `register_*` bindings, GPUI input events → `InputRouter` (M2); CSS/JS subresource fetch beyond images.
 
 **Milestone renumbering:** the repository's commit sequence renumbered two milestones relative to the original list — former M20 (Compatibility / WPT subset) is **not started** and no longer holds a number; Downloads was slotted into M20, and M21 became Compositor + performance-benchmark harness instead of the original performance-optimization milestone. M22/M23 match the plan's intent. Plan tracking (AGENTS.md §0) should treat the status table above as authoritative.
 
@@ -895,18 +895,18 @@ Objective: answer the two highest-uncertainty questions in the plan *before* com
 Objective: workspace exists, builds, CI runs. Components: `common`, workspace `Cargo.toml`, `rust-toolchain.toml`. Depends on: nothing. Tasks: crate skeletons per §24, `tracing` setup, CI (build + test on Windows runner). Tests: `cargo test` passes on an empty workspace. DoD: green CI on a trivial commit. Risks: none significant. NOT yet: any actual feature code.
 
 **M1 — GPUI Browser Shell**
-**Status: Complete.** A real native window opens via GPUI (git `zed-industries/zed` gpui 0.2.2 + `gpui-component`, both confined to this crate), presenting the latest engine frame full-window. Window existence verified by a Win32 `EnumWindows` smoke test (`crates/browser-shell/tests/window_smoke_tests.rs`, `--ignored`). Window-close events are forwarded to the `SoulBackend` handler. Outstanding: input-event routing into `InputRouter` (M2) and browser-UI widgets (tab strip/omnibox built from scratch on gpui elements).
-Objective: an empty window opens and closes cleanly, through the `SoulBackend` trait rather than direct GPUI calls. Components: `browser-shell`, `browser-ui` (trait), `soul-backend-gpui` (impl). Depends on: M0, Spike 0(a) resolved. Tasks: define `SoulBackend`, window creation, basic event loop wiring, app icon/title — all `gpui::*` usage confined to `soul-backend-gpui`. Tests: manual + a smoke test that the binary launches and exits 0 headless where possible. DoD: `browser-shell.exe` opens a native window, and `browser-core` (once it exists) has zero `gpui` in its dependency tree. Risks: getting the trait boundary wrong here is expensive to fix later — worth extra review time. NOT yet: tabs, any page content.
+**Status: Complete.** A real native window opens via GPUI (git `zed-industries/zed` gpui 0.2.2 + `gpui-component`, both confined to this crate), presenting the latest engine frame full-window. Window existence verified by a Win32 `EnumWindows` smoke test (`crates/soul-shell/tests/window_smoke_tests.rs`, `--ignored`). Window-close events are forwarded to the `SoulBackend` handler. Outstanding: input-event routing into `InputRouter` (M2) and browser-UI widgets (tab strip/omnibox built from scratch on gpui elements).
+Objective: an empty window opens and closes cleanly, through the `SoulBackend` trait rather than direct GPUI calls. Components: `soul-shell`, `soul-ui` (trait), `soul-backend-gpui` (impl). Depends on: M0, Spike 0(a) resolved. Tasks: define `SoulBackend`, window creation, basic event loop wiring, app icon/title — all `gpui::*` usage confined to `soul-backend-gpui`. Tests: manual + a smoke test that the binary launches and exits 0 headless where possible. DoD: `soul-shell.exe` opens a native window, and `soul-core` (once it exists) has zero `gpui` in its dependency tree. Risks: getting the trait boundary wrong here is expensive to fix later — worth extra review time. NOT yet: tabs, any page content.
 
 **M2 — Window + Input System**
-Objective: input events reach application code correctly. Components: `browser-ui`, `platform-windows`. Depends on: M1. Tasks: mouse/keyboard/wheel routing, DPI-aware sizing, multi-monitor window placement. Tests: input-routing unit tests with synthetic events. DoD: clicking/typing in the (still empty) window is observable in app state. Risks: DPI edge cases (mitigated by prior Aura experience). NOT yet: hit-testing into page content (doesn't exist).
+Objective: input events reach application code correctly. Components: `soul-ui`, `platform-windows`. Depends on: M1. Tasks: mouse/keyboard/wheel routing, DPI-aware sizing, multi-monitor window placement. Tests: input-routing unit tests with synthetic events. DoD: clicking/typing in the (still empty) window is observable in app state. Risks: DPI edge cases (mitigated by prior Aura experience). NOT yet: hit-testing into page content (doesn't exist).
 
 **M3 — URL + Navigation (skeleton)**
-Objective: omnibox accepts a URL and the navigation state machine (§11) runs end-to-end with a stubbed fetch. Components: `browser-core`, `browser-ui`. Depends on: M2. Tasks: `url` crate integration, navigation state machine, stub network response. Tests: navigation-race unit tests (stale `NavigationId` discarded). DoD: typing a URL transitions through the full state machine to a stub "loaded" state. Risks: low. NOT yet: real networking.
+Objective: omnibox accepts a URL and the navigation state machine (§11) runs end-to-end with a stubbed fetch. Components: `soul-core`, `soul-ui`. Depends on: M2. Tasks: `url` crate integration, navigation state machine, stub network response. Tests: navigation-race unit tests (stale `NavigationId` discarded). DoD: typing a URL transitions through the full state machine to a stub "loaded" state. Risks: low. NOT yet: real networking.
 
 **M4 — Networking**
 **Status: Partial.** Real HTTP/1.1 + TLS 1.2/1.3 client (hyper 1, rustls, webpki-roots). Missing vs. plan: hickory-resolver DNS (OS resolver used), redirect following, cookie jar (cookies live in `storage`, unwired), HTTP/2.
-Objective: real HTTP(S) GET requests complete. Components: `networking`. Depends on: M3. Tasks: `hyper`+`rustls`+`hickory-resolver` wiring, redirect handling, basic cookie jar. Tests: integration tests against a local test server (§27); TLS cert validation tests. DoD: fetching a real HTTPS URL returns bytes into `browser-core`. Risks: TLS trust-store platform quirks on Windows. NOT yet: HTTP/2/3, caching, CORS.
+Objective: real HTTP(S) GET requests complete. Components: `networking`. Depends on: M3. Tasks: `hyper`+`rustls`+`hickory-resolver` wiring, redirect handling, basic cookie jar. Tests: integration tests against a local test server (§27); TLS cert validation tests. DoD: fetching a real HTTPS URL returns bytes into `soul-core`. Risks: TLS trust-store platform quirks on Windows. NOT yet: HTTP/2/3, caching, CORS.
 
 **M5 — HTML Parser**
 Objective: HTML bytes become a DOM. Components: `html`, `dom`. Depends on: M4 (bytes to parse), can develop in parallel with fixtures. Tasks: `html5ever` `TreeSink` impl against `dom`, encoding sniffing. Tests: fixture-based DOM-shape assertions (§27). DoD: a real webpage's HTML produces a correct DOM tree (verified against fixtures, not visually yet). Risks: low (mature reused parser). NOT yet: `<script>` execution, CSS.
@@ -944,7 +944,7 @@ Objective: `fetch`, timers, and richer DOM coverage. Components: `web-api`, `jav
 
 **M13 — Storage**
 **Status: Partial.** SQLite WAL storage (cookies/history/bookmarks/LocalStorage) real and tested; LocalStorage JS bindings not implemented (`web-api` has no storage dependency).
-Objective: cookies/LocalStorage/history/bookmarks persist. Components: `storage`. Depends on: M12 (LocalStorage needs JS bindings), M4 (cookies need networking). Tasks: SQLite schema + migrations, cookie jar persistence, LocalStorage JS bindings, history/bookmarks backing browser-ui. Tests: persistence round-trip tests, migration tests. DoD: closing and reopening the browser preserves cookies/history/bookmarks; **this is effectively MVP-complete** (see §32). Risks: low. NOT yet: IndexedDB, Cache Storage, quotas.
+Objective: cookies/LocalStorage/history/bookmarks persist. Components: `storage`. Depends on: M12 (LocalStorage needs JS bindings), M4 (cookies need networking). Tasks: SQLite schema + migrations, cookie jar persistence, LocalStorage JS bindings, history/bookmarks backing soul-ui. Tests: persistence round-trip tests, migration tests. DoD: closing and reopening the browser preserves cookies/history/bookmarks; **this is effectively MVP-complete** (see §32). Risks: low. NOT yet: IndexedDB, Cache Storage, quotas.
 
 **M14 — GPU Acceleration (process split)**
 **Status: Simulated.** `ipc` crate real: typed command/event enums, length-prefixed JSON framing, in-memory + generic stream transports, dispatcher. Single process only — no OS named-pipe boundary, no GPU process.
@@ -980,8 +980,8 @@ Objective: compositor layer/damage infrastructure plus a repeatable pipeline ben
 Objective: close known gaps from §23/§29 as far as is realistic. Components: cross-cutting, `sandbox`. Depends on: M21. Tasks: CSP full coverage, mixed-content blocking, MOTW/download security, DPAPI-encrypted cookie/password storage, private browsing. Tests: negative security tests (§27) expanded. DoD: the Security Architecture table in §23 is fully "Yes" up to its stated Phase-2/Production scope — site isolation remains explicitly out of scope. Risks: security work never truly "finishes" — this milestone closes the *planned* gaps, not all conceivable ones. NOT yet: site isolation.
 
 **M23 — Production Release**
-**Status: Partial.** `browser-shell` wires the full engine pipeline and all subsystem crates; workspace builds and tests green. Not implemented: code signing, updater, crash-report pipeline, installer, final QA per §21.
-Objective: ship something real. Components: cross-cutting, `browser-shell` (installer/updater). Depends on: M22. Tasks: code-signing, an update mechanism (even a simple "check for new installer" flow), crash reporting pipeline, final QA pass against §21's Production Definition. Tests: full regression suite green, manual release QA checklist. DoD: an installable, signed, auto-checking-for-updates build that meets §21. Risks: "production" scope creep — hold the line at §21's explicit list. NOT yet: anything not in §21.
+**Status: Partial.** `soul-shell` wires the full engine pipeline and all subsystem crates; workspace builds and tests green. Not implemented: code signing, updater, crash-report pipeline, installer, final QA per §21.
+Objective: ship something real. Components: cross-cutting, `soul-shell` (installer/updater). Depends on: M22. Tasks: code-signing, an update mechanism (even a simple "check for new installer" flow), crash reporting pipeline, final QA pass against §21's Production Definition. Tests: full regression suite green, manual release QA checklist. DoD: an installable, signed, auto-checking-for-updates build that meets §21. Risks: "production" scope creep — hold the line at §21's explicit list. NOT yet: anything not in §21.
 
 **Deferred — Web-Platform Compatibility (formerly M20)**
 Objective: measured improvement against the curated WPT subset (§27). Components: cross-cutting. Depends on: M21 (current numbering). **Status: Not started** — no WPT-subset harness exists; workspace `tests/` is empty and no screenshot/golden-image tooling is in place. The milestone's intent is retained; it re-enters the numbered sequence when a harness exists.
@@ -992,7 +992,7 @@ Objective: measured improvement against the curated WPT subset (§27). Component
 
 The MVP is reached at the end of **M13**. It can:
 
-**Status note (2026-08-14):** the M13-era milestone code exists and most items in this list are implemented and unit/integration-tested. A real native window now opens (M1 complete — GPUI), and `browser-shell` navigates live URLs end-to-end (fetch → parse → style → layout → paint → raster → window + PNG + a11y tree), verified against real HTTPS sites. Remaining gaps vs. this list: no on-screen scrolling, no interactive JS in the shell flow, and M4 networking is not yet wired into CSS/JS subresource fetching. Treat this list as the capability contract; treat §31's status table as the current state.
+**Status note (2026-08-14):** the M13-era milestone code exists and most items in this list are implemented and unit/integration-tested. A real native window now opens (M1 complete — GPUI), and `soul-shell` navigates live URLs end-to-end (fetch → parse → style → layout → paint → raster → window + PNG + a11y tree), verified against real HTTPS sites. Remaining gaps vs. this list: no on-screen scrolling, no interactive JS in the shell flow, and M4 networking is not yet wired into CSS/JS subresource fetching. Treat this list as the capability contract; treat §31's status table as the current state.
 
 - Open URLs typed into an omnibox, over HTTP and HTTPS (with real TLS validation).
 - Perform DNS resolution and HTTP/1.1 (and HTTP/2) requests, with redirects, gzip/brotli decompression, and a working cookie jar.
@@ -1065,7 +1065,7 @@ The milestone list in §31 *is* the recommended order, but the load-bearing sequ
      │  └───────────────────────┬────────────────────────────────────┘ │
      │                          │ commands/events over `ipc` crate      │
      │  ┌───────────────────────▼────────────────────────────────────┐ │
-     │  │ browser-core: WindowMgr / TabMgr (tiered lifecycle) /        │ │
+     │  │ soul-core: WindowMgr / TabMgr (tiered lifecycle) /        │ │
      │  │   NavigationController / SessionMgr / ProfileMgr / Perms     │ │
      │  └──┬───────────────┬───────────────┬───────────────┬─────────┘ │
      │     │               │               │               │           │

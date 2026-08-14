@@ -1,8 +1,6 @@
 //! Integration tests for the `SoulBackend` trait contract and event dispatch.
 
-use browser_ui::{
-    SoulBackend, SoulConfig, SoulError, SoulEvent, ViewportFrame, WindowId, WindowSpec,
-};
+use soul_ui::{SoulBackend, SoulConfig, SoulError, SoulEvent, ViewportFrame, WindowId, WindowSpec};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

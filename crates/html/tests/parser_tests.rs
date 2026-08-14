@@ -11,7 +11,7 @@ fn test_parse_full_html5_document() {
 </head>
 <body>
     <main id="app">
-        <h1 class="title">Soul Browser Engine</h1>
+        <h1 class="title">Soul Engine</h1>
         <p class="desc">A fast browser engine written in <b>Rust</b>.</p>
     </main>
 </body>
@@ -33,7 +33,7 @@ fn test_parse_full_html5_document() {
 
     let titles = doc.get_elements_by_tag_name("h1");
     assert_eq!(titles.len(), 1);
-    assert_eq!(doc.text_content(titles[0]), "Soul Browser Engine");
+    assert_eq!(doc.text_content(titles[0]), "Soul Engine");
 
     let p_elems = doc.get_elements_by_class_name("desc");
     assert_eq!(p_elems.len(), 1);

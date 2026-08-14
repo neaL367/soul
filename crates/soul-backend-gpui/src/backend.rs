@@ -6,15 +6,13 @@
 //! `update_viewport` stage state, and `run` launches the loop and materializes
 //! the staged windows.
 
-use browser_ui::{
-    SoulBackend, SoulConfig, SoulError, SoulEvent, ViewportFrame, WindowId, WindowSpec,
-};
 use gpui::{
     App, AppContext, Bounds, Context, ImageCacheError, ImageSource, IntoElement, ParentElement,
     Render, RenderImage, SharedString, Styled, TitlebarOptions, Window, WindowBounds,
     WindowOptions, div, img, px, size,
 };
 use image::{Frame as ImageFrame, RgbaImage};
+use soul_ui::{SoulBackend, SoulConfig, SoulError, SoulEvent, ViewportFrame, WindowId, WindowSpec};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

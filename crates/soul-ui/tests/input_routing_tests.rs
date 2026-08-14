@@ -1,6 +1,6 @@
 //! Integration tests for the `InputRouter` and input event dispatching.
 
-use browser_ui::{
+use soul_ui::{
     InputEvent, InputRouter, KeyModifiers, KeyPhase, LogicalPosition, MouseButton, MousePhase,
     PhysicalPosition, WheelDeltaMode, WindowId,
 };
