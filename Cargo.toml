@@ -1,0 +1,53 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/browser-shell",
+    "crates/browser-core",
+    "crates/browser-ui",
+    "crates/chrome-backend-gpui",
+    "crates/ipc",
+    "crates/html",
+    "crates/dom",
+    "crates/css",
+    "crates/layout",
+    "crates/text-shaping",
+    "crates/paint",
+    "crates/raster",
+    "crates/compositor",
+    "crates/javascript",
+    "crates/web-api",
+    "crates/networking",
+    "crates/storage",
+    "crates/image-decode",
+    "crates/media",
+    "crates/gpu",
+    "crates/platform-windows",
+    "crates/sandbox",
+    "crates/downloads",
+    "crates/devtools",
+    "crates/common",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+license = "MIT OR Apache-2.0"
+authors = ["Soul Browser Team"]
+
+[workspace.dependencies]
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+thiserror = "2"
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"

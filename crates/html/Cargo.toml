@@ -1,0 +1,15 @@
+[package]
+name = "html"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+common = { path = "../common" }
+dom = { path = "../dom" }
+thiserror.workspace = true
+tracing.workspace = true

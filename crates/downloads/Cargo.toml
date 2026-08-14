@@ -1,0 +1,17 @@
+[package]
+name = "downloads"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+common = { path = "../common" }
+networking = { path = "../networking" }
+platform-windows = { path = "../platform-windows" }
+storage = { path = "../storage" }
+thiserror.workspace = true
+tracing.workspace = true
