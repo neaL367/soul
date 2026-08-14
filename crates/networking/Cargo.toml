@@ -13,8 +13,9 @@ bytes = "1"
 common = { path = "../common" }
 http = "1"
 http-body-util = "0.1"
-hyper = { version = "1", features = ["client", "http1"] }
-hyper-util = { version = "0.1", features = ["client", "tokio", "http1"] }
+hyper = { version = "1", features = ["client", "server", "http1"] }
+hyper-util = { version = "0.1", features = ["client", "server", "tokio", "http1"] }
+ipc = { path = "../ipc" }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = "1.10"
 thiserror.workspace = true

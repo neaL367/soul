@@ -31,6 +31,7 @@ impl Default for HttpClientConfig {
 }
 
 /// Asynchronous HTTP/1.1 client supporting plain TCP and TLS 1.2/1.3.
+#[derive(Clone)]
 pub struct HttpClient {
     config: HttpClientConfig,
     tls_config: Arc<rustls::ClientConfig>,

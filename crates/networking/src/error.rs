@@ -44,4 +44,8 @@ pub enum NetworkError {
     /// Request timed out.
     #[error("Network request timed out after {0:?}")]
     Timeout(std::time::Duration),
+
+    /// IPC transport communication error.
+    #[error("IPC transport error: {0}")]
+    TransportError(String),
 }
