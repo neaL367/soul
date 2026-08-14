@@ -12,3 +12,7 @@ workspace = true
 common = { path = "../common" }
 thiserror.workspace = true
 tracing.workspace = true
+wgpu = "24"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

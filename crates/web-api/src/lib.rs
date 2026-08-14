@@ -1,12 +1,14 @@
-//! Web APIs implementation, DOM JavaScript bindings, and `WebWorker` threads.
+//! Web APIs implementation including DOM, Console, Timers, Web Storage, and Workers.
 
 pub mod console;
 pub mod dom_bindings;
+pub mod storage_binding;
 pub mod timers;
 pub mod worker;
 
 pub use console::register_console;
 pub use dom_bindings::register_dom;
+pub use storage_binding::register_storage;
 pub use timers::{TimerQueue, register_timers};
 pub use worker::WebWorker;
 
@@ -14,25 +16,25 @@ use boa_engine::{Context, JsResult};
 use dom::Document;
 use std::sync::{Arc, Mutex};
 
-/// Binds all core Web APIs (`console`, `document`, `setTimeout`) into a Boa ECMAScript context.
+/// Registers common Web APIs (`console`, `timers`, `document`) into a Boa `Context`.
 ///
 /// # Errors
 ///
-/// Returns a `JsResult` error if any global registration fails.
+/// Returns `JsResult` if registration fails.
 pub fn bind_web_apis(
     context: &mut Context,
     document: Option<Arc<Mutex<Document>>>,
     captured_logs: Option<Arc<Mutex<Vec<String>>>>,
-    timer_queue: Option<TimerQueue>,
+    pending_timers: Option<TimerQueue>,
 ) -> JsResult<()> {
     register_console(context, captured_logs)?;
 
-    if let Some(doc) = document {
-        register_dom(context, doc)?;
+    if let Some(queue) = pending_timers {
+        register_timers(context, queue)?;
     }
 
-    if let Some(t_queue) = timer_queue {
-        register_timers(context, t_queue)?;
+    if let Some(doc) = document {
+        register_dom(context, doc)?;
     }
 
     Ok(())

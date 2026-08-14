@@ -16,3 +16,6 @@ raster = { path = "../raster" }
 thiserror.workspace = true
 tiny-skia = "0.11"
 tracing.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

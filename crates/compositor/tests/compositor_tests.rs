@@ -1,6 +1,7 @@
 //! Integration tests for damage tracking and layer composition.
 
-use compositor::{CompositorLayer, DamageTracker};
+use compositor::{CompositorLayer, DamageTracker, GpuCompositor};
+use gpu::GpuContext;
 use raster::PixelBuffer;
 use tiny_skia::{Pixmap, Rect};
 
@@ -50,4 +51,21 @@ fn test_compositor_layer_blit() {
     let p = target_pixmap.pixel(10, 10).unwrap();
     assert!(p.red() > 0);
     assert!(p.alpha() > 0);
+}
+
+#[tokio::test]
+async fn test_gpu_compositor_layer_upload() {
+    if let Ok(ctx) = GpuContext::new_headless().await {
+        let mut compositor = GpuCompositor::new(ctx, 100, 100);
+        let bounds = Rect::from_xywh(0.0, 0.0, 50.0, 50.0).unwrap();
+        let mut layer = CompositorLayer::new(1, bounds);
+
+        let pixels = vec![200u8; 50 * 50 * 4];
+        let buffer = PixelBuffer::from_raw(50, 50, pixels);
+        layer.set_pixel_buffer(buffer);
+
+        compositor.composite_layers(&[layer]);
+        assert_eq!(compositor.output_target().width, 100);
+        assert_eq!(compositor.output_target().height, 100);
+    }
 }

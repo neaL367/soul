@@ -14,7 +14,9 @@ boa_gc = "0.21.0"
 common = { path = "../common" }
 dom = { path = "../dom" }
 javascript = { path = "../javascript" }
+storage = { path = "../storage" }
 thiserror.workspace = true
+tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread"] }
 tracing.workspace = true
 
 [dev-dependencies]

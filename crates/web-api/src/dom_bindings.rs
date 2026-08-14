@@ -8,7 +8,8 @@ use boa_engine::{
     object::{FunctionObjectBuilder, ObjectInitializer},
     property::Attribute,
 };
-use dom::{Document, InvalidationFlags, NodeData, NodeId};
+use dom::{Document, ElementData, InvalidationFlags, NodeData, NodeId};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Trace, Finalize)]
@@ -20,11 +21,12 @@ struct NodeSetterHolder(
     #[unsafe_ignore_trace] NodeId,
 );
 
-/// Registers the global `document` object with `getElementById` and element property accessors.
+/// Registers the global `document` object with `getElementById`, `createElement`, and element mutators.
 ///
 /// # Errors
 ///
 /// Returns a `JsResult` error if DOM property registration fails.
+#[allow(clippy::too_many_lines)]
 pub fn register_dom(context: &mut Context, document: Arc<Mutex<Document>>) -> JsResult<()> {
     let get_element_by_id_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, args, captures, ctx| {
@@ -96,11 +98,62 @@ pub fn register_dom(context: &mut Context, document: Arc<Mutex<Document>>) -> Js
 
             Ok(JsValue::from(elem_obj))
         },
+        DocHolder(document.clone()),
+    );
+
+    let create_element_fn = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, captures, ctx| {
+            let tag_arg = args.get_or_undefined(0).to_string(ctx)?;
+            let tag_str = tag_arg.to_std_string_escaped();
+
+            let Ok(mut doc) = captures.0.lock() else {
+                return Ok(JsValue::null());
+            };
+
+            let node_id = doc.alloc_node(NodeData::Element(ElementData::new(
+                &tag_str,
+                HashMap::new(),
+            )));
+
+            let setter_holder = NodeSetterHolder(captures.0.clone(), node_id);
+            let set_text_fn = FunctionObjectBuilder::new(
+                ctx.realm(),
+                NativeFunction::from_copy_closure_with_captures(
+                    |_this, args, setter_captures, ctx| {
+                        let new_text = args.get_or_undefined(0).to_string(ctx)?;
+                        let text_str = new_text.to_std_string_escaped();
+                        if let Ok(mut doc) = setter_captures.0.lock() {
+                            let text_id = doc.alloc_node(NodeData::Text(text_str));
+                            doc.append_child(setter_captures.1, text_id);
+                        }
+                        Ok(JsValue::undefined())
+                    },
+                    setter_holder,
+                ),
+            )
+            .build();
+
+            let elem_obj = ObjectInitializer::new(ctx)
+                .property(
+                    js_string!("tagName"),
+                    js_string!(tag_str.to_uppercase()),
+                    Attribute::READONLY | Attribute::ENUMERABLE,
+                )
+                .property(
+                    js_string!("setTextContent"),
+                    JsValue::from(set_text_fn),
+                    Attribute::WRITABLE | Attribute::CONFIGURABLE | Attribute::ENUMERABLE,
+                )
+                .build();
+
+            Ok(JsValue::from(elem_obj))
+        },
         DocHolder(document),
     );
 
     let document_obj = ObjectInitializer::new(context)
         .function(get_element_by_id_fn, js_string!("getElementById"), 1)
+        .function(create_element_fn, js_string!("createElement"), 1)
         .build();
 
     context.register_global_property(

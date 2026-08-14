@@ -9,6 +9,10 @@ pub enum SandboxError {
     #[error("Windows API error: {0}")]
     Win32(#[from] windows::core::Error),
 
+    /// Process launch or I/O failure.
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
     /// Process handle is invalid or unassigned.
     #[error("Invalid process handle: {0}")]
     InvalidHandle(String),
