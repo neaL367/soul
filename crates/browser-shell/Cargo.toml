@@ -14,8 +14,14 @@ browser-ui = { path = "../browser-ui" }
 chrome-backend-gpui = { path = "../chrome-backend-gpui" }
 common = { path = "../common" }
 css = { path = "../css" }
+devtools = { path = "../devtools" }
+downloads = { path = "../downloads" }
 html = { path = "../html" }
+ipc = { path = "../ipc" }
 layout = { path = "../layout" }
+networking = { path = "../networking" }
 paint = { path = "../paint" }
 raster = { path = "../raster" }
+storage = { path = "../storage" }
+tokio = { version = "1", features = ["full"] }
 tracing.workspace = true

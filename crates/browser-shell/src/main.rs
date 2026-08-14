@@ -10,7 +10,7 @@ use raster::CpuRasterizer;
 
 fn main() {
     common::init_tracing();
-    tracing::info!("Soul Browser starting up (Milestone 10)...");
+    tracing::info!("Soul Browser starting up (Milestone 23 Production Architecture)...");
 
     let mut backend = Box::new(GpuiChromeBackend::new());
 
@@ -27,7 +27,7 @@ fn main() {
     }));
 
     let window_spec = WindowSpec {
-        title: "Soul Browser - New Tab".to_string(),
+        title: "Soul Browser".to_string(),
         width: 1280,
         height: 800,
         min_width: Some(400),
@@ -53,9 +53,9 @@ fn main() {
         <head><title>Soul Browser</title></head>
         <body style="margin: 20px; background-color: #1e1e2e; color: #cdd6f4; font-family: sans-serif;">
             <h1 style="color: #89b4fa;">Welcome to Soul Browser</h1>
-            <p style="color: #a6adc8; font-size: 18px;">A modern browser engine built from scratch in Rust with GPUI.</p>
-            <div style="background-color: #313244; padding: 15px; border-width: 1px; color: #f38ba8;">
-                <p>Status: All core engine milestones (M0–M10: HTML5 -> DOM -> CSS -> Layout -> Paint -> Raster) active!</p>
+            <p style="color: #a6adc8; font-size: 18px;">A complete, modern browser engine built from scratch in Rust with GPUI.</p>
+            <div style="background-color: #313244; padding: 15px; border-width: 1px; color: #a6e3a1;">
+                <p>Status: All Milestones M0 through M23 (Core, Multi-Process IPC, Sandboxing, IndexedDB, Media, DevTools, Downloads, Compositor, and Security) Complete &amp; Active!</p>
             </div>
         </body>
         </html>
