@@ -11,5 +11,8 @@ workspace = true
 [dependencies]
 common = { path = "../common" }
 dom = { path = "../dom" }
+html5ever = "0.27"
+markup5ever = "0.12"
+tendril = "0.4"
 thiserror.workspace = true
 tracing.workspace = true
