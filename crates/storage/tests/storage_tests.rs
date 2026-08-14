@@ -1,0 +1,177 @@
+//! Integration tests for `SQLite` database, history, bookmarks, cookie jar, and web storage.
+
+use storage::{
+    BookmarkStore, Cookie, CookieJar, HistoryStore, LocalStorage, SessionStorage, StorageDatabase,
+};
+
+#[test]
+fn test_history_recording_and_search() {
+    let db = StorageDatabase::open_in_memory().expect("failed to open in-memory db");
+    let history = HistoryStore::new(db);
+
+    history
+        .record_visit("https://rust-lang.org", Some("Rust Programming"), 1000)
+        .unwrap();
+    history
+        .record_visit(
+            "https://github.com/neaL367/soul",
+            Some("Soul Browser"),
+            1010,
+        )
+        .unwrap();
+    history
+        .record_visit(
+            "https://rust-lang.org",
+            Some("Rust Programming Language"),
+            1020,
+        )
+        .unwrap();
+
+    let search_results = history.query_history("rust", 10).unwrap();
+    assert_eq!(search_results.len(), 1);
+    assert_eq!(search_results[0].url, "https://rust-lang.org");
+    assert_eq!(search_results[0].visit_count, 2);
+    assert_eq!(search_results[0].last_visited_at, 1020);
+
+    let all = history.query_history("", 10).unwrap();
+    assert_eq!(all.len(), 2);
+}
+
+#[test]
+fn test_bookmarks_crud() {
+    let db = StorageDatabase::open_in_memory().expect("failed to open in-memory db");
+    let bookmarks = BookmarkStore::new(db);
+
+    let id1 = bookmarks
+        .add_bookmark("https://rust-lang.org", "Rust", Some("Dev"), 1000)
+        .unwrap();
+
+    let id2 = bookmarks
+        .add_bookmark(
+            "https://news.ycombinator.com",
+            "Hacker News",
+            Some("News"),
+            1010,
+        )
+        .unwrap();
+
+    let dev_bookmarks = bookmarks.list_bookmarks(Some("Dev")).unwrap();
+    assert_eq!(dev_bookmarks.len(), 1);
+    assert_eq!(dev_bookmarks[0].id, id1);
+    assert_eq!(dev_bookmarks[0].title, "Rust");
+
+    let deleted = bookmarks.delete_bookmark(id2).unwrap();
+    assert!(deleted);
+
+    let all = bookmarks.list_bookmarks(None).unwrap();
+    assert_eq!(all.len(), 1);
+}
+
+#[test]
+fn test_cookie_jar_rfc6265bis_matching_and_expiry() {
+    let db = StorageDatabase::open_in_memory().expect("failed to open in-memory db");
+    let jar = CookieJar::new(db);
+
+    let domain_cookie = Cookie {
+        name: "session_id".to_string(),
+        domain: "example.com".to_string(),
+        path: "/app".to_string(),
+        value: "secret_123".to_string(),
+        expires_at: Some(2000),
+        is_secure: false,
+        is_http_only: true,
+        same_site: "Lax".to_string(),
+    };
+    jar.set_cookie(&domain_cookie).unwrap();
+
+    let secure_cookie = Cookie {
+        name: "secure_token".to_string(),
+        domain: "secure.example.com".to_string(),
+        path: "/".to_string(),
+        value: "token_abc".to_string(),
+        expires_at: Some(2000),
+        is_secure: true,
+        is_http_only: false,
+        same_site: "Strict".to_string(),
+    };
+    jar.set_cookie(&secure_cookie).unwrap();
+
+    // 1. Subdomain matching with path match on HTTP
+    let cookies1 = jar
+        .get_cookies_for_url("http://sub.example.com/app/dashboard", 1500)
+        .unwrap();
+    assert_eq!(cookies1.len(), 1);
+    assert_eq!(cookies1[0].name, "session_id");
+
+    // 2. HTTPS matching secure cookie
+    let cookies2 = jar
+        .get_cookies_for_url("https://secure.example.com/profile", 1500)
+        .unwrap();
+    assert_eq!(cookies2.len(), 1);
+    assert_eq!(cookies2[0].name, "secure_token");
+
+    // 3. HTTP should NOT receive secure cookie
+    let cookies3 = jar
+        .get_cookies_for_url("http://secure.example.com/profile", 1500)
+        .unwrap();
+    assert!(cookies3.is_empty());
+
+    // 4. Expired cookies purge
+    let purged = jar.clear_expired(2500).unwrap();
+    assert_eq!(purged, 2);
+
+    let remaining = jar
+        .get_cookies_for_url("http://sub.example.com/app/dashboard", 2500)
+        .unwrap();
+    assert!(remaining.is_empty());
+}
+
+#[test]
+fn test_local_storage_persistence() {
+    let db = StorageDatabase::open_in_memory().expect("failed to open in-memory db");
+    let storage = LocalStorage::new(db);
+
+    storage
+        .set_item("https://example.com", "theme", "dark")
+        .unwrap();
+    storage
+        .set_item("https://example.com", "fontSize", "16px")
+        .unwrap();
+
+    assert_eq!(
+        storage.get_item("https://example.com", "theme").unwrap(),
+        Some("dark".to_string())
+    );
+    assert_eq!(
+        storage.get_item("https://other.com", "theme").unwrap(),
+        None
+    );
+    assert_eq!(storage.len("https://example.com").unwrap(), 2);
+
+    storage
+        .remove_item("https://example.com", "fontSize")
+        .unwrap();
+    assert_eq!(storage.len("https://example.com").unwrap(), 1);
+
+    storage.clear_origin("https://example.com").unwrap();
+    assert_eq!(storage.len("https://example.com").unwrap(), 0);
+}
+
+#[test]
+fn test_session_storage_in_memory_isolation() {
+    let session = SessionStorage::new();
+
+    session.set_item("https://app.local", "token", "xyz");
+    assert_eq!(
+        session.get_item("https://app.local", "token"),
+        Some("xyz".to_string())
+    );
+    assert_eq!(session.get_item("https://other.local", "token"), None);
+
+    assert_eq!(session.len("https://app.local"), 1);
+    assert!(!session.is_empty("https://app.local"));
+
+    assert!(session.remove_item("https://app.local", "token"));
+    assert_eq!(session.len("https://app.local"), 0);
+    assert!(session.is_empty("https://app.local"));
+}
