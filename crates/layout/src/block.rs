@@ -81,6 +81,13 @@ fn calculate_block_position(
 }
 
 fn layout_block_children(layout_box: &mut LayoutBox) {
+    if layout_box.children.iter().any(LayoutBox::is_inline) {
+        let max_w = layout_box.dimensions.content.width;
+        let inline_h = crate::inline::layout_inline_context(layout_box, max_w);
+        layout_box.dimensions.content.height = inline_h;
+        return;
+    }
+
     let mut vertical_offset = 0.0;
 
     for child in &mut layout_box.children {
@@ -92,13 +99,6 @@ fn layout_block_children(layout_box: &mut LayoutBox) {
 
             let child_margin_box_h = child.dimensions.margin_box().height;
             vertical_offset += child_margin_box_h;
-        } else {
-            child.dimensions.content.x = layout_box.dimensions.content.x;
-            child.dimensions.content.y = layout_box.dimensions.content.y + vertical_offset;
-            child.dimensions.content.width = layout_box.dimensions.content.width;
-            let line_height = child.style.as_ref().map_or(16.0, |s| s.font_size * 1.2);
-            child.dimensions.content.height = line_height;
-            vertical_offset += line_height;
         }
     }
 

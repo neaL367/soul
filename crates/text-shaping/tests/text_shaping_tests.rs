@@ -1,0 +1,64 @@
+//! Integration tests for font discovery, text shaping, glyph layout, and line breaking.
+
+use text_shaping::{FontDatabase, FontMetrics, TextShaper, break_lines};
+
+#[test]
+fn test_font_database_and_metrics() {
+    let db = FontDatabase::global();
+    assert!(db.face_count() > 0 || db.query_font("sans-serif").is_none());
+
+    let metrics = FontMetrics::for_size(16.0);
+    assert!((metrics.ascent - 12.8).abs() < f32::EPSILON);
+    assert!((metrics.descent - 3.2).abs() < f32::EPSILON);
+    assert!((metrics.line_height - 19.2).abs() < f32::EPSILON);
+}
+
+#[test]
+fn test_text_shaper_glyph_advances() {
+    let shaper = TextShaper::new();
+    let normal_run = shaper.shape_text("Hello World", "sans-serif", 16.0, false);
+    let bold_run = shaper.shape_text("Hello World", "sans-serif", 16.0, true);
+
+    assert_eq!(normal_run.glyphs.len(), 11);
+    assert_eq!(bold_run.glyphs.len(), 11);
+
+    assert!(normal_run.advance_width > 0.0);
+    assert!(bold_run.advance_width > normal_run.advance_width);
+}
+
+#[test]
+fn test_unicode_line_breaking_at_width_boundary() {
+    let shaper = TextShaper::new();
+    let text = "The quick brown fox jumps over the lazy dog";
+
+    // Break lines with max width 120px
+    let lines = break_lines(text, 120.0, |segment| {
+        shaper
+            .shape_text(segment, "sans-serif", 16.0, false)
+            .advance_width
+    });
+
+    assert!(lines.len() >= 3);
+    for line in &lines {
+        assert!(line.width <= 140.0);
+    }
+}
+
+#[test]
+fn test_unicode_line_breaking_hard_newline() {
+    let shaper = TextShaper::new();
+    let text = "First Line\nSecond Line\nThird Line";
+
+    let lines = break_lines(text, 500.0, |segment| {
+        shaper
+            .shape_text(segment, "sans-serif", 16.0, false)
+            .advance_width
+    });
+
+    assert_eq!(lines.len(), 3);
+    assert!(lines[0].is_hard_break);
+    assert_eq!(lines[0].text, "First Line");
+    assert!(lines[1].is_hard_break);
+    assert_eq!(lines[1].text, "Second Line");
+    assert_eq!(lines[2].text, "Third Line");
+}
