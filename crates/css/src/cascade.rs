@@ -1,6 +1,6 @@
 //! Cascade algorithm, selector matching, and top-down computed style resolution.
 
-use crate::properties::{Color, ComputedStyle, Display, FontWeight, Position, TextAlign};
+use crate::properties::{Color, ComputedStyle, Display, FontWeight, Length, Position, TextAlign};
 use crate::rule::{
     Combinator, Declaration, Origin, Selector, SimpleSelector, Specificity, StyleSheet,
 };
@@ -229,11 +229,11 @@ fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             _ => {}
         },
         "margin" => {
-            if let Some(px) = parse_px(&decl.value) {
-                style.margin_top = px;
-                style.margin_right = px;
-                style.margin_bottom = px;
-                style.margin_left = px;
+            if let Some((t, r, b, l)) = parse_4_edges(&decl.value) {
+                style.margin_top = t;
+                style.margin_right = r;
+                style.margin_bottom = b;
+                style.margin_left = l;
             }
         }
         "margin-top" => {
@@ -257,11 +257,11 @@ fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "padding" => {
-            if let Some(px) = parse_px(&decl.value) {
-                style.padding_top = px;
-                style.padding_right = px;
-                style.padding_bottom = px;
-                style.padding_left = px;
+            if let Some((t, r, b, l)) = parse_4_edges(&decl.value) {
+                style.padding_top = t;
+                style.padding_right = r;
+                style.padding_bottom = b;
+                style.padding_left = l;
             }
         }
         "padding-top" => {
@@ -284,8 +284,29 @@ fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
                 style.padding_right = px;
             }
         }
+        "width" => {
+            if let Some(px) = parse_px(&decl.value) {
+                style.width = Length::Px(px);
+            } else if let Some(pct) = parse_percent(&decl.value) {
+                style.width = Length::Percent(pct);
+            }
+        }
+        "height" => {
+            if let Some(px) = parse_px(&decl.value) {
+                style.height = Length::Px(px);
+            } else if let Some(pct) = parse_percent(&decl.value) {
+                style.height = Length::Percent(pct);
+            }
+        }
         _ => {}
     }
+}
+
+fn parse_percent(value: &str) -> Option<f32> {
+    let trimmed = value.trim();
+    trimmed
+        .strip_suffix('%')
+        .and_then(|num| num.trim().parse::<f32>().ok())
 }
 
 fn parse_px(value: &str) -> Option<f32> {
@@ -294,4 +315,33 @@ fn parse_px(value: &str) -> Option<f32> {
         || trimmed.parse::<f32>().ok(),
         |num| num.trim().parse::<f32>().ok(),
     )
+}
+
+fn parse_4_edges(value: &str) -> Option<(f32, f32, f32, f32)> {
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    match parts.len() {
+        1 => {
+            let v = parse_px(parts[0])?;
+            Some((v, v, v, v))
+        }
+        2 => {
+            let tb = parse_px(parts[0])?;
+            let rl = parse_px(parts[1])?;
+            Some((tb, rl, tb, rl))
+        }
+        3 => {
+            let top = parse_px(parts[0])?;
+            let rl = parse_px(parts[1])?;
+            let bottom = parse_px(parts[2])?;
+            Some((top, rl, bottom, rl))
+        }
+        4 => {
+            let top = parse_px(parts[0])?;
+            let right = parse_px(parts[1])?;
+            let bottom = parse_px(parts[2])?;
+            let left = parse_px(parts[3])?;
+            Some((top, right, bottom, left))
+        }
+        _ => None,
+    }
 }

@@ -871,6 +871,7 @@ dependencies = [
  "common",
  "css",
  "dom",
+ "html",
  "text-shaping",
  "thiserror",
  "tracing",

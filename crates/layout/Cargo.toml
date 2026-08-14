@@ -15,3 +15,6 @@ dom = { path = "../dom" }
 text-shaping = { path = "../text-shaping" }
 thiserror.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+html = { path = "../html" }
