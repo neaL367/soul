@@ -2417,8 +2417,11 @@ dependencies = [
 name = "web-api"
 version = "0.1.0"
 dependencies = [
+ "boa_engine",
+ "boa_gc",
  "common",
  "dom",
+ "html",
  "javascript",
  "thiserror",
  "tracing",
