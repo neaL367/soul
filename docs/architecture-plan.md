@@ -158,7 +158,7 @@ Each process boundary is introduced **only after** the thing it isolates already
 ## 7. Threading Model
 
 - **UI thread** — owned by GPUI. Never blocks; never touches network or does layout directly. Only reads/writes committed layout/paint results and issues commands.
-- **Browser-core thread** — owns tab/session/navigation state machines; single-writer to avoid lock contention on shared state.
+- **Core thread** — owns tab/session/navigation state machines; single-writer to avoid lock contention on shared state.
 - **Renderer thread(s)** — one per active tab (or per window in Phase 1), running HTML parse → style → layout → paint. Background/frozen tabs' renderer threads are parked (see Tab lifecycle, §9).
 - **JS thread** — co-located with renderer thread per tab initially (JS and DOM interleave heavily; splitting them adds IPC cost with no MVP benefit). Split out only if profiling shows main-thread JS blocking layout unacceptably.
 - **Compositor thread** — receives display lists, rasterizes/uploads to GPU, independent of renderer thread so scrolling/compositing stays smooth even if a renderer thread is busy (the single most important thread split for perceived performance).
