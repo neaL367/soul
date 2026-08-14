@@ -10,5 +10,11 @@ workspace = true
 
 [dependencies]
 common = { path = "../common" }
+css = { path = "../css" }
+layout = { path = "../layout" }
 thiserror.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+dom = { path = "../dom" }
+html = { path = "../html" }

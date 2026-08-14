@@ -284,6 +284,39 @@ fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
                 style.padding_right = px;
             }
         }
+        "border-width" | "border" => {
+            if let Some((t, r, b, l)) = parse_4_edges(&decl.value) {
+                style.border_top_width = t;
+                style.border_right_width = r;
+                style.border_bottom_width = b;
+                style.border_left_width = l;
+            }
+        }
+        "border-top-width" => {
+            if let Some(px) = parse_px(&decl.value) {
+                style.border_top_width = px;
+            }
+        }
+        "border-right-width" => {
+            if let Some(px) = parse_px(&decl.value) {
+                style.border_right_width = px;
+            }
+        }
+        "border-bottom-width" => {
+            if let Some(px) = parse_px(&decl.value) {
+                style.border_bottom_width = px;
+            }
+        }
+        "border-left-width" => {
+            if let Some(px) = parse_px(&decl.value) {
+                style.border_left_width = px;
+            }
+        }
+        "z-index" => {
+            if let Ok(z) = decl.value.trim().parse::<i32>() {
+                style.z_index = Some(z);
+            }
+        }
         "width" => {
             if let Some(px) = parse_px(&decl.value) {
                 style.width = Length::Px(px);
