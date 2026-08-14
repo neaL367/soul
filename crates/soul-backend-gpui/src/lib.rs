@@ -1,7 +1,7 @@
-//! Concrete `ChromeBackend` implementation against `GPUI`.
+//! Concrete `SoulBackend` implementation against `GPUI`.
 //!
 //! This is the only crate in the workspace permitted to depend on `gpui`.
 
 pub mod backend;
 
-pub use backend::GpuiChromeBackend;
+pub use backend::GpuiSoulBackend;

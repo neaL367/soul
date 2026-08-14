@@ -9,7 +9,7 @@ use storage::{BookmarkEntry, HistoryEntry};
 
 /// High-level user actions dispatched from the browser chrome UI.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ChromeAction {
+pub enum SoulAction {
     /// Navigate active tab to a specific URL string.
     Navigate(String),
     /// Navigate active tab backward in history.
@@ -40,7 +40,7 @@ pub enum ChromeAction {
 
 /// Aggregated state model orchestrating all browser chrome components.
 #[derive(Debug, Clone, Default)]
-pub struct ChromeModel {
+pub struct SoulModel {
     /// Tab strip state (tabs, active selection, pins).
     pub tab_strip: TabStripModel,
     /// Navigation toolbar buttons and loading state.
@@ -53,8 +53,8 @@ pub struct ChromeModel {
     pub omnibox_engine: OmniboxEngine,
 }
 
-impl ChromeModel {
-    /// Creates a new `ChromeModel` with default sub-models.
+impl SoulModel {
+    /// Creates a new `SoulModel` with default sub-models.
     #[must_use]
     pub fn new() -> Self {
         Self {

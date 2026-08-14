@@ -1,4 +1,4 @@
-//! Real GPUI implementation of the `ChromeBackend` trait for Windows 11.
+//! Real GPUI implementation of the `SoulBackend` trait for Windows 11.
 //!
 //! The backend opens genuine native windows through GPUI and presents engine
 //! frames (`ViewportFrame::SoftwareRgba`) as window content. GPUI windows can
@@ -7,7 +7,7 @@
 //! the staged windows.
 
 use browser_ui::{
-    ChromeBackend, ChromeConfig, ChromeError, ChromeEvent, ViewportFrame, WindowId, WindowSpec,
+    SoulBackend, SoulConfig, SoulError, SoulEvent, ViewportFrame, WindowId, WindowSpec,
 };
 use gpui::{
     App, AppContext, Bounds, Context, ImageCacheError, ImageSource, IntoElement, ParentElement,
@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 /// Boxed callback function for chrome event handling.
-pub type EventHandlerCallback = Box<dyn Fn(ChromeEvent) + Send + Sync + 'static>;
+pub type EventHandlerCallback = Box<dyn Fn(SoulEvent) + Send + Sync + 'static>;
 
 /// Thread-safe shared slot for the active event handler callback.
 pub type SharedEventHandler = Arc<Mutex<Option<EventHandlerCallback>>>;
@@ -43,20 +43,20 @@ struct BackendSharedState {
     windows: HashMap<WindowId, WindowSharedState>,
 }
 
-/// Concrete `ChromeBackend` implementation using `GPUI`.
-pub struct GpuiChromeBackend {
+/// Concrete `SoulBackend` implementation using `GPUI`.
+pub struct GpuiSoulBackend {
     next_window_id: u64,
     state: Arc<Mutex<BackendSharedState>>,
     event_handler: SharedEventHandler,
 }
 
-impl Default for GpuiChromeBackend {
+impl Default for GpuiSoulBackend {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl GpuiChromeBackend {
+impl GpuiSoulBackend {
     /// Creates a new uninitialized `GPUI` chrome backend.
     #[must_use]
     pub fn new() -> Self {
@@ -84,21 +84,21 @@ impl GpuiChromeBackend {
     }
 
     /// Locks shared backend state, mapping lock poisoning to a backend error.
-    fn lock_state(&self) -> Result<std::sync::MutexGuard<'_, BackendSharedState>, ChromeError> {
+    fn lock_state(&self) -> Result<std::sync::MutexGuard<'_, BackendSharedState>, SoulError> {
         self.state
             .lock()
-            .map_err(|_| ChromeError::Other("backend state lock poisoned".to_string()))
+            .map_err(|_| SoulError::Other("backend state lock poisoned".to_string()))
     }
 }
 
-impl ChromeBackend for GpuiChromeBackend {
-    fn init(&mut self, config: ChromeConfig) -> Result<(), ChromeError> {
+impl SoulBackend for GpuiSoulBackend {
+    fn init(&mut self, config: SoulConfig) -> Result<(), SoulError> {
         tracing::info!(app_name = %config.app_name, "Initializing GPUI chrome backend");
         Ok(())
     }
 
     #[allow(clippy::significant_drop_tightening)]
-    fn open_window(&mut self, spec: WindowSpec) -> Result<WindowId, ChromeError> {
+    fn open_window(&mut self, spec: WindowSpec) -> Result<WindowId, SoulError> {
         let window_id = WindowId(self.next_window_id);
         self.next_window_id += 1;
 
@@ -124,7 +124,7 @@ impl ChromeBackend for GpuiChromeBackend {
     }
 
     #[allow(clippy::significant_drop_tightening)]
-    fn close_window(&mut self, window_id: WindowId) -> Result<(), ChromeError> {
+    fn close_window(&mut self, window_id: WindowId) -> Result<(), SoulError> {
         let mut state = self.lock_state()?;
         if state.windows.remove(&window_id).is_some() {
             tracing::info!(window_id = window_id.0, "Closing GPUI browser window");
@@ -132,13 +132,13 @@ impl ChromeBackend for GpuiChromeBackend {
             if let Some(handler) = self.event_handler.lock().ok().as_deref()
                 && let Some(handler) = handler
             {
-                handler(ChromeEvent::WindowCloseRequested {
+                handler(SoulEvent::WindowCloseRequested {
                     window_id: window_id.0,
                 });
             }
             Ok(())
         } else {
-            Err(ChromeError::WindowNotFound(window_id))
+            Err(SoulError::WindowNotFound(window_id))
         }
     }
 
@@ -147,25 +147,25 @@ impl ChromeBackend for GpuiChromeBackend {
         &mut self,
         window_id: WindowId,
         frame: ViewportFrame,
-    ) -> Result<(), ChromeError> {
+    ) -> Result<(), SoulError> {
         let render_image = Self::frame_to_render_image(frame);
 
         let mut state = self.lock_state()?;
         let window = state
             .windows
             .get_mut(&window_id)
-            .ok_or(ChromeError::WindowNotFound(window_id))?;
+            .ok_or(SoulError::WindowNotFound(window_id))?;
         window.frame = render_image;
         tracing::debug!(window_id = window_id.0, "Viewport frame staged");
         Ok(())
     }
 
-    fn set_event_handler(&mut self, handler: Box<dyn Fn(ChromeEvent) + Send + Sync + 'static>) {
+    fn set_event_handler(&mut self, handler: Box<dyn Fn(SoulEvent) + Send + Sync + 'static>) {
         *self.event_handler.lock().unwrap() = Some(handler);
     }
 
     #[allow(clippy::cast_precision_loss)]
-    fn run(self: Box<Self>) -> Result<(), ChromeError> {
+    fn run(self: Box<Self>) -> Result<(), SoulError> {
         let state = self.state.clone();
         let event_handler = self.event_handler.clone();
 
@@ -189,7 +189,7 @@ impl ChromeBackend for GpuiChromeBackend {
                     && let Some(handler) = handler
                 {
                     for id in &close_ids {
-                        handler(ChromeEvent::WindowCloseRequested { window_id: id.0 });
+                        handler(SoulEvent::WindowCloseRequested { window_id: id.0 });
                     }
                 }
             });

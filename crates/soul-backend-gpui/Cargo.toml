@@ -1,5 +1,5 @@
 [package]
-name = "chrome-backend-gpui"
+name = "soul-backend-gpui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,7 +13,6 @@ browser-ui = { path = "../browser-ui" }
 common = { path = "../common" }
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
-gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 image = { version = "0.25", default-features = false }
 thiserror.workspace = true
 tracing.workspace = true

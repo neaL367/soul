@@ -3,13 +3,13 @@
 
 > **Revision note:** this plan was reviewed after its first draft. The review correctly identified the original 12–18 month MVP timeline as optimistic, flagged the GPUI dependency as an under-weighted project-survival risk (not just a rendering-backend choice), argued the JS-engine compatibility spike needed to move earlier, and pushed for an accessibility semantic tree to be carried from early layout work rather than retrofitted. All four are incorporated below, marked inline where they change prior sections. Memory targets were also revised to be more honest about what Rust actually buys (safety, not automatically-low memory).
 
-> **Implementation status note (2026-08-14):** this plan describes the target architecture; §31 now carries a per-milestone **Status** annotation plus a status table that is authoritative for what actually exists in the repository (verified against code, not the changelog). In short: the full M0–M23 milestone sequence exists as working, tested code, with **M1 now genuinely real** — `chrome-backend-gpui` opens an actual native window via GPUI (git `zed-industries/zed` gpui 0.2.2 + `longbridge/gpui-component`, both confined to the one backend crate), presenting engine frames as window content; verified by a Win32 `EnumWindows` smoke test. Remaining headless/simulated: M10b GPU compositing (CPU raster only; no surface/DXGI), M14–M16 (single process; IPC and network-service are in-process), and M18 (playback is a state machine, no Media Foundation). Two milestones were renumbered to match the repository's actual sequence (M20 = Downloads, M21 = Compositor + benchmark harness; the original M20 WPT-compatibility milestone is not started — see ADR-16 and §31).
+> **Implementation status note (2026-08-14):** this plan describes the target architecture; §31 now carries a per-milestone **Status** annotation plus a status table that is authoritative for what actually exists in the repository (verified against code, not the changelog). In short: the full M0–M23 milestone sequence exists as working, tested code, with **M1 now genuinely real** — `soul-backend-gpui` opens an actual native window via GPUI (git `zed-industries/zed` gpui 0.2.2 + `longbridge/gpui-component`, both confined to the one backend crate), presenting engine frames as window content; verified by a Win32 `EnumWindows` smoke test. Remaining headless/simulated: M10b GPU compositing (CPU raster only; no surface/DXGI), M14–M16 (single process; IPC and network-service are in-process), and M18 (playback is a state machine, no Media Foundation). Two milestones were renumbered to match the repository's actual sequence (M20 = Downloads, M21 = Compositor + benchmark harness; the original M20 WPT-compatibility milestone is not started — see ADR-16 and §31).
 
 ---
 
 ## 1. Executive Summary
 
-This is a plan for a real browser engine, not a WebView wrapper. It is written for a **solo-to-small-team developer**, in Rust 1.97.1 / Edition 2024, using **GPUI** for the desktop chrome, targeting **Windows 11** first.
+This is a plan for a real browser engine, not a WebView wrapper. It is written for a **solo-to-small-team developer**, in Rust 1.97.1 / Edition 2024, using **GPUI** for the desktop UI, targeting **Windows 11** first.
 
 The central engineering bet that makes this tractable is: **defer multi-process architecture, keep single-process modularity that is shaped like a future multi-process boundary.** Chromium took hundreds of engineers over a decade to reach site isolation and full sandboxing. A solo developer who tries to build IPC, sandboxing, and crash-isolated multi-process rendering *before* the renderer can lay out a `<div>` will never finish the renderer. Instead, every subsystem is designed behind a message-passing API (commands in, events out) from day one, running in-process on threads/tasks. When the project is mature enough that process isolation is worth the cost, those same APIs move across an OS process boundary with comparatively small changes to call sites, because the *shape* of the interface never changes — only its transport.
 
@@ -45,7 +45,7 @@ This plan is honest about scope: a fully HTML5/CSS3/ES2024-compliant, GPU-accele
 
 Two axes define the architecture:
 
-1. **Ownership axis** — GPUI owns *chrome* (windows, tabs, omnibox, menus). The engine owns *page content* (DOM, layout, paint, script). GPUI never parses HTML and the engine never draws a tab strip.
+1. **Ownership axis** — GPUI owns the *browser UI* (windows, tabs, omnibox, menus). The engine owns *page content* (DOM, layout, paint, script). GPUI never parses HTML and the engine never draws a tab strip.
 2. **Process axis** — starts as **one process, many threads/tasks**, and progressively splits into **browser / GPU / network / renderer(s)** processes as milestones M14–M16 are reached. Crate boundaries are drawn along this axis from the start even while everything runs in one process.
 
 ```text
@@ -179,12 +179,12 @@ Each process boundary is introduced **only after** the thing it isolates already
 
 ## 9. GPUI Architecture
 
-GPUI (from Zed) is a real, GPU-accelerated retained/immediate hybrid UI framework: on Windows it currently renders its own chrome via a Direct3D backend (a community fork, `gpui-ce`/`gpui-wgpu`, swaps this for `wgpu` for a unified cross-platform backend — worth evaluating specifically because it would let the browser's own compositor and GPUI's chrome renderer share **one wgpu device**, avoiding cross-API texture interop). GPUI exposes a `Surface` element specifically meant for embedding externally-rendered content (video, GPU surfaces) inside its element tree — this is the integration point for web content.
+GPUI (from Zed) is a real, GPU-accelerated retained/immediate hybrid UI framework: on Windows it currently renders its own UI via a Direct3D backend (a community fork, `gpui-ce`/`gpui-wgpu`, swaps this for `wgpu` for a unified cross-platform backend — worth evaluating specifically because it would let the browser's own compositor and GPUI's UI renderer share **one wgpu device**, avoiding cross-API texture interop). GPUI exposes a `Surface` element specifically meant for embedding externally-rendered content (video, GPU surfaces) inside its element tree — this is the integration point for web content.
 
 **Boundary:**
 
 ```text
-GPUI                              (chrome: tabs, omnibox, toolbar, menus, settings)
+GPUI                              (browser UI: tabs, omnibox, toolbar, menus, settings)
   └─ Surface element               (one per visible tab's viewport)
         ▲
         │ texture handle, updated per composited frame
@@ -197,7 +197,7 @@ renderer (layout/paint)           (owns DOM/CSSOM/layout tree)
 ```
 
 - GPUI **never** receives DOM nodes, layout boxes, or CSS. It receives a texture and forwards raw/translated input events (mouse, keyboard, wheel) that land inside the `Surface` bounds.
-- The renderer/compositor **never** draws window chrome, and has no knowledge of GPUI's element tree.
+- The renderer/compositor **never** draws the window UI, and has no knowledge of GPUI's element tree.
 - If `gpui-ce`'s wgpu backend is adopted, the compositor renders directly into a wgpu texture registered with GPUI's `Surface`, avoiding a DXGI shared-handle round trip. If mainline GPUI's native D3D11 backend on Windows is used instead, a DXGI keyed-mutex shared texture is the interop path. **This is an explicit ADR decision point (see §18, ADR-1) to make before M1**, because it affects the compositor's device creation code.
 
 ### Input routing
@@ -207,9 +207,9 @@ Win32 (WM_MOUSEMOVE, WM_KEYDOWN, WM_MOUSEWHEEL, WM_TOUCH...)
    ↓
 GPUI platform layer (translates to GPUI InputEvent)
    ↓
-GPUI element tree dispatch (chrome elements get first refusal — e.g. clicking the omnibox)
+GPUI element tree dispatch (browser-UI elements get first refusal — e.g. clicking the omnibox)
    ↓
-Surface element (if event falls inside the active tab's viewport and chrome didn't consume it)
+Surface element (if event falls inside the active tab's viewport and the browser UI didn't consume it)
    ↓
 Input Router (browser-core) — translates GPUI coordinates → page (CSS pixel) coordinates, accounts for zoom/DPI/scroll offset
    ↓
@@ -222,9 +222,9 @@ Menus, context menus, notifications, downloads UI, history, and bookmarks UI are
 
 ### Isolating the GPUI dependency (amendment)
 
-GPUI is a comparatively young, still-fast-moving framework, and a fork of it (`gpui-ce`) more so. Betting the entire chrome layer — tabs, omnibox, menus, input routing — directly on it is a **project-survival risk**, not just a rendering-backend choice: an upstream breaking change, a stalled fork, or an API surface that doesn't cover a needed capability can stall the whole project, not just the UI polish.
+GPUI is a comparatively young, still-fast-moving framework, and a fork of it (`gpui-ce`) more so. Betting the entire browser-UI layer — tabs, omnibox, menus, input routing — directly on it is a **project-survival risk**, not just a rendering-backend choice: an upstream breaking change, a stalled fork, or an API surface that doesn't cover a needed capability can stall the whole project, not just the UI polish.
 
-The mitigation costs little and pays for itself the first time GPUI's API shifts: define a `ChromeBackend` trait in `browser-ui` (window/view lifecycle, input event delivery, surface/texture embedding, basic layout primitives for chrome) and put all direct `gpui::*` usage behind a `chrome-backend-gpui` implementation crate. `browser-core` and `compositor` depend only on the trait, never on `gpui` directly. If GPUI becomes untenable, the fallback path is "write a new backend crate against `egui`, `slint`, or raw Win32," not "rewrite the browser." This is the same message-shaped-API discipline already applied to IPC (§8, ADR-5) applied one layer up, to the UI framework itself.
+The mitigation costs little and pays for itself the first time GPUI's API shifts: define a `SoulBackend` trait in `browser-ui` (window/view lifecycle, input event delivery, surface/texture embedding, basic layout primitives for the browser UI) and put all direct `gpui::*` usage behind a `soul-backend-gpui` implementation crate. `browser-core` and `compositor` depend only on the trait, never on `gpui` directly. If GPUI becomes untenable, the fallback path is "write a new backend crate against `egui`, `slint`, or raw Win32," not "rewrite the browser." This is the same message-shaped-API discipline already applied to IPC (§8, ADR-5) applied one layer up, to the UI framework itself.
 
 ---
 
@@ -367,7 +367,7 @@ The display list is the **serialization boundary** for the eventual renderer/com
 - **Rasterization**: for MVP, CPU-side software rasterization of paint primitives (via `tiny-skia`, a mature Rust `Skia`-like 2D rasterizer) uploaded as textures is *simpler and faster to ship* than a full GPU-rasterized 2D pipeline (analytic AA, path rendering on GPU is its own research area). GPU-side rasterization (compute-shader path rendering, akin to Pathfinder/Vello) is a Phase 3 performance upgrade, tracked explicitly as a swappable backend behind the same display-list-consumer interface.
 - **Compositing** (layer tree → final frame) *is* GPU-side from day one — this is different from rasterization: individual painted tiles are simple textured quads, and quad compositing (with transforms/opacity/clips) is exactly what a GPU excels at and is not hard to get right with `wgpu`.
 - **Damage tracking**: dirty-rect accumulation per frame; undamaged tiles are not re-rasterized or re-uploaded.
-- **Frame pacing / VSync**: driven by DXGI's `Present` with sync interval, coordinated with GPUI's own present cycle for chrome so tab content and chrome don't visibly tear relative to each other.
+- **Frame pacing / VSync**: driven by DXGI's `Present` with sync interval, coordinated with GPUI's own present cycle so tab content and the browser UI don't visibly tear relative to each other.
 - **High-DPI / multi-monitor**: per-monitor DPI awareness (Per-Monitor-V2) — directly reuses the user's prior DPI-virtualization experience from the Aura project; render targets are sized in physical pixels, CSS pixel↔device pixel conversion happens once, at the layout/paint boundary, not scattered through the codebase.
 
 ```text
@@ -472,7 +472,7 @@ URL → url crate (parsing, per WHATWG URL spec)
 |---|---|
 | Raw Vulkan | Full control, but a large `unsafe` surface (manual synchronization, memory management) for a 2D-compositing-dominated workload that doesn't need it. Rejected for the compositor. |
 | Raw D3D12 | Same trade-off as Vulkan, plus Windows-only (loses the option of GPUI's other platform backends later). Rejected. |
-| **`wgpu`** | Safe Rust API over Vulkan/D3D12/Metal, chooses the best backend per platform, actively maintained, already effectively "blessed" by the GPUI ecosystem (`gpui-ce` uses it). **Recommended** for the compositor; interoperates with GPUI's chrome rendering per §9. |
+| **`wgpu`** | Safe Rust API over Vulkan/D3D12/Metal, chooses the best backend per platform, actively maintained, already effectively "blessed" by the GPUI ecosystem (`gpui-ce` uses it). **Recommended** for the compositor; interoperates with GPUI's UI rendering per §9. |
 | CPU rendering fallback | Required regardless, for headless/testing and as a last-resort compatibility path (old/broken GPU drivers) — `tiny-skia` (already the MVP rasterizer, §16) doubles as this fallback. |
 
 ```text
@@ -480,7 +480,7 @@ Layout/Paint → Display List
    → Raster (tiny-skia, CPU, MVP) or GPU raster (Phase 3, compute-shader path rendering)
    → wgpu Texture upload
    → wgpu Compositor pass (quads: transform, opacity, clip → GPU)
-   → Shared texture handle → GPUI Surface (chrome compositing)
+   → Shared texture handle → GPUI Surface (browser-UI compositing)
    → DXGI Swapchain → Present → Window
 ```
 
@@ -498,11 +498,11 @@ Layout/Paint → Display List
 
 All access to the Windows API goes through the official [`windows`](https://github.com/microsoft/windows-rs) crate (Microsoft-maintained, generated bindings — reuse, don't hand-write FFI signatures for Win32).
 
-- **Win32 windowing/input**: owned by GPUI for chrome windows; the platform layer crate wraps anything GPUI doesn't already expose (e.g., custom window messages for tab-drag-out-to-new-window gestures).
+- **Win32 windowing/input**: owned by GPUI for browser windows; the platform layer crate wraps anything GPUI doesn't already expose (e.g., custom window messages for tab-drag-out-to-new-window gestures).
 - **Clipboard**: `windows` crate `Clipboard` APIs, format negotiation for HTML/plain-text copy from rendered pages.
 - **File system**: standard `std::fs` plus the Windows file picker (`IFileOpenDialog`/`IFileSaveDialog` via `windows` crate) for downloads/uploads.
 - **DPI/scaling**: Per-Monitor-V2 awareness declared in the manifest; directly reuses prior Aura-project DPI-virtualization experience.
-- **Accessibility**: UI Automation (UIA) provider implementation for chrome (GPUI-level, if/when GPUI exposes UIA hooks) and, separately and much harder, an accessibility tree derived from the DOM/layout tree for page content — flagged honestly as a **major gap** through MVP and Phase 2 (see §29).
+- **Accessibility**: UI Automation (UIA) provider implementation for the browser UI (GPUI-level, if/when GPUI exposes UIA hooks) and, separately and much harder, an accessibility tree derived from the DOM/layout tree for page content — flagged honestly as a **major gap** through MVP and Phase 2 (see §29).
 - **Notifications**: Windows `ToastNotification` via `windows` crate, for the Notifications Web API (Phase 3) and download-complete notices.
 - **Audio/video**: Media Foundation (`windows` crate MF bindings) for `<audio>`/`<video>` element playback — direct reuse of prior Aura-project MF experience. Media Source Extensions (adaptive streaming) is Advanced.
 - **Process management**: `CreateProcess` with restricted tokens for renderer processes (M16+), Job Objects for resource limiting/cleanup-on-crash.
@@ -541,9 +541,9 @@ browser/
 ├── crates/
 │   ├── browser-shell/          # bin: entry point, wires everything together
 │   ├── browser-core/           # tab/window/nav/session/profile/permission state machines
-│   ├── browser-ui/             # `ChromeBackend` trait + backend-agnostic view logic (tabs, omnibox,
+│   ├── browser-ui/             # `SoulBackend` trait + backend-agnostic view logic (tabs, omnibox,
 │   │                           #   toolbar, menus, settings, downloads UI) — no direct `gpui` import
-│   ├── chrome-backend-gpui/    # concrete `ChromeBackend` impl against GPUI; the ONLY crate that
+│   ├── soul-backend-gpui/    # concrete `SoulBackend` impl against GPUI; the ONLY crate that
 │   │                           #   depends on `gpui` directly (see §9 amendment)
 │   ├── ipc/                    # command/event message types + Phase-1 channel transport +
 │   │                           #   Phase-2 named-pipe/framing transport, behind one trait
@@ -573,7 +573,7 @@ browser/
 └── docs/                         # this document + ADRs (see §26) + per-crate design notes
 ```
 
-**Dependency direction** (no cycles, enforced by workspace lint or CI check): `browser-shell` → `chrome-backend-gpui` → `browser-ui` (trait only) / `browser-core` → `ipc` → {`html`, `css`, `dom`, `layout`, `javascript`, `networking`, `storage`, `compositor`} → {`gpu`, `text-shaping`, `raster`, `image-decode`, `media`, `platform-windows`} → `common`. `dom`, `css`, and `layout` deliberately do not depend on `networking` or `storage` — they operate on bytes/values already fetched, keeping them unit-testable without any IO. **`gpui` itself appears only in `chrome-backend-gpui`'s `Cargo.toml` — no other crate in the workspace, including `browser-core` and `compositor`, depends on it directly** (§9 amendment); this is the concrete enforcement mechanism behind the trait-boundary decision, checkable in CI via `cargo metadata`.
+**Dependency direction** (no cycles, enforced by workspace lint or CI check): `browser-shell` → `soul-backend-gpui` → `browser-ui` (trait only) / `browser-core` → `ipc` → {`html`, `css`, `dom`, `layout`, `javascript`, `networking`, `storage`, `compositor`} → {`gpu`, `text-shaping`, `raster`, `image-decode`, `media`, `platform-windows`} → `common`. `dom`, `css`, and `layout` deliberately do not depend on `networking` or `storage` — they operate on bytes/values already fetched, keeping them unit-testable without any IO. **`gpui` itself appears only in `soul-backend-gpui`'s `Cargo.toml` — no other crate in the workspace, including `browser-core` and `compositor`, depends on it directly** (§9 amendment); this is the concrete enforcement mechanism behind the trait-boundary decision, checkable in CI via `cargo metadata`.
 
 ---
 
@@ -605,7 +605,7 @@ browser/
 | Async runtime | Reuse | `tokio` (networking/storage/IO); GPUI's own executor for UI-thread tasks |
 | IPC transport (Phase 2) | Reuse (transport), build (protocol) | `interprocess`, `rkyv`/`postcard` |
 | GPU driver / OS APIs | Provided by platform | Windows/DXGI/DirectX runtime, GPU vendor driver |
-| Browser chrome UI framework | Provided (chosen) | `gpui` |
+| Browser UI framework | Provided (chosen) | `gpui` |
 
 **Policy:** security-critical primitives (crypto, TLS, memory-unsafe parsing of untrusted input where a mature hardened crate exists) are **never** reimplemented without a documented, specific technical reason reviewed as its own ADR. The project's actual novelty budget is spent on: the layout engine, the tab lifecycle/memory-tiering system, the GPUI↔compositor integration, and DOM/JS binding design — not on re-solving TLS or HTML tokenization.
 
@@ -743,7 +743,7 @@ These are **engineering targets to design around, not SLAs** — stated explicit
 | Risk | Complexity | Impact | Probability | Mitigation |
 |---|---|---|---|---|
 | JavaScript engine limitations (`boa` compat/perf) | High | High | **High** (revised up — see amendment below) | Start with `boa`; run a real-site JS-execution spike **before layout work begins** (not at M11), against the actual target-site corpus (docs/blogs), so a Boa-insufficiency finding changes course in weeks, not after M11–M13's DOM-binding work is already coupled to Boa's host-object API |
-| GPUI/`gpui-ce` upstream volatility | Medium | **High** (project-survival, not just UI polish) | Medium-High | `ChromeBackend` trait boundary (§9 amendment) — isolates the blast radius of an upstream break to one backend crate instead of the whole chrome layer |
+| GPUI/`gpui-ce` upstream volatility | Medium | **High** (project-survival, not just UI polish) | Medium-High | `SoulBackend` trait boundary (§9 amendment) — isolates the blast radius of an upstream break to one backend crate instead of the whole UI layer |
 | CSS compatibility (long tail) | Very High | Medium (bounded by Non-Goals) | High (it *will* be incomplete) | Explicit MVP/Phase/Advanced tiers (§14), never claim more coverage than tested |
 | Web-platform compatibility broadly | Very High | Medium | High | Curated WPT subset (§27), explicit non-goal of full compatibility |
 | GPU rendering complexity (wgpu/DXGI interop with GPUI) | Medium-High | High (blocks everything downstream) | Medium | Resolve the GPUI-backend ADR (§18, ADR-1) *before* M1; prototype the Surface-texture handoff as a spike before committing |
@@ -766,7 +766,7 @@ These are **engineering targets to design around, not SLAs** — stated explicit
 ## 30. Architecture Decision Records
 
 **ADR-1: GPUI rendering backend on Windows**
-- *Decision:* Evaluate mainline GPUI (native D3D11 backend) against the `gpui-ce`/`gpui-wgpu` fork (wgpu-unified backend) in a short spike before M1; prefer the wgpu fork if it's stable enough, because it lets the compositor and chrome share one GPU device and avoids DXGI shared-texture interop. **Amendment: regardless of which backend wins, it sits behind the `ChromeBackend` trait (§9 amendment) — this ADR decides an implementation detail inside `chrome-backend-gpui`, not a dependency the rest of the codebase is allowed to see.**
+- *Decision:* Evaluate mainline GPUI (native D3D11 backend) against the `gpui-ce`/`gpui-wgpu` fork (wgpu-unified backend) in a short spike before M1; prefer the wgpu fork if it's stable enough, because it lets the compositor and the browser UI share one GPU device and avoids DXGI shared-texture interop. **Amendment: regardless of which backend wins, it sits behind the `SoulBackend` trait (§9 amendment) — this ADR decides an implementation detail inside `soul-backend-gpui`, not a dependency the rest of the codebase is allowed to see.**
 - *Alternatives:* Mainline GPUI + DXGI shared-texture interop with our own `wgpu` compositor.
 - *Advantages:* Single device model, simpler interop, potential future cross-platform reuse.
 - *Disadvantages:* Fork tracks upstream GPUI independently — risk of drift/lag on GPUI feature updates. **This risk is exactly why the trait boundary exists — it doesn't eliminate GPUI volatility risk, it contains it.**
@@ -858,7 +858,7 @@ Each milestone lists: **Objective · Components · Depends on · Tasks · Tests 
 |---|---|---|
 | Spike 0 | GPUI + Boa de-risking (ADR-1, ADR-4) | **Complete** — both resolved; `docs/spike-0-results.md` (6/6 corpus tests pass) |
 | M0 Foundation | 25-crate workspace, tracing, CI | **Complete** — 25 crates + benchmarks, Edition 2024, Rust 1.97.1, CI green |
-| M1 GPUI shell | real window via `ChromeBackend` | **Complete** — real native window via GPUI (git zed gpui 0.2.2 + gpui-component, confined to `chrome-backend-gpui`); engine frames presented via `ImageSource::Render`; window existence proven by Win32 `EnumWindows` smoke test |
+| M1 GPUI shell | real window via `SoulBackend` | **Complete** — real native window via GPUI (git zed gpui 0.2.2 + gpui-component, confined to `soul-backend-gpui`); engine frames presented via `ImageSource::Render`; window existence proven by Win32 `EnumWindows` smoke test |
 | M2 Window + input | OS input events, DPI | **Partial** — `InputRouter` + `DpiScale` real; GPUI input events not yet forwarded into them (wiring outstanding) |
 | M3 URL + navigation | nav state machine, stub fetch | **Complete** — `NavigationController` state machine, `NavigationId` race handling, wired into the browser-shell live-navigation path |
 | M4 Networking | HTTP(S), DNS, redirects, cookies | **Partial** — real HTTP/1.1 + TLS 1.2/1.3 (hyper 1, rustls, webpki-roots) wired into shell live navigation; bounded redirect following (5 hops, POST→GET on 301/302/303); no hickory DNS, no cookie jar, no HTTP/2 |
@@ -895,8 +895,8 @@ Objective: answer the two highest-uncertainty questions in the plan *before* com
 Objective: workspace exists, builds, CI runs. Components: `common`, workspace `Cargo.toml`, `rust-toolchain.toml`. Depends on: nothing. Tasks: crate skeletons per §24, `tracing` setup, CI (build + test on Windows runner). Tests: `cargo test` passes on an empty workspace. DoD: green CI on a trivial commit. Risks: none significant. NOT yet: any actual feature code.
 
 **M1 — GPUI Browser Shell**
-**Status: Complete.** A real native window opens via GPUI (git `zed-industries/zed` gpui 0.2.2 + `gpui-component`, both confined to this crate), presenting the latest engine frame full-window. Window existence verified by a Win32 `EnumWindows` smoke test (`crates/browser-shell/tests/window_smoke_tests.rs`, `--ignored`). Window-close events are forwarded to the `ChromeBackend` handler. Outstanding: input-event routing into `InputRouter` (M2) and chrome UI widgets (tab strip/omnibox via gpui-component).
-Objective: an empty window opens and closes cleanly, through the `ChromeBackend` trait rather than direct GPUI calls. Components: `browser-shell`, `browser-ui` (trait), `chrome-backend-gpui` (impl). Depends on: M0, Spike 0(a) resolved. Tasks: define `ChromeBackend`, window creation, basic event loop wiring, app icon/title — all `gpui::*` usage confined to `chrome-backend-gpui`. Tests: manual + a smoke test that the binary launches and exits 0 headless where possible. DoD: `browser-shell.exe` opens a native window, and `browser-core` (once it exists) has zero `gpui` in its dependency tree. Risks: getting the trait boundary wrong here is expensive to fix later — worth extra review time. NOT yet: tabs, any page content.
+**Status: Complete.** A real native window opens via GPUI (git `zed-industries/zed` gpui 0.2.2 + `gpui-component`, both confined to this crate), presenting the latest engine frame full-window. Window existence verified by a Win32 `EnumWindows` smoke test (`crates/browser-shell/tests/window_smoke_tests.rs`, `--ignored`). Window-close events are forwarded to the `SoulBackend` handler. Outstanding: input-event routing into `InputRouter` (M2) and browser-UI widgets (tab strip/omnibox built from scratch on gpui elements).
+Objective: an empty window opens and closes cleanly, through the `SoulBackend` trait rather than direct GPUI calls. Components: `browser-shell`, `browser-ui` (trait), `soul-backend-gpui` (impl). Depends on: M0, Spike 0(a) resolved. Tasks: define `SoulBackend`, window creation, basic event loop wiring, app icon/title — all `gpui::*` usage confined to `soul-backend-gpui`. Tests: manual + a smoke test that the binary launches and exits 0 headless where possible. DoD: `browser-shell.exe` opens a native window, and `browser-core` (once it exists) has zero `gpui` in its dependency tree. Risks: getting the trait boundary wrong here is expensive to fix later — worth extra review time. NOT yet: tabs, any page content.
 
 **M2 — Window + Input System**
 Objective: input events reach application code correctly. Components: `browser-ui`, `platform-windows`. Depends on: M1. Tasks: mouse/keyboard/wheel routing, DPI-aware sizing, multi-monitor window placement. Tests: input-routing unit tests with synthetic events. DoD: clicking/typing in the (still empty) window is observable in app state. Risks: DPI edge cases (mitigated by prior Aura experience). NOT yet: hit-testing into page content (doesn't exist).
@@ -929,11 +929,11 @@ Objective: carry minimal semantic information (name/role/bounds) alongside the f
 
 **M10a — Software Raster to Screen**
 **Status: Simulated.** CPU rasterizer real and tested; the resulting frame is stored in the in-memory backend's window state, never presented on a screen (no real window exists).
-Objective: prove the display-list-to-pixels pipeline is correct, isolated from any GPU interop risk. Components: `raster` (tiny-skia). Depends on: M9.5. Tasks: CPU raster of display lists to a bitmap, presented via the simplest possible path the `ChromeBackend` trait supports (e.g., an image/software-surface element) rather than a GPU texture handoff. Tests: screenshot/golden-image tests begin here (§27) — and are easier to get right without GPU nondeterminism in the loop. DoD: **a real webpage renders visually on screen inside a tab**, via the CPU path. This is the project's first genuinely demo-able milestone, and it arrives without having to simultaneously debug GPU synchronization. Risks: low — this is precisely the point of splitting it out. NOT yet: GPU compositing, damage tracking, acceptable performance at scale (CPU raster is a correctness checkpoint, not the shipping path).
+Objective: prove the display-list-to-pixels pipeline is correct, isolated from any GPU interop risk. Components: `raster` (tiny-skia). Depends on: M9.5. Tasks: CPU raster of display lists to a bitmap, presented via the simplest possible path the `SoulBackend` trait supports (e.g., an image/software-surface element) rather than a GPU texture handoff. Tests: screenshot/golden-image tests begin here (§27) — and are easier to get right without GPU nondeterminism in the loop. DoD: **a real webpage renders visually on screen inside a tab**, via the CPU path. This is the project's first genuinely demo-able milestone, and it arrives without having to simultaneously debug GPU synchronization. Risks: low — this is precisely the point of splitting it out. NOT yet: GPU compositing, damage tracking, acceptable performance at scale (CPU raster is a correctness checkpoint, not the shipping path).
 
 **M10b — GPU Compositor**
 **Status: Not started.** No `wgpu` dependency in the workspace; `gpu` crate is an empty shell; `compositor` does CPU-only layer composition + damage tracking.
-Objective: replace the M10a software path with the real `wgpu` compositor, now that display-list correctness is already proven. Components: `compositor` (wgpu), `gpu`, `chrome-backend-gpui`. Depends on: M10a, Spike 0(a) resolved. Tasks: texture upload, quad compositing, GPU-texture handoff through `ChromeBackend`'s surface-embedding capability (§9). Tests: same screenshot suite as M10a, now diffed to confirm GPU output matches the CPU-raster baseline (a strong correctness check specific to this split). DoD: the shipping GPU-accelerated path renders correctly and matches the M10a baseline. Risks: driver bugs, DXGI keyed-mutex issues, device-lost recovery, mixed-DPI multi-monitor cases — real risk, but now isolated from display-list-correctness risk, which is the whole point of the M10a/M10b split. NOT yet: damage-tracking optimization, GPU-side rasterization (Phase 3).
+Objective: replace the M10a software path with the real `wgpu` compositor, now that display-list correctness is already proven. Components: `compositor` (wgpu), `gpu`, `soul-backend-gpui`. Depends on: M10a, Spike 0(a) resolved. Tasks: texture upload, quad compositing, GPU-texture handoff through `SoulBackend`'s surface-embedding capability (§9). Tests: same screenshot suite as M10a, now diffed to confirm GPU output matches the CPU-raster baseline (a strong correctness check specific to this split). DoD: the shipping GPU-accelerated path renders correctly and matches the M10a baseline. Risks: driver bugs, DXGI keyed-mutex issues, device-lost recovery, mixed-DPI multi-monitor cases — real risk, but now isolated from display-list-correctness risk, which is the whole point of the M10a/M10b split. NOT yet: damage-tracking optimization, GPU-side rasterization (Phase 3).
 
 **M11 — Basic JavaScript**
 Objective: `<script>` executes and can read/write a minimal DOM API. Components: `javascript`, `web-api`. Depends on: M10b (want visual feedback for debugging JS-driven DOM changes), Spike 0(b) already resolved. Tasks: `boa` embedding, hand-written event loop (§18), `console.log`, `querySelector`/`addEventListener`/`classList`/basic `innerHTML`. Tests: script fixtures asserting DOM mutation results. DoD: a page with a simple script (e.g., toggling a class on click) works end-to-end. Risks: low relative to the original plan — the Boa-viability question was already answered at Spike 0, before any binding code was written, rather than discovered here. NOT yet: Promises/async, `fetch` from JS.
@@ -1002,7 +1002,7 @@ The MVP is reached at the end of **M13**. It can:
 - Display text (shaped via `cosmic-text`) and images (via the `image` crate).
 - Scroll, at 60fps-class smoothness, decoupled from layout.
 - Follow links and perform full navigation, with a correct back/forward stack and no navigation races.
-- Run multiple tabs in one GPUI-based browser chrome, with working omnibox/toolbar/tab strip.
+- Run multiple tabs in one GPUI-based browser UI, with working omnibox/toolbar/tab strip.
 - Execute basic JavaScript: DOM query/mutation, event listeners, `console.log`, `setTimeout` — enough for simple interactivity, not enough for a modern SPA.
 - Enforce baseline security: HTTPS validation, Same-Origin Policy, CORS for `fetch`, dangerous-URL-scheme allowlisting.
 - Persist cookies, history, and bookmarks across restarts.
@@ -1058,7 +1058,7 @@ The milestone list in §31 *is* the recommended order, but the load-bearing sequ
 └───────────────────────────────────┬────────────────────────────────────────┘
                                      │
      ┌───────────────────────────────┼─────────────────────────────────┐
-     │                     BROWSER PROCESS (owns chrome + orchestration)│
+     │                     BROWSER PROCESS (owns browser UI + orchestration)│
      │  ┌────────────────────────────────────────────────────────────┐ │
      │  │ GPUI: Windows / Tabs / Omnibox / Toolbar / Menus / Settings  │ │
      │  │        / Downloads UI / History UI / Bookmarks UI            │ │

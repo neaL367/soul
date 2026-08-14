@@ -1,6 +1,6 @@
 //! Backend-agnostic browser chrome trait and window specification types.
 
-use crate::event::ChromeEvent;
+use crate::event::SoulEvent;
 use thiserror::Error;
 
 /// Unique identifier for a native browser chrome window.
@@ -65,7 +65,7 @@ pub enum ViewportFrame {
 
 /// Global configuration options for initializing the chrome backend.
 #[derive(Debug, Clone, Default)]
-pub struct ChromeConfig {
+pub struct SoulConfig {
     /// Application name.
     pub app_name: String,
     /// Custom asset directory path if applicable.
@@ -74,7 +74,7 @@ pub struct ChromeConfig {
 
 /// Error type for chrome backend operations.
 #[derive(Debug, Error)]
-pub enum ChromeError {
+pub enum SoulError {
     /// Backend initialization failed.
     #[error("Failed to initialize chrome backend: {0}")]
     InitializationFailed(String),
@@ -100,26 +100,26 @@ pub enum ChromeError {
 ///
 /// This trait isolates the rest of the codebase from the chosen UI framework (`GPUI`),
 /// allowing mock implementations for testing or backend replacement without engine rewrites.
-pub trait ChromeBackend: Send + Sync + 'static {
+pub trait SoulBackend: Send + Sync + 'static {
     /// Initializes the desktop UI framework runtime.
-    fn init(&mut self, config: ChromeConfig) -> Result<(), ChromeError>;
+    fn init(&mut self, config: SoulConfig) -> Result<(), SoulError>;
 
     /// Creates and opens a new native window.
-    fn open_window(&mut self, spec: WindowSpec) -> Result<WindowId, ChromeError>;
+    fn open_window(&mut self, spec: WindowSpec) -> Result<WindowId, SoulError>;
 
     /// Closes a previously opened window.
-    fn close_window(&mut self, window_id: WindowId) -> Result<(), ChromeError>;
+    fn close_window(&mut self, window_id: WindowId) -> Result<(), SoulError>;
 
     /// Updates the rendered content frame inside a window's web viewport.
     fn update_viewport(
         &mut self,
         window_id: WindowId,
         frame: ViewportFrame,
-    ) -> Result<(), ChromeError>;
+    ) -> Result<(), SoulError>;
 
     /// Registers a callback handler to receive events emitted by user interactions with chrome.
-    fn set_event_handler(&mut self, handler: Box<dyn Fn(ChromeEvent) + Send + Sync + 'static>);
+    fn set_event_handler(&mut self, handler: Box<dyn Fn(SoulEvent) + Send + Sync + 'static>);
 
     /// Runs the application message loop until all windows are closed or shutdown is triggered.
-    fn run(self: Box<Self>) -> Result<(), ChromeError>;
+    fn run(self: Box<Self>) -> Result<(), SoulError>;
 }

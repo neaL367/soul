@@ -1,16 +1,16 @@
-//! Integration tests for `GpuiChromeBackend`.
+//! Integration tests for `GpuiSoulBackend`.
 
 use browser_ui::{
-    ChromeBackend, ChromeConfig, ChromeError, ChromeEvent, ViewportFrame, WindowId, WindowSpec,
+    SoulBackend, SoulConfig, SoulError, SoulEvent, ViewportFrame, WindowId, WindowSpec,
 };
-use chrome_backend_gpui::GpuiChromeBackend;
+use soul_backend_gpui::GpuiSoulBackend;
 use std::sync::{Arc, Mutex};
 
 #[test]
 fn test_gpui_backend_lifecycle() {
-    let mut backend = GpuiChromeBackend::new();
+    let mut backend = GpuiSoulBackend::new();
     backend
-        .init(ChromeConfig {
+        .init(SoulConfig {
             app_name: "Soul Browser Test".to_string(),
             resource_dir: None,
         })
@@ -44,13 +44,13 @@ fn test_gpui_backend_lifecycle() {
 
     assert!(matches!(
         backend.close_window(window_id),
-        Err(ChromeError::WindowNotFound(_))
+        Err(SoulError::WindowNotFound(_))
     ));
 }
 
 #[test]
 fn test_gpui_backend_event_emission() {
-    let mut backend = GpuiChromeBackend::new();
+    let mut backend = GpuiSoulBackend::new();
     let events = Arc::new(Mutex::new(Vec::new()));
     let events_clone = Arc::clone(&events);
 
@@ -65,6 +65,6 @@ fn test_gpui_backend_event_emission() {
     assert_eq!(emitted.len(), 1);
     assert_eq!(
         emitted[0],
-        ChromeEvent::WindowCloseRequested { window_id: id.0 }
+        SoulEvent::WindowCloseRequested { window_id: id.0 }
     );
 }

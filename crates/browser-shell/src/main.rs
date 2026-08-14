@@ -10,8 +10,8 @@ use anyhow::{Context, Result};
 use browser_shell::engine::{
     RenderOptions, a11y_lines, has_visible_pixels, navigate_and_render, render_html_to_buffer,
 };
-use browser_ui::{ChromeBackend, ChromeConfig, ViewportFrame, WindowSpec};
-use chrome_backend_gpui::GpuiChromeBackend;
+use browser_ui::{SoulBackend, SoulConfig, ViewportFrame, WindowSpec};
+use soul_backend_gpui::GpuiSoulBackend;
 use std::path::PathBuf;
 use url::Url;
 
@@ -56,9 +56,9 @@ fn main() -> Result<()> {
     // Chrome backend lifecycle (M1 trait contract). The backend is headless in the
     // current implementation; the frame is presented through the same trait API a
     // real window backend will consume.
-    let mut backend = Box::new(GpuiChromeBackend::new());
+    let mut backend = Box::new(GpuiSoulBackend::new());
     backend
-        .init(ChromeConfig {
+        .init(SoulConfig {
             app_name: "Soul Browser".to_string(),
             resource_dir: None,
         })

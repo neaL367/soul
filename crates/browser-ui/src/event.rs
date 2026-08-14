@@ -2,7 +2,7 @@
 
 /// Events originating from user interaction with the browser chrome or native window.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ChromeEvent {
+pub enum SoulEvent {
     /// Window close requested by the user or OS.
     WindowCloseRequested {
         /// ID of the window requesting closure.

@@ -4,7 +4,7 @@ members = [
     "crates/browser-shell",
     "crates/browser-core",
     "crates/browser-ui",
-    "crates/chrome-backend-gpui",
+    "crates/soul-backend-gpui",
     "crates/ipc",
     "crates/html",
     "crates/dom",

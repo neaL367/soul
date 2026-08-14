@@ -12,13 +12,13 @@ Section numbers below (`§N`) refer to `docs/architecture-plan.md` unless stated
 
 - **If it does not exist:** the project is at or before **M0 (Project Foundation)**. Your task is almost certainly bootstrapping work. Do not invent a different structure — scaffold exactly the crate layout in §24, with each crate as an empty-but-compiling stub (`lib.rs` with a doc comment stating its future responsibility, no speculative code). Do not implement M5+ functionality inside an M0 task just because it seems natural to "get ahead" — see §12 Change-Scope Discipline.
 - **If it exists:** find the furthest-completed milestone by checking `docs/architecture-plan.md` §31 against what's actually implemented (don't trust a stale changelog — verify against code). Confirm which milestone your task belongs to, and confirm its stated dependencies (the "Depends on" field per milestone) are actually satisfied before starting. If asked to implement something whose milestone dependency isn't done yet, say so instead of implementing it out of order.
-- **Spike 0 status matters disproportionately.** Two architectural questions are load-bearing for everything downstream: (a) which GPUI integration path (ADR-1) — is `browser-ui`'s `ChromeBackend` trait implemented against mainline GPUI or the `gpui-ce`/wgpu fork? (b) is Boa confirmed viable against the target-site JS corpus, or has a pivot to `rquickjs` already happened (ADR-4)? Check for a `docs/spike-0-results.md` or equivalent before assuming either answer. If it doesn't exist and you're asked to do JS-engine or GPUI-integration work, that's a signal the spike itself is the actual missing prerequisite — flag it rather than guessing an answer and building on top of the guess.
+- **Spike 0 status matters disproportionately.** Two architectural questions are load-bearing for everything downstream: (a) which GPUI integration path (ADR-1) — is `browser-ui`'s `SoulBackend` trait implemented against mainline GPUI or the `gpui-ce`/wgpu fork? (b) is Boa confirmed viable against the target-site JS corpus, or has a pivot to `rquickjs` already happened (ADR-4)? Check for a `docs/spike-0-results.md` or equivalent before assuming either answer. If it doesn't exist and you're asked to do JS-engine or GPUI-integration work, that's a signal the spike itself is the actual missing prerequisite — flag it rather than guessing an answer and building on top of the guess.
 
 ---
 
 ## 1. Project Mission and Scope
 
-**What this is:** a real browser engine and browser application, built from scratch in Rust 1.97.1 (Edition 2024), with GPUI-based chrome, targeting Windows 11. Not a WebView2/Chromium/Electron wrapper — there is no embedded complete browser engine anywhere in this codebase.
+**What this is:** a real browser engine and browser application, built from scratch in Rust 1.97.1 (Edition 2024), with GPUI-based browser UI, targeting Windows 11. Not a WebView2/Chromium/Electron wrapper — there is no embedded complete browser engine anywhere in this codebase.
 
 **What it's trying to achieve:** a genuinely usable browser for a well-defined subset of the modern web (static-to-moderately-dynamic sites: documentation, blogs, forms, images, basic interactive JS), built on an architecture that never requires a rewrite to keep growing toward broader compatibility later. See `docs/architecture-plan.md` §1 (Executive Summary) and §32 (MVP Definition) for the precise current target.
 
@@ -33,7 +33,7 @@ Section numbers below (`§N`) refer to `docs/architecture-plan.md` unless stated
 | Constraint | Value | Notes |
 |---|---|---|
 | Language | Rust 1.97.1, Edition 2024 | Pinned in `rust-toolchain.toml`. Do not bump without an explicit request — this is a stated project constraint, not a default. |
-| UI framework | GPUI, behind the `ChromeBackend` trait | Never import `gpui::*` outside `chrome-backend-gpui`. This is enforced, not just recommended — see §7. |
+| UI framework | GPUI, behind the `SoulBackend` trait | Never import `gpui::*` outside `soul-backend-gpui`. This is enforced, not just recommended — see §7. |
 | Platform | Windows 11 only | No `#[cfg(target_os = "macos")]`/`linux` branches unless explicitly requested; don't add cross-platform abstraction "for the future" unprompted (§6, Rules for introducing abstractions). |
 | Forbidden | Electron, WebView2, any embedded complete browser engine (CEF, Servo-as-a-whole, etc.), Node.js runtime, .NET runtime | If a task seems to require one of these to be "easy," that's a signal to reconsider the approach, not to add the dependency. |
 | Dependency philosophy | Reuse solved problems, build the differentiator from scratch | See §7 (Dependency Policy) and `docs/architecture-plan.md` §25 for the exact per-subsystem table. Security-critical primitives (crypto/TLS) are never reimplemented. |
@@ -53,8 +53,8 @@ browser/
 ├── crates/
 │   ├── browser-shell/        bin — entry point, wires everything together
 │   ├── browser-core/         tab/window/nav/session/profile/permission state machines
-│   ├── browser-ui/           ChromeBackend trait + backend-agnostic chrome view logic
-│   ├── chrome-backend-gpui/  the ONLY crate allowed to depend on `gpui`
+│   ├── browser-ui/           SoulBackend trait + backend-agnostic browser-UI view logic
+│   ├── soul-backend-gpui/  the ONLY crate allowed to depend on `gpui`
 │   ├── ipc/                  command/event message types + Phase-1/Phase-2 transports
 │   ├── html/                 html5ever TreeSink impl → dom
 │   ├── dom/                  arena-based DOM, NodeId, mutation API
@@ -83,17 +83,17 @@ browser/
 ```
 
 **Where things belong:**
-- Application/business logic → `browser-core`. Chrome view logic (backend-agnostic) → `browser-ui`. GPUI-specific code → `chrome-backend-gpui` **only**.
+- Application/business logic → `browser-core`. Browser-UI view logic (backend-agnostic) → `browser-ui`. GPUI-specific code → `soul-backend-gpui` **only**.
 - Anything touching DOM/CSS/layout/paint/JS → the matching crate above; these must never depend on `networking` or `storage` directly (they operate on already-fetched bytes/values — this is what keeps them unit-testable without IO; see §7 Dependency Direction below).
-- Platform (Win32) code that isn't chrome-window-lifecycle (which GPUI owns) → `platform-windows`.
+- Platform (Win32) code that isn't browser-UI-window-lifecycle (which GPUI owns) → `platform-windows`.
 - Generated/build artifacts (`target/`, `Cargo.lock` is source-controlled but never hand-edited) are never manually modified — regenerate via `cargo build`/`cargo update`, don't patch them directly.
 - **Before creating a new file, search for an existing home first** (see §9). A new top-level crate is a significant structural decision — don't add one without confirming it doesn't fit into an existing crate's stated responsibility above, and flag it explicitly if you believe a new crate is genuinely warranted rather than silently creating one.
 
 **Dependency direction (enforced, not aspirational):**
-`browser-shell` → `chrome-backend-gpui` → `browser-ui`/`browser-core` → `ipc` → {`html`,`css`,`dom`,`layout`,`javascript`,`networking`,`storage`,`compositor`} → {`gpu`,`text-shaping`,`raster`,`image-decode`,`media`,`platform-windows`} → `common`. No cycles. `gpui` appears in exactly one `Cargo.toml` in the whole workspace (`chrome-backend-gpui`'s). Verify with:
+`browser-shell` → `soul-backend-gpui` → `browser-ui`/`browser-core` → `ipc` → {`html`,`css`,`dom`,`layout`,`javascript`,`networking`,`storage`,`compositor`} → {`gpu`,`text-shaping`,`raster`,`image-decode`,`media`,`platform-windows`} → `common`. No cycles. `gpui` appears in exactly one `Cargo.toml` in the whole workspace (`soul-backend-gpui`'s). Verify with:
 
 ```sh
-cargo metadata --format-version 1 | jq '.packages[] | select(.name != "chrome-backend-gpui") | select(.dependencies[].name == "gpui")'
+cargo metadata --format-version 1 | jq '.packages[] | select(.name != "soul-backend-gpui") | select(.dependencies[].name == "gpui")'
 ```
 This should return nothing. If it doesn't, that's a broken build, not a style nit — fix it before anything else.
 
@@ -103,9 +103,9 @@ This should return nothing. If it doesn't, that's a broken build, not a style ni
 
 Full detail lives in `docs/architecture-plan.md` §4–§23; ADRs in §30. The load-bearing points an agent needs at all times:
 
-- **Ownership axis:** GPUI/`chrome-backend-gpui` owns *chrome* (windows, tabs, omnibox, menus) exclusively. The engine (`html`→`dom`→`css`→`layout`→`paint`→`compositor`) owns *page content* exclusively. Never let one draw or parse the other's domain.
+- **Ownership axis:** GPUI/`soul-backend-gpui` owns the *browser UI* (windows, tabs, omnibox, menus) exclusively. The engine (`html`→`dom`→`css`→`layout`→`paint`→`compositor`) owns *page content* exclusively. Never let one draw or parse the other's domain.
 - **Process axis:** currently single-process, multi-threaded (§6, §7). Every cross-boundary call is still a typed command/event enum sent over a channel (`ipc` crate), not a direct function call, even though no OS process boundary exists yet. This is not optional ceremony — it's what avoids the M14–M16 rewrite.
-- **GPUI boundary:** `ChromeBackend` trait in `browser-ui`. GPUI never receives DOM/layout/CSS data — only a composited texture and routed input events. The compositor never draws chrome.
+- **GPUI boundary:** `SoulBackend` trait in `browser-ui`. GPUI never receives DOM/layout/CSS data — only a composited texture and routed input events. The compositor never draws browser UI.
 - **JS engine:** `boa` (pure Rust) is the default per ADR-4, unless Spike 0(b) triggered a documented pivot to `rquickjs`. Check which is actually wired into `javascript` before assuming.
 - **Threading:** UI thread (GPUI, non-blocking) · browser-core thread · renderer thread(s) (one per active tab/window) · compositor thread (independent of renderer — this is what keeps scrolling smooth) · tokio network runtime · IO/disk thread pool. Don't block the UI or compositor thread on network/disk/layout work — route through the appropriate channel instead.
 - **Storage:** SQLite (`rusqlite`, WAL mode) for cookies/history/bookmarks/LocalStorage; blob files + SQLite index for HTTP cache/Cache Storage; SessionStorage is in-memory only, never persisted (this is a correctness requirement, not an optimization — don't "fix" it by persisting it).
@@ -121,7 +121,7 @@ Full detail lives in `docs/architecture-plan.md` §4–§23; ADRs in §30. The l
 - **API boundaries / message shape:** cross-crate commands are enums, not trait objects with many methods, per ADR-5. When adding a new cross-crate capability, ask "what message would this be once it's cross-process" and design the in-process version to match that shape now.
 - **File/module size:** files must target **~300–400 lines maximum**. If a file is pushing past ~300–400 lines, split it by responsibility into cohesive submodules/files (e.g. `module/submodule.rs`). Never leave bloated multi-concern files.
 - **Test file structure:** crate-level integration tests live under `crates/<crate>/tests/<topic>_tests.rs` (following Rust integration test naming conventions), keeping `src/` clean. Inline `#[cfg(test)] mod tests` is reserved for small private unit tests only.
-- **Introducing abstractions:** don't add a trait/generic abstraction until there are two concrete call sites that need it, or the plan document explicitly calls for one (e.g., `ChromeBackend`, the `raster`/GPU-raster swappable-backend trait mentioned in §16/§21). A single call site doesn't need an abstraction — write the concrete thing.
+- **Introducing abstractions:** don't add a trait/generic abstraction until there are two concrete call sites that need it, or the plan document explicitly calls for one (e.g., `SoulBackend`, the `raster`/GPU-raster swappable-backend trait mentioned in §16/§21). A single call site doesn't need an abstraction — write the concrete thing.
 - **Naming:** crates and files are lowercase kebab-case (already reflected in §3's layout) — Rust module/type/fn naming otherwise follows standard `rustfmt`/API-guideline conventions; don't invent a project-specific style.
 
 ---
@@ -205,7 +205,7 @@ If you're confident something doesn't exist yet after actually searching (§9), 
 
 - Make the **smallest coherent change** that satisfies the task's Definition of Done (§14).
 - Do not rewrite unrelated code, rename unrelated files/types, or reorganize a crate "while you're in there."
-- Do not migrate architecture (e.g., swapping a channel type, changing the dependency-direction rule, altering the `ChromeBackend` trait shape) without an explicit requirement to do so — these are ADR-level decisions (§30 of the plan), not incidental to a feature task.
+- Do not migrate architecture (e.g., swapping a channel type, changing the dependency-direction rule, altering the `SoulBackend` trait shape) without an explicit requirement to do so — these are ADR-level decisions (§30 of the plan), not incidental to a feature task.
 - Do not perform speculative "cleanup" of unrelated code during feature work, even if you notice something that looks wrong — note it instead (in your final report, per §27) rather than fixing it unprompted.
 - Do not create speculative abstractions "in case it's needed later" — see §5.
 - **A larger refactor is genuinely justified when:** the current structure actively prevents implementing the requested feature correctly (not just "makes it slightly more verbose"), or the plan document itself calls for the refactor at this milestone (e.g., M14's IPC-transport work is *supposed* to touch many call sites — that's in scope for that specific milestone, not scope creep). If you believe a refactor is justified, state the justification explicitly before doing it rather than doing it silently.
@@ -285,7 +285,7 @@ cargo test -p <crate> --test wpt_subset                      # conditional — o
 Do not:
 - Implement only the visible UI/API surface without wiring the backend (`browser-core`/relevant engine crate) — see §13.
 - Add a duplicate system where one already exists (§11).
-- Bypass an existing abstraction (e.g., mutating DOM state outside the mutation API, or calling `gpui` directly instead of going through `ChromeBackend`) because it's momentarily more convenient.
+- Bypass an existing abstraction (e.g., mutating DOM state outside the mutation API, or calling `gpui` directly instead of going through `SoulBackend`) because it's momentarily more convenient.
 - Silently change existing behavior as a side effect of an unrelated fix.
 - Ignore Windows-specific behavior (DPI, WorkerW-equivalent concerns, Media Foundation quirks) in favor of a "generic" implementation that happens to compile.
 - Leave dead code behind after a change makes it unreachable.
@@ -376,8 +376,8 @@ Don't update documentation reflexively for every change — a purely internal re
 ## 23. Platform-Specific Rules
 
 - **Portable/core logic** (`dom`, `css`, `layout`, `paint`, `javascript`) contains zero Win32/platform-specific code.
-- **Platform abstraction** — `ChromeBackend` (UI), and the swappable raster-backend trait (§16/§21 of the plan) are the seams where platform-specific implementations plug in.
-- **Platform implementation** — `chrome-backend-gpui` (UI), `platform-windows` (Win32 wrappers), `gpu` (wgpu/DXGI specifics), `media` (Media Foundation) are where OS/hardware-specific code is *allowed* to live.
+- **Platform abstraction** — `SoulBackend` (UI), and the swappable raster-backend trait (§16/§21 of the plan) are the seams where platform-specific implementations plug in.
+- **Platform implementation** — `soul-backend-gpui` (UI), `platform-windows` (Win32 wrappers), `gpu` (wgpu/DXGI specifics), `media` (Media Foundation) are where OS/hardware-specific code is *allowed* to live.
 - Do not leak Win32 types, DirectWrite handles, or DXGI specifics into `dom`/`css`/`layout`/`javascript` — if a portable crate needs a platform capability, it goes through a trait defined in the portable crate and implemented in the platform crate, not a direct dependency in the other direction.
 
 ---

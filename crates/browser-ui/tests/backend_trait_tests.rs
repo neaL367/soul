@@ -1,19 +1,19 @@
-//! Integration tests for the `ChromeBackend` trait contract and event dispatch.
+//! Integration tests for the `SoulBackend` trait contract and event dispatch.
 
 use browser_ui::{
-    ChromeBackend, ChromeConfig, ChromeError, ChromeEvent, ViewportFrame, WindowId, WindowSpec,
+    SoulBackend, SoulConfig, SoulError, SoulEvent, ViewportFrame, WindowId, WindowSpec,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-struct MockChromeBackend {
+struct MockSoulBackend {
     next_id: u64,
     windows: HashMap<WindowId, WindowSpec>,
     viewports: HashMap<WindowId, ViewportFrame>,
-    event_handler: Option<Box<dyn Fn(ChromeEvent) + Send + Sync + 'static>>,
+    event_handler: Option<Box<dyn Fn(SoulEvent) + Send + Sync + 'static>>,
 }
 
-impl MockChromeBackend {
+impl MockSoulBackend {
     fn new() -> Self {
         Self {
             next_id: 1,
@@ -24,29 +24,29 @@ impl MockChromeBackend {
     }
 }
 
-impl ChromeBackend for MockChromeBackend {
-    fn init(&mut self, _config: ChromeConfig) -> Result<(), ChromeError> {
+impl SoulBackend for MockSoulBackend {
+    fn init(&mut self, _config: SoulConfig) -> Result<(), SoulError> {
         Ok(())
     }
 
-    fn open_window(&mut self, spec: WindowSpec) -> Result<WindowId, ChromeError> {
+    fn open_window(&mut self, spec: WindowSpec) -> Result<WindowId, SoulError> {
         let id = WindowId(self.next_id);
         self.next_id += 1;
         self.windows.insert(id, spec);
         Ok(id)
     }
 
-    fn close_window(&mut self, window_id: WindowId) -> Result<(), ChromeError> {
+    fn close_window(&mut self, window_id: WindowId) -> Result<(), SoulError> {
         if self.windows.remove(&window_id).is_some() {
             self.viewports.remove(&window_id);
             if let Some(ref handler) = self.event_handler {
-                handler(ChromeEvent::WindowCloseRequested {
+                handler(SoulEvent::WindowCloseRequested {
                     window_id: window_id.0,
                 });
             }
             Ok(())
         } else {
-            Err(ChromeError::WindowNotFound(window_id))
+            Err(SoulError::WindowNotFound(window_id))
         }
     }
 
@@ -54,28 +54,28 @@ impl ChromeBackend for MockChromeBackend {
         &mut self,
         window_id: WindowId,
         frame: ViewportFrame,
-    ) -> Result<(), ChromeError> {
+    ) -> Result<(), SoulError> {
         if !self.windows.contains_key(&window_id) {
-            return Err(ChromeError::WindowNotFound(window_id));
+            return Err(SoulError::WindowNotFound(window_id));
         }
         self.viewports.insert(window_id, frame);
         Ok(())
     }
 
-    fn set_event_handler(&mut self, handler: Box<dyn Fn(ChromeEvent) + Send + Sync + 'static>) {
+    fn set_event_handler(&mut self, handler: Box<dyn Fn(SoulEvent) + Send + Sync + 'static>) {
         self.event_handler = Some(handler);
     }
 
-    fn run(self: Box<Self>) -> Result<(), ChromeError> {
+    fn run(self: Box<Self>) -> Result<(), SoulError> {
         Ok(())
     }
 }
 
 #[test]
 fn test_mock_backend_window_lifecycle() {
-    let mut backend = MockChromeBackend::new();
+    let mut backend = MockSoulBackend::new();
     backend
-        .init(ChromeConfig {
+        .init(SoulConfig {
             app_name: "TestBrowser".to_string(),
             resource_dir: None,
         })
@@ -112,7 +112,7 @@ fn test_mock_backend_window_lifecycle() {
 
 #[test]
 fn test_mock_backend_event_handler() {
-    let mut backend = MockChromeBackend::new();
+    let mut backend = MockSoulBackend::new();
     let received_events = Arc::new(Mutex::new(Vec::new()));
     let events_clone = Arc::clone(&received_events);
 
@@ -127,6 +127,6 @@ fn test_mock_backend_event_handler() {
     assert_eq!(events.len(), 1);
     assert_eq!(
         events[0],
-        ChromeEvent::WindowCloseRequested { window_id: id.0 }
+        SoulEvent::WindowCloseRequested { window_id: id.0 }
     );
 }

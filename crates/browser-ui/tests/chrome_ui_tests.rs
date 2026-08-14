@@ -1,7 +1,7 @@
 //! Integration tests for browser chrome view models, tab strip, omnibox, and toolbar.
 
 use browser_core::{NavigationController, TabId, TabManager};
-use browser_ui::{ChromeModel, OmniboxEngine, OmniboxSuggestionType, TabStripModel, ToolbarModel};
+use browser_ui::{OmniboxEngine, OmniboxSuggestionType, SoulModel, TabStripModel, ToolbarModel};
 use storage::{BookmarkEntry, HistoryEntry};
 
 #[test]
@@ -124,7 +124,7 @@ fn test_omnibox_engine_scoring_and_ranking() {
 
 #[test]
 fn test_chrome_model_aggregation() {
-    let mut chrome = ChromeModel::new();
+    let mut chrome = SoulModel::new();
     let mut manager = TabManager::new();
 
     let tab_id = manager.create_tab();

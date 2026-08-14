@@ -8,7 +8,7 @@ This document records the empirical results and architectural resolutions for **
 
 | Spike | Target Subsystem | Decision Question | Status | Outcome / Decision |
 |---|---|---|---|---|
-| **Spike 0(a)** | Chrome UI & Compositor Interop | ADR-1: Mainline GPUI vs `gpui-wgpu` fork & `ChromeBackend` contract | **Resolved** | Adopt mainline GPUI strictly encapsulated behind `ChromeBackend` trait in `browser-ui`. Deliver M10a via software pixel buffers and M10b via DXGI shared texture handles. |
+| **Spike 0(a)** | Browser-UI & Compositor Interop | ADR-1: Mainline GPUI vs `gpui-wgpu` fork & `SoulBackend` contract | **Resolved** | Adopt mainline GPUI strictly encapsulated behind `SoulBackend` trait in `browser-ui`. Deliver M10a via software pixel buffers and M10b via DXGI shared texture handles. |
 | **Spike 0(b)** | JavaScript Engine | ADR-4: Boa viability against real-world target JS corpus | **Resolved** | **Confirmed Viable (100% test pass rate)** on target corpus. No pivot to V8 or QuickJS required for MVP. |
 
 Both high-uncertainty architectural questions are resolved with evidence before beginning **Milestone 1 (GPUI Browser Shell)**.
@@ -18,7 +18,7 @@ Both high-uncertainty architectural questions are resolved with evidence before 
 ## 2. Spike 0(a): GPUI Surface Texture Embedding & Windows Backend
 
 ### 2.1 Context & Trade-off Analysis
-ADR-1 evaluated two potential paths for browser chrome rendering on Windows 11:
+ADR-1 evaluated two potential paths for browser UI rendering on Windows 11:
 1. **Mainline GPUI (Direct3D11 / DirectComposition Backend)**:
    - *Pros*: Tracks official upstream releases without maintaining a fork; high stability on Windows 11.
    - *Cons*: Engine compositor uses `wgpu`, requiring cross-API texture presentation (DXGI shared handle / D3D11 Keyed Mutex) in GPU mode.
@@ -27,20 +27,20 @@ ADR-1 evaluated two potential paths for browser chrome rendering on Windows 11:
    - *Cons*: Upstream lag risk, drift on platform fixes, maintenance burden on a solo/small-team project.
 
 ### 2.2 Architectural Resolution
-- **Encapsulation via `ChromeBackend` Trait**:
-  Per §9 amendment, `gpui` is strictly isolated inside `chrome-backend-gpui`. No other crate (`browser-core`, `browser-ui`, `compositor`, `layout`) imports `gpui`.
+- **Encapsulation via `SoulBackend` Trait**:
+  Per §9 amendment, `gpui` is strictly isolated inside `soul-backend-gpui`. No other crate (`browser-core`, `browser-ui`, `compositor`, `layout`) imports `gpui`.
 - **Two-Stage Presentation Strategy**:
-  - **Stage 1 (M10a Software Raster Checkpoint)**: The `raster` crate outputs CPU RGBA pixel buffers (`&[u8]`) to the `ChromeBackend` viewport element, completely decoupling rendering correctness from GPU driver/texture synchronization bugs.
-  - **Stage 2 (M10b GPU Compositor)**: `wgpu` compositor renders to a DXGI-backed surface/texture, passed to `ChromeBackend` via native Windows shared surface handles.
+  - **Stage 1 (M10a Software Raster Checkpoint)**: The `raster` crate outputs CPU RGBA pixel buffers (`&[u8]`) to the `SoulBackend` viewport element, completely decoupling rendering correctness from GPU driver/texture synchronization bugs.
+  - **Stage 2 (M10b GPU Compositor)**: `wgpu` compositor renders to a DXGI-backed surface/texture, passed to `SoulBackend` via native Windows shared surface handles.
 
-### 2.3 `ChromeBackend` Trait Contract
-The `ChromeBackend` trait in `browser-ui` defines:
+### 2.3 `SoulBackend` Trait Contract
+The `SoulBackend` trait in `browser-ui` defines:
 ```rust
-pub trait ChromeBackend: Send + Sync + 'static {
-    fn run_app(self, init: Box<dyn FnOnce(&mut AppContext) + Send>) -> Result<(), ChromeError>;
-    fn open_window(&mut self, spec: WindowSpec) -> Result<WindowId, ChromeError>;
+pub trait SoulBackend: Send + Sync + 'static {
+    fn run_app(self, init: Box<dyn FnOnce(&mut AppContext) + Send>) -> Result<(), SoulError>;
+    fn open_window(&mut self, spec: WindowSpec) -> Result<WindowId, SoulError>;
     fn update_viewport_framebuffer(&mut self, window_id: WindowId, frame: ViewportFrame);
-    fn emit_event_to_core(&self, event: ChromeEvent);
+    fn emit_event_to_core(&self, event: SoulEvent);
 }
 ```
 
@@ -95,4 +95,4 @@ test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 With Spike 0 complete and documented:
 - **ADR-1** and **ADR-4** are formally validated.
-- **Milestone 1 (M1 — GPUI Browser Shell)** is unblocked to begin implementing the `ChromeBackend` trait and native window lifecycle in `browser-ui` and `chrome-backend-gpui`.
+- **Milestone 1 (M1 — GPUI Browser Shell)** is unblocked to begin implementing the `SoulBackend` trait and native window lifecycle in `browser-ui` and `soul-backend-gpui`.
