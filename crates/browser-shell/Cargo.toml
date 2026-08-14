@@ -9,5 +9,7 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
+browser-ui = { path = "../browser-ui" }
+chrome-backend-gpui = { path = "../chrome-backend-gpui" }
 common = { path = "../common" }
 tracing.workspace = true

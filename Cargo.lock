@@ -198,6 +198,8 @@ dependencies = [
 name = "browser-shell"
 version = "0.1.0"
 dependencies = [
+ "browser-ui",
+ "chrome-backend-gpui",
  "common",
  "tracing",
 ]
