@@ -1630,6 +1630,7 @@ dependencies = [
  "common",
  "thiserror",
  "tracing",
+ "windows",
 ]
 
 [[package]]

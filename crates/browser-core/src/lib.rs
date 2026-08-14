@@ -1,10 +1,9 @@
-//! Tab, window, navigation, session, profile, and permission state machines.
+//! Browser core state machines, tab management, navigation, and profiles.
 
 pub mod navigation;
+pub mod profile;
 pub mod tab;
 
-pub use navigation::{
-    HistoryEntry, NavigationController, NavigationError, NavigationHistory, NavigationId,
-    NavigationState,
-};
+pub use navigation::{NavigationController, NavigationHistory, NavigationId, NavigationState};
+pub use profile::BrowserProfile;
 pub use tab::{Tab, TabId, TabManager, TabTier};
