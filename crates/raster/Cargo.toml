@@ -10,6 +10,14 @@ workspace = true
 
 [dependencies]
 common = { path = "../common" }
+css = { path = "../css" }
+layout = { path = "../layout" }
 paint = { path = "../paint" }
+text-shaping = { path = "../text-shaping" }
 thiserror.workspace = true
+tiny-skia = "0.11"
 tracing.workspace = true
+
+[dev-dependencies]
+dom = { path = "../dom" }
+html = { path = "../html" }

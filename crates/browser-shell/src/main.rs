@@ -1,11 +1,16 @@
 //! Browser application entry point, wiring chrome, core state machines, and rendering engines together.
 
-use browser_ui::{ChromeBackend, ChromeConfig, WindowSpec};
+use browser_ui::{ChromeBackend, ChromeConfig, ViewportFrame, WindowSpec};
 use chrome_backend_gpui::GpuiChromeBackend;
+use css::CascadeResolver;
+use html::parse_html;
+use layout::{Dimensions, Rect, build_box_tree, layout_block};
+use paint::DisplayListBuilder;
+use raster::CpuRasterizer;
 
 fn main() {
     common::init_tracing();
-    tracing::info!("Soul Browser starting up (Milestone 1)...");
+    tracing::info!("Soul Browser starting up (Milestone 10)...");
 
     let mut backend = Box::new(GpuiChromeBackend::new());
 
@@ -27,21 +32,67 @@ fn main() {
         height: 800,
         min_width: Some(400),
         min_height: Some(300),
-        resizable: true,
         decorated: true,
+        resizable: true,
     };
 
-    match backend.open_window(window_spec) {
-        Ok(window_id) => {
-            tracing::info!(window_id = window_id.0, "Initial browser window opened");
+    let window_id = match backend.open_window(window_spec) {
+        Ok(id) => {
+            tracing::info!(window_id = id.0, "Initial browser window opened");
+            id
         }
         Err(err) => {
             tracing::error!(%err, "Failed to open initial browser window");
             return;
+        }
+    };
+
+    // Render initial start page through the full engine pipeline
+    let start_html = r#"
+        <html>
+        <head><title>Soul Browser</title></head>
+        <body style="margin: 20px; background-color: #1e1e2e; color: #cdd6f4; font-family: sans-serif;">
+            <h1 style="color: #89b4fa;">Welcome to Soul Browser</h1>
+            <p style="color: #a6adc8; font-size: 18px;">A modern browser engine built from scratch in Rust with GPUI.</p>
+            <div style="background-color: #313244; padding: 15px; border-width: 1px; color: #f38ba8;">
+                <p>Status: All core engine milestones (M0–M10: HTML5 -> DOM -> CSS -> Layout -> Paint -> Raster) active!</p>
+            </div>
+        </body>
+        </html>
+    "#;
+
+    if let Some(frame) = render_page_to_frame(start_html, 1280, 800) {
+        if let Err(err) = backend.update_viewport(window_id, frame) {
+            tracing::warn!(%err, "Failed to update viewport with initial frame");
+        } else {
+            tracing::info!("Initial page frame successfully rendered and presented to viewport");
         }
     }
 
     if let Err(err) = backend.run() {
         tracing::error!(%err, "Chrome backend runtime error");
     }
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn render_page_to_frame(html_str: &str, width: u32, height: u32) -> Option<ViewportFrame> {
+    let doc = parse_html(html_str);
+    let resolver = CascadeResolver::new(&doc, &[]);
+    let styles = resolver.resolve_all();
+    let mut layout_box = build_box_tree(&doc, doc.root_id(), &styles)?;
+
+    let viewport = Dimensions {
+        content: Rect::new(0.0, 0.0, width as f32, height as f32),
+        ..Default::default()
+    };
+    layout_block(&mut layout_box, &viewport);
+
+    let display_list = DisplayListBuilder::build(&layout_box);
+    let pixel_buf = CpuRasterizer::rasterize(&display_list, width, height).ok()?;
+
+    Some(ViewportFrame::SoftwareRgba {
+        width,
+        height,
+        pixels: pixel_buf.data,
+    })
 }

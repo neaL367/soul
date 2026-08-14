@@ -9,7 +9,13 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
+browser-core = { path = "../browser-core" }
 browser-ui = { path = "../browser-ui" }
 chrome-backend-gpui = { path = "../chrome-backend-gpui" }
 common = { path = "../common" }
+css = { path = "../css" }
+html = { path = "../html" }
+layout = { path = "../layout" }
+paint = { path = "../paint" }
+raster = { path = "../raster" }
 tracing.workspace = true
