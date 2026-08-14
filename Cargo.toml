@@ -26,6 +26,7 @@ members = [
     "crates/downloads",
     "crates/devtools",
     "crates/common",
+    "benchmarks",
 ]
 
 [workspace.package]

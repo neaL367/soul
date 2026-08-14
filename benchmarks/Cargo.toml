@@ -1,0 +1,20 @@
+[package]
+name = "benchmarks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+common = { path = "../crates/common" }
+css = { path = "../crates/css" }
+dom = { path = "../crates/dom" }
+html = { path = "../crates/html" }
+layout = { path = "../crates/layout" }
+paint = { path = "../crates/paint" }
+raster = { path = "../crates/raster" }
+thiserror.workspace = true
+tracing.workspace = true
