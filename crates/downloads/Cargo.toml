@@ -14,4 +14,6 @@ networking = { path = "../networking" }
 platform-windows = { path = "../platform-windows" }
 storage = { path = "../storage" }
 thiserror.workspace = true
+tokio = { version = "1", features = ["sync", "io-util", "fs", "macros", "time"] }
 tracing.workspace = true
+url = "2.5"

@@ -482,7 +482,9 @@ dependencies = [
  "platform-windows",
  "storage",
  "thiserror",
+ "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]
