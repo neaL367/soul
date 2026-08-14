@@ -1,12 +1,14 @@
-//! Web APIs implementation and DOM JavaScript bindings.
+//! Web APIs implementation, DOM JavaScript bindings, and `WebWorker` threads.
 
 pub mod console;
 pub mod dom_bindings;
 pub mod timers;
+pub mod worker;
 
 pub use console::register_console;
 pub use dom_bindings::register_dom;
 pub use timers::{TimerQueue, register_timers};
+pub use worker::WebWorker;
 
 use boa_engine::{Context, JsResult};
 use dom::Document;
