@@ -105,10 +105,20 @@ fn layout_block_children(layout_box: &mut LayoutBox) {
     layout_box.dimensions.content.height = vertical_offset;
 }
 
+#[allow(clippy::cast_precision_loss)]
 const fn calculate_block_height(layout_box: &mut LayoutBox) {
     if let Some(ref style) = layout_box.style
         && let Length::Px(px) = style.height
     {
         layout_box.dimensions.content.height = px;
+    } else if let Some(intrinsic) = layout_box.intrinsic
+        && intrinsic.width > 0
+        && layout_box.dimensions.content.width > 0.0
+    {
+        // Replaced-element sizing: width already resolved to the containing
+        // block; height follows the intrinsic aspect ratio.
+        let width = layout_box.dimensions.content.width;
+        layout_box.dimensions.content.height =
+            width * (intrinsic.height as f32 / intrinsic.width as f32);
     }
 }

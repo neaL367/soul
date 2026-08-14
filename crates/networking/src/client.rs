@@ -14,6 +14,9 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use url::Url;
 
+/// Maximum redirect hops followed before failing with `NetworkError::TooManyRedirects`.
+pub const MAX_REDIRECTS: usize = 5;
+
 /// Client configuration for network and TLS settings.
 #[derive(Clone)]
 pub struct HttpClientConfig {
@@ -100,11 +103,63 @@ impl HttpClient {
         Ok(response)
     }
 
-    /// Executes an arbitrary `HttpRequest` over HTTP/1.1.
+    /// Executes an arbitrary `HttpRequest` over HTTP/1.1, following redirects.
+    ///
+    /// Redirect policy: up to [`MAX_REDIRECTS`] hops; `Location` is resolved
+    /// against the current URL; 301/302/303 convert POST to GET per fetch spec;
+    /// 307/308 preserve the method. The final response carries the resolved URL.
     ///
     /// # Errors
-    /// Returns `NetworkError` if connection, TLS handshake, or protocol exchange fails.
+    /// Returns `NetworkError` if connection, TLS handshake, protocol exchange,
+    /// redirect resolution, or the redirect limit fails.
     pub async fn fetch_request(&self, request: &HttpRequest) -> Result<HttpResponse, NetworkError> {
+        let mut current = request.clone();
+
+        for _hop in 0..=MAX_REDIRECTS {
+            let response = self.execute_request(&current).await?;
+            let status = response.status_code;
+            let location = response.header("location").map(str::to_owned);
+
+            if (300..400).contains(&status)
+                && let Some(location) = location
+            {
+                let next_url = current
+                    .url
+                    .join(&location)
+                    .map_err(|e| NetworkError::InvalidRedirect(current.url.to_string(), e))?;
+
+                // 301/302/303 rewrite POST to GET; 307/308 preserve the method.
+                let method = if matches!(status, 301..=303) && current.method == HttpMethod::Post {
+                    HttpMethod::Get
+                } else {
+                    current.method
+                };
+                let body = if method == HttpMethod::Get {
+                    None
+                } else {
+                    current.body.clone()
+                };
+
+                tracing::info!(from = %current.url, to = %next_url, status, "Following redirect");
+                current = HttpRequest {
+                    url: next_url,
+                    method,
+                    headers: current.headers.clone(),
+                    body,
+                };
+                continue;
+            }
+
+            let mut final_response = response;
+            final_response.url = current.url.clone();
+            return Ok(final_response);
+        }
+
+        Err(NetworkError::TooManyRedirects(current.url.to_string()))
+    }
+
+    /// Executes a single HTTP request without redirect handling.
+    async fn execute_request(&self, request: &HttpRequest) -> Result<HttpResponse, NetworkError> {
         let scheme = request.url.scheme();
         let is_tls = match scheme {
             "http" => false,

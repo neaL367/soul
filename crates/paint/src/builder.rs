@@ -3,15 +3,21 @@
 use crate::display_item::{DisplayItem, DisplayList};
 use crate::stacking::{StackingContext, build_stacking_tree};
 use css::{Color, FontWeight};
+use dom::NodeId;
+use image_decode::DecodedImage;
 use layout::{BoxType, LayoutBox, Rect};
+use std::collections::HashMap;
 
 /// Builder converting a positioned layout box tree into an ordered `DisplayList`.
 pub struct DisplayListBuilder;
 
 impl DisplayListBuilder {
     /// Constructs a complete `DisplayList` from the root of a laid-out document.
+    ///
+    /// `images` maps DOM node ids of `<img>` elements to their decoded bitmaps;
+    /// absent entries render as empty boxes.
     #[must_use]
-    pub fn build(root_box: &LayoutBox) -> DisplayList {
+    pub fn build(root_box: &LayoutBox, images: &HashMap<NodeId, DecodedImage>) -> DisplayList {
         let mut list = DisplayList::new();
         list.bounds = Rect::new(
             root_box.dimensions.content.x,
@@ -21,13 +27,17 @@ impl DisplayListBuilder {
         );
 
         let root_stacking = build_stacking_tree(root_box);
-        Self::paint_stacking_context(&mut list, &root_stacking);
+        Self::paint_stacking_context(&mut list, &root_stacking, images);
 
         list
     }
 
     /// Paints a single stacking context according to the CSS 2.1 Appendix E order.
-    fn paint_stacking_context(list: &mut DisplayList, context: &StackingContext) {
+    fn paint_stacking_context(
+        list: &mut DisplayList,
+        context: &StackingContext,
+        images: &HashMap<NodeId, DecodedImage>,
+    ) {
         let has_opacity = context.opacity < 1.0 - f32::EPSILON;
         if has_opacity {
             list.push(DisplayItem::PushOpacity {
@@ -36,31 +46,31 @@ impl DisplayListBuilder {
         }
 
         // 1. Background and borders of the root element
-        Self::paint_box_background_and_borders(list, context.root);
+        Self::paint_box_background_and_borders(list, context.root, images);
 
         // 2. Child stacking contexts with negative z-index
         for child_context in &context.negative_z_children {
-            Self::paint_stacking_context(list, child_context);
+            Self::paint_stacking_context(list, child_context, images);
         }
 
         // 3. In-flow, non-inline-level descendant boxes
         for block in &context.in_flow_blocks {
-            Self::paint_box_background_and_borders(list, block);
+            Self::paint_box_background_and_borders(list, block, images);
         }
 
         // 4. In-flow, inline-level descendant boxes and text
         for inline in &context.in_flow_inlines {
-            Self::paint_inline_or_text(list, inline);
+            Self::paint_inline_or_text(list, inline, images);
         }
 
         // 5. Child stacking contexts with zero / auto z-index
         for child_context in &context.zero_z_children {
-            Self::paint_stacking_context(list, child_context);
+            Self::paint_stacking_context(list, child_context, images);
         }
 
         // 6. Child stacking contexts with positive z-index
         for child_context in &context.positive_z_children {
-            Self::paint_stacking_context(list, child_context);
+            Self::paint_stacking_context(list, child_context, images);
         }
 
         if has_opacity {
@@ -68,7 +78,11 @@ impl DisplayListBuilder {
         }
     }
 
-    fn paint_box_background_and_borders(list: &mut DisplayList, layout_box: &LayoutBox) {
+    fn paint_box_background_and_borders(
+        list: &mut DisplayList,
+        layout_box: &LayoutBox,
+        images: &HashMap<NodeId, DecodedImage>,
+    ) {
         let Some(ref style) = layout_box.style else {
             return;
         };
@@ -90,9 +104,25 @@ impl DisplayListBuilder {
                 color: style.color,
             });
         }
+
+        // Paint decoded `<img>` content if available for this element.
+        if let BoxType::BlockNode(id) | BoxType::InlineNode(id) = layout_box.box_type
+            && let Some(image) = images.get(&id)
+        {
+            list.push(DisplayItem::DrawImage {
+                rect: layout_box.dimensions.content,
+                width: image.width,
+                height: image.height,
+                pixels: image.rgba_pixels.clone(),
+            });
+        }
     }
 
-    fn paint_inline_or_text(list: &mut DisplayList, layout_box: &LayoutBox) {
+    fn paint_inline_or_text(
+        list: &mut DisplayList,
+        layout_box: &LayoutBox,
+        images: &HashMap<NodeId, DecodedImage>,
+    ) {
         match &layout_box.box_type {
             BoxType::TextNode(_, text) => {
                 let default_color = Color::BLACK;
@@ -117,7 +147,7 @@ impl DisplayListBuilder {
                 });
             }
             BoxType::InlineNode(_) => {
-                Self::paint_box_background_and_borders(list, layout_box);
+                Self::paint_box_background_and_borders(list, layout_box, images);
             }
             _ => {}
         }

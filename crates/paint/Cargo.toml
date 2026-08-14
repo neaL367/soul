@@ -11,6 +11,8 @@ workspace = true
 [dependencies]
 common = { path = "../common" }
 css = { path = "../css" }
+dom = { path = "../dom" }
+image-decode = { path = "../image-decode" }
 layout = { path = "../layout" }
 thiserror.workspace = true
 tracing.workspace = true

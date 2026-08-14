@@ -40,7 +40,7 @@ fn test_end_to_end_html_to_pixel_buffer() {
     };
     layout_block(&mut layout_box, &viewport);
 
-    let display_list = DisplayListBuilder::build(&layout_box);
+    let display_list = DisplayListBuilder::build(&layout_box, &std::collections::HashMap::new());
     let pixel_buffer = CpuRasterizer::rasterize(&display_list, 400, 300).expect("rasterize failed");
 
     assert_eq!(pixel_buffer.width, 400);
@@ -90,7 +90,7 @@ fn test_border_and_content_rasterization() {
     };
     layout_block(&mut layout_box, &viewport);
 
-    let display_list = DisplayListBuilder::build(&layout_box);
+    let display_list = DisplayListBuilder::build(&layout_box, &std::collections::HashMap::new());
     let pixel_buffer = CpuRasterizer::rasterize(&display_list, 300, 300).expect("rasterize failed");
 
     // Pixel at (2, 2) is within the 6px top/left green border
@@ -133,7 +133,7 @@ fn test_opacity_alpha_blending() {
     };
     layout_block(&mut layout_box, &viewport);
 
-    let display_list = DisplayListBuilder::build(&layout_box);
+    let display_list = DisplayListBuilder::build(&layout_box, &std::collections::HashMap::new());
     let pixel_buffer = CpuRasterizer::rasterize(&display_list, 200, 200).expect("rasterize failed");
 
     let pixel = pixel_buffer.get_pixel(50, 50).expect("pixel out of bounds");

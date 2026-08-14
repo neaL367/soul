@@ -81,3 +81,25 @@ fn test_parse_html_bytes() {
     let root_node = doc.get_element_by_id("root").expect("root node missing");
     assert_eq!(doc.text_content(root_node), "Rendered from bytes");
 }
+
+#[test]
+fn test_parse_html_with_styles_extracts_author_sheets() {
+    let html = "<!DOCTYPE html>\n<html>\n<head>\n    <style>body { color: red; } p { margin: 4px; }</style>\n</head>\n<body>\n    <style>div { background-color: blue; }</style>\n    <p>Hello</p>\n</body>\n</html>";
+
+    let (doc, styles) = html::parse_html_with_styles(html);
+
+    // Both <style> elements captured in document order, whitespace trimmed.
+    assert_eq!(styles.len(), 2);
+    assert!(styles[0].contains("body { color: red; }"));
+    assert!(styles[1].contains("div { background-color: blue; }"));
+
+    // Style elements still exist in the DOM (hidden by UA stylesheet, not removed).
+    assert_eq!(doc.get_elements_by_tag_name("style").len(), 2);
+}
+
+#[test]
+fn test_parse_html_with_styles_ignores_empty_styles() {
+    let html = "<html><head><style>   </style></head><body><p>Hi</p></body></html>";
+    let (_, styles) = html::parse_html_with_styles(html);
+    assert!(styles.is_empty());
+}

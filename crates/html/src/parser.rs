@@ -20,3 +20,17 @@ pub fn parse_html_bytes(bytes: &[u8]) -> Document {
         .from_utf8()
         .one(bytes)
 }
+
+/// Parses HTML and additionally extracts the text content of every `<style>`
+/// element as author stylesheet sources, in document order.
+#[must_use]
+pub fn parse_html_with_styles(html: &str) -> (Document, Vec<String>) {
+    let doc = parse_html(html);
+    let styles = doc
+        .get_elements_by_tag_name("style")
+        .iter()
+        .map(|id| doc.text_content(*id))
+        .filter(|css| !css.trim().is_empty())
+        .collect();
+    (doc, styles)
+}

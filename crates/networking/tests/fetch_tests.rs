@@ -115,3 +115,87 @@ async fn test_http1_custom_headers_and_lookup() {
 
     let _ = server_handle.await;
 }
+
+/// Multi-connection mock server: serves `/start` with a 302 to `/final` and
+/// `/final` with a 200 body. Accepts up to two connections.
+async fn spawn_redirect_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let handle = tokio::spawn(async move {
+        for _ in 0..2 {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let mut buf = [0u8; 2048];
+            let n = socket.read(&mut buf).await.unwrap_or(0);
+            let req_str = String::from_utf8_lossy(&buf[..n]);
+
+            let response = if req_str.contains("GET /start ") {
+                "HTTP/1.1 302 Found\r\nLocation: /final\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+            } else {
+                let body = "<html><body><h1>Redirected!</h1></body></html>";
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+            };
+            let _ = socket.write_all(response.as_bytes()).await;
+            let _ = socket.flush().await;
+        }
+    });
+
+    (addr, handle)
+}
+
+#[tokio::test]
+async fn test_http_client_follows_redirects() {
+    let (addr, server_handle) = spawn_redirect_server().await;
+    let client = HttpClient::default();
+    let url = Url::parse(&format!("http://127.0.0.1:{}/start", addr.port())).unwrap();
+
+    let response = client.fetch(&url).await.expect("redirect chain failed");
+
+    // Final response carries the resolved URL and the 200 body.
+    assert_eq!(response.status_code, 200);
+    assert_eq!(
+        response.url.as_str(),
+        format!("http://127.0.0.1:{}/final", addr.port())
+    );
+    assert!(response.text().unwrap().contains("Redirected!"));
+
+    let _ = server_handle.await;
+}
+
+#[tokio::test]
+async fn test_http_client_redirect_loop_fails() {
+    // Self-referencing Location header: /loop -> /loop forever.
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let handle = tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let mut buf = [0u8; 2048];
+            let _ = socket.read(&mut buf).await;
+            let response =
+                "HTTP/1.1 302 Found\r\nLocation: /loop\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    .to_string();
+            let _ = socket.write_all(response.as_bytes()).await;
+        }
+    });
+
+    let client = HttpClient::default();
+    let url = Url::parse(&format!("http://127.0.0.1:{}/loop", addr.port())).unwrap();
+
+    let err = client
+        .fetch(&url)
+        .await
+        .expect_err("redirect loop must fail");
+    assert!(matches!(err, networking::NetworkError::TooManyRedirects(_)));
+
+    handle.abort();
+}

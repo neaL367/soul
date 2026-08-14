@@ -50,7 +50,7 @@ pub fn benchmark_full_pipeline(html_source: &str, css_source: &str) -> PipelineB
     let layout_duration = t2.elapsed();
 
     let t3 = Instant::now();
-    let display_list = DisplayListBuilder::build(&box_tree);
+    let display_list = DisplayListBuilder::build(&box_tree, &std::collections::HashMap::new());
     let paint_duration = t3.elapsed();
 
     let t4 = Instant::now();

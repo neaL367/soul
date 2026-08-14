@@ -11,7 +11,7 @@ pub fn user_agent_stylesheet() -> &'static StyleSheet {
     UA_SHEET.get_or_init(|| {
         let css = r"
 html, body, div, p, main, section, article, header, footer,
-nav, aside, h1, h2, h3, h4, h5, h6, ul, ol, li, form, table {
+nav, aside, h1, h2, h3, h4, h5, h6, ul, ol, li, form, table, img {
     display: block;
 }
 

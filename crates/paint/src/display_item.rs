@@ -37,6 +37,17 @@ pub enum DisplayItem {
         /// `true` if text uses bold weight.
         is_bold: bool,
     },
+    /// Draws a decoded RGBA bitmap image within a bounding box.
+    DrawImage {
+        /// Destination bounding box in layout pixels.
+        rect: Rect,
+        /// Natural image width in pixels.
+        width: u32,
+        /// Natural image height in pixels.
+        height: u32,
+        /// RGBA8 pixel bytes (`width * height * 4`).
+        pixels: Vec<u8>,
+    },
     /// Pushes a rectangular clipping boundary onto the clip stack.
     PushClip {
         /// Clipping rectangle in layout pixels.

@@ -1,6 +1,6 @@
 //! Box tree representation and generation from DOM nodes and computed styles.
 
-use crate::geometry::Dimensions;
+use crate::geometry::{Dimensions, IntrinsicSize};
 use css::{ComputedStyle, Display};
 use dom::{Document, NodeData, NodeId};
 use std::collections::HashMap;
@@ -28,6 +28,8 @@ pub struct LayoutBox {
     pub box_type: BoxType,
     /// Computed style if this box originates from a styled element.
     pub style: Option<ComputedStyle>,
+    /// Intrinsic (natural) size for replaced elements such as `<img>`.
+    pub intrinsic: Option<IntrinsicSize>,
     /// Child layout boxes in tree order.
     pub children: Vec<Self>,
 }
@@ -40,6 +42,7 @@ impl LayoutBox {
             dimensions: Dimensions::default(),
             box_type,
             style,
+            intrinsic: None,
             children: Vec::new(),
         }
     }
@@ -79,13 +82,29 @@ pub fn build_box_tree<S: BuildHasher>(
     root_id: NodeId,
     styles: &HashMap<NodeId, ComputedStyle, S>,
 ) -> Option<LayoutBox> {
+    build_box_tree_with_intrinsics(document, root_id, styles, &HashMap::new())
+}
+
+/// Generates a `LayoutBox` tree, attaching intrinsic sizes to replaced elements.
+///
+/// `intrinsics` maps `<img>`-style element node ids to their natural dimensions;
+/// block layout uses these to compute proportional heights from resolved widths.
+#[must_use]
+pub fn build_box_tree_with_intrinsics<S: BuildHasher, S2: BuildHasher>(
+    document: &Document,
+    root_id: NodeId,
+    styles: &HashMap<NodeId, ComputedStyle, S>,
+    intrinsics: &HashMap<NodeId, IntrinsicSize, S2>,
+) -> Option<LayoutBox> {
     let node = document.get_node(root_id)?;
 
     match &node.data {
         NodeData::Document => {
             let mut root_box = LayoutBox::new(BoxType::BlockNode(root_id), None);
             for child_id in document.children(root_id) {
-                if let Some(child_box) = build_box_tree(document, child_id, styles) {
+                if let Some(child_box) =
+                    build_box_tree_with_intrinsics(document, child_id, styles, intrinsics)
+                {
                     root_box.children.push(child_box);
                 }
             }
@@ -105,8 +124,11 @@ pub fn build_box_tree<S: BuildHasher>(
             };
 
             let mut layout_box = LayoutBox::new(box_type, Some(style));
+            layout_box.intrinsic = intrinsics.get(&root_id).copied();
             for child_id in document.children(root_id) {
-                if let Some(child_box) = build_box_tree(document, child_id, styles) {
+                if let Some(child_box) =
+                    build_box_tree_with_intrinsics(document, child_id, styles, intrinsics)
+                {
                     layout_box.children.push(child_box);
                 }
             }

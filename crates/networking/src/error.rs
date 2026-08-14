@@ -52,4 +52,12 @@ pub enum NetworkError {
     /// Cross-Origin Resource Sharing (CORS) check failed.
     #[error("CORS access denied for request origin '{0}'")]
     CorsViolation(String),
+
+    /// Redirect limit exceeded while following `Location` headers.
+    #[error("Too many redirects while fetching '{0}'")]
+    TooManyRedirects(String),
+
+    /// `Location` header could not be resolved against the request URL.
+    #[error("Invalid redirect location from '{0}': {1}")]
+    InvalidRedirect(String, url::ParseError),
 }

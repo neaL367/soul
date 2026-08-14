@@ -163,3 +163,105 @@ fn collect_roles(node: &browser_shell::engine::A11yNode, roles: &mut Vec<A11yRol
         collect_roles(child, roles);
     }
 }
+
+/// Multi-connection mock server serving a styled page plus a red PNG image.
+async fn spawn_media_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
+    let red_pixels: Vec<u8> = (0..8 * 8).flat_map(|_| [255u8, 0, 0, 255]).collect();
+    let logo_png = image_decode::encode_png(&red_pixels, 8, 8).expect("encode test PNG");
+
+    let page_html = r#"<!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body { background-color: #00ff00; }
+            p { color: #0000ff; }
+        </style>
+    </head>
+    <body>
+        <h1>Styled Page</h1>
+        <img src="/logo.png">
+        <p>Paragraph</p>
+    </body>
+    </html>"#;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let handle = tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let mut buf = [0u8; 4096];
+            let n = socket.read(&mut buf).await.unwrap_or(0);
+            let req_str = String::from_utf8_lossy(&buf[..n]);
+
+            let response = if req_str.contains("GET /logo.png ") {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    logo_png.len()
+                )
+                .into_bytes()
+                .into_iter()
+                .chain(logo_png.clone())
+                .collect::<Vec<u8>>()
+            } else {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    page_html.len(),
+                    page_html
+                )
+                .into_bytes()
+            };
+            let _ = socket.write_all(&response).await;
+            let _ = socket.flush().await;
+        }
+    });
+
+    (addr, handle)
+}
+
+fn pixel_at(buffer: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
+    let i = ((y * width + x) * 4) as usize;
+    [buffer[i], buffer[i + 1], buffer[i + 2], buffer[i + 3]]
+}
+
+/// Author `<style>` sheets must apply, and `<img>` subresources must be fetched
+/// through the security-checked path, decoded, and rasterized.
+#[tokio::test]
+async fn test_styles_and_images_render_end_to_end() {
+    common::init_tracing();
+    let (addr, server_handle) = spawn_media_server().await;
+    let url = Url::parse(&format!("http://127.0.0.1:{}/page", addr.port())).unwrap();
+    let options = RenderOptions {
+        width: 640,
+        height: 480,
+    };
+
+    let result = navigate_and_render(url, options)
+        .await
+        .expect("navigation failed");
+    let buffer = &result.pixel_buffer.data;
+    let width = result.pixel_buffer.width;
+
+    // Author <style> applied: body background is green (#00ff00) inside the body box.
+    let bg = pixel_at(buffer, width, 10, 10);
+    assert!(
+        bg[1] > 200 && bg[0] < 100,
+        "expected green background, got {bg:?}"
+    );
+
+    // The image was fetched, decoded, and drawn: red pixels exist somewhere.
+    let has_red = buffer
+        .chunks_exact(4)
+        .any(|px| px[0] > 200 && px[1] < 100 && px[2] < 100);
+    assert!(has_red, "no red image pixels found in frame");
+
+    // Image role present in the accessibility tree.
+    let tree = result.a11y_tree.expect("a11y tree expected");
+    let mut roles = Vec::new();
+    collect_roles(&tree, &mut roles);
+    assert!(roles.contains(&A11yRole::Image));
+
+    server_handle.abort();
+}

@@ -37,7 +37,7 @@ fn test_background_and_border_display_items() {
     };
     layout_block(&mut layout_box, &viewport);
 
-    let display_list = DisplayListBuilder::build(&layout_box);
+    let display_list = DisplayListBuilder::build(&layout_box, &std::collections::HashMap::new());
     assert!(!display_list.is_empty());
 
     let mut has_rect = false;
@@ -115,7 +115,7 @@ fn test_stacking_context_css21_order() {
     };
     layout_block(&mut root_box, &viewport);
 
-    let display_list = DisplayListBuilder::build(&root_box);
+    let display_list = DisplayListBuilder::build(&root_box, &std::collections::HashMap::new());
 
     let mut color_sequence = Vec::new();
     for item in &display_list.items {
@@ -169,7 +169,7 @@ fn test_opacity_push_pop_wrapping() {
     };
     layout_block(&mut layout_box, &viewport);
 
-    let display_list = DisplayListBuilder::build(&layout_box);
+    let display_list = DisplayListBuilder::build(&layout_box, &std::collections::HashMap::new());
 
     assert_eq!(
         display_list.items.first(),

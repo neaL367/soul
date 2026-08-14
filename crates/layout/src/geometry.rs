@@ -119,3 +119,21 @@ impl Dimensions {
         )
     }
 }
+
+/// Natural dimensions of a replaced element (e.g. an `<img>` bitmap) used for
+/// intrinsic aspect-ratio sizing during layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct IntrinsicSize {
+    /// Natural width in pixels.
+    pub width: u32,
+    /// Natural height in pixels.
+    pub height: u32,
+}
+
+impl IntrinsicSize {
+    /// Creates a new `IntrinsicSize`.
+    #[must_use]
+    pub const fn new(width: u32, height: u32) -> Self {
+        Self { width, height }
+    }
+}

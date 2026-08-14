@@ -120,6 +120,7 @@ fn render_remote_url(raw_url: &str, cli: &Cli) -> Result<Option<ViewportFrame>> 
         status = result.status_code,
         fetch_ms = result.timings.fetch.as_millis(),
         parse_ms = result.timings.parse.as_millis(),
+        images_ms = result.timings.images.as_millis(),
         style_ms = result.timings.style.as_millis(),
         layout_ms = result.timings.layout.as_millis(),
         paint_ms = result.timings.paint.as_millis(),
