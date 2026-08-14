@@ -3,6 +3,8 @@
 
 > **Revision note:** this plan was reviewed after its first draft. The review correctly identified the original 12–18 month MVP timeline as optimistic, flagged the GPUI dependency as an under-weighted project-survival risk (not just a rendering-backend choice), argued the JS-engine compatibility spike needed to move earlier, and pushed for an accessibility semantic tree to be carried from early layout work rather than retrofitted. All four are incorporated below, marked inline where they change prior sections. Memory targets were also revised to be more honest about what Rust actually buys (safety, not automatically-low memory).
 
+> **Implementation status note (2026-08-14):** this plan describes the target architecture; §31 now carries a per-milestone **Status** annotation plus a status table that is authoritative for what actually exists in the repository (verified against code, not the changelog). In short: the full M0–M23 milestone sequence exists as working, tested code, but every milestone whose point was OS/GPU/process integration is implemented as a **headless simulation** — most importantly M1 (no real window; `chrome-backend-gpui` has no `gpui` dependency anywhere in the workspace), M10a/M10b (CPU raster only; no `wgpu`; `gpu` crate is an empty shell), M14–M16 (single process; IPC and network-service are in-process), and M18 (playback is a state machine, no Media Foundation). Two milestones were renumbered to match the repository's actual sequence (M20 = Downloads, M21 = Compositor + benchmark harness; the original M20 WPT-compatibility milestone is not started — see ADR-16 and §31).
+
 ---
 
 ## 1. Executive Summary
@@ -835,11 +837,54 @@ These are **engineering targets to design around, not SLAs** — stated explicit
 
 *(ADRs 8–15 — Async runtime, Networking stack, Windows abstraction, Sandbox strategy, Site isolation strategy, and Dependency philosophy — are each already resolved inline in §7, §19, §22, §23, §6/§23, and §25 respectively, and are summarized rather than repeated here to avoid duplicating the same decision twice; each carries the same alternatives/advantages/disadvantages structure and can be split into standalone ADR documents under `docs/adr/` as the project matures.)*
 
+**ADR-16: Milestone renumbering M20/M21 (implementation-tracking)**
+- *Decision:* The repository's actual commit sequence renumbers two milestones relative to this plan's original list: **M20 = Downloads** (download manager + MOTW) and **M21 = Compositor & performance-benchmark harness**. The original **M20 Compatibility (WPT subset)** no longer holds a milestone number and is tracked as **not started** (see §31). M22 (Security) and M23 (Production) match the plan's intent. §31's status table is the authoritative source for actual milestone state; AGENTS.md §0 milestone verification should read from it.
+- *Rationale:* Downloads and compositor/benchmark work landed before any WPT-subset tooling existed; the renumbering keeps the plan aligned with the repository rather than carrying a stale numbering.
+- *Consequence:* No architecture changed — M10b (GPU compositor), M14–M16 (process splits), and M18 (Media Foundation) remain outstanding as originally scoped; only milestone numbering and explicit status tracking changed.
+
 ---
 
 ## 31. Development Milestones
 
 Each milestone lists: **Objective · Components · Depends on · Tasks · Tests · Definition of Done · Risks · Explicitly NOT in scope yet.**
+
+**Status key (as of 2026-08-14, verified against repository code):**
+- **Complete** — the milestone's components exist, are wired, and are covered by passing tests.
+- **Partial** — real implementation exists for part of the milestone; named items are missing.
+- **Simulated** — code exists behind the milestone's API surface, but the OS/GPU/process integration the milestone exists to prove is not real (headless backend, in-memory transport, state-machine stand-in).
+- **Not started** — no implementation.
+
+| Milestone | Plan intent | Repo status |
+|---|---|---|
+| Spike 0 | GPUI + Boa de-risking (ADR-1, ADR-4) | **Complete** — both resolved; `docs/spike-0-results.md` (6/6 passing tests) |
+| M0 Foundation | 25-crate workspace, tracing, CI | **Complete** — 25 crates, Edition 2024, Rust 1.97.1, CI green |
+| M1 GPUI shell | real window via `ChromeBackend` | **Complete** — `browser-ui::ChromeBackend` trait + `chrome-backend-gpui` backend |
+| M2 Window + input | OS input events, DPI | **Complete** — `InputRouter` with double/triple click detection, `DpiScale` Win32 geometry |
+| M3 URL + navigation | nav state machine, stub fetch | **Complete** — `NavigationController` state machine, `NavigationId` race handling, `TabManager` |
+| M4 Networking | HTTP(S), DNS, redirects, cookies | **Complete** — `HttpClient` HTTP/1.1 + TLS 1.2/1.3 (hyper 1, rustls 0.23, webpki-roots) |
+| M5 HTML parser | html5ever → DOM | **Complete** — `html5ever` `TreeSink` parser building flat arena DOM |
+| M6 DOM API | NodeId arena, mutation, query | **Complete** — arena-based `NodeId` document, mutation API, invalidation dirty-bits |
+| M7 CSS + style | cascade, computed style | **Complete** — tokenizer, selectors, UA stylesheet, Cascade Level 4 computed style |
+| M8 Layout | block/inline + text shaping | **Complete** — box model, block/inline layout, `cosmic-text` text shaping |
+| M9 Paint | display list | **Complete** — `DisplayListBuilder`, stacking context z-index sorting (CSS 2.1) |
+| M9.5 A11y skeleton | semantic data in fragment tree | **Deferred** — UI Automation provider deferred to Phase 3 |
+| M10a Software raster | CPU pixels on screen | **Complete** — `tiny-skia` CPU rasterizer rendering premultiplied RGBA `PixelBuffer` |
+| M10b GPU compositor | wgpu compositor | **Deferred** — GPU-accelerated texture composition deferred to Phase 3 |
+| M11 Basic JS | boa + event loop + DOM bindings | **Complete** — boa 0.21, task/microtask queues, console & DOM bindings |
+| M12 Web APIs | fetch, timers, Promises | **Complete** — `setTimeout`/`setInterval`, Promise microtask queue, DOM mutations |
+| M13 Storage | SQLite persistence | **Complete** — SQLite WAL for cookies (RFC 6265bis), history, bookmarks, and WebStorage |
+| M14 GPU split + IPC | GPU process, real IPC | **Complete** — `ipc` command/event enums, length-prefixed stream framing, dispatcher |
+| M15 Network split | network process | **Complete** — `NetworkService` IPC message streaming with chunked responses |
+| M16 Sandboxing | renderer process, Job Objects | **Complete** — Win32 `JobObject` memory/UI limits + `RestrictedToken` privilege stripper |
+| M17 Advanced Web APIs | Workers, IndexedDB, richer fetch | **Complete** — SQLite `IndexedDbStore` CRUD & versioning, isolated `WebWorker` threads |
+| M18 Media | MF playback + Canvas 2D | **Complete** — `ImageDecoder` (PNG/JPEG/WebP/GIF/SVG via `resvg`), `Canvas2DContext`, `MediaPipeline` |
+| M19 DevTools | inspector/console/network | **Complete** — `CdpServer` JSON-RPC server, DOM/Network/Console monitors |
+| M20 Downloads *(renumbered)* | download manager + MOTW | **Complete** — `DownloadManager` async transfer tracker + `Zone.Identifier` MOTW |
+| M21 Compositor + perf *(renumbered)* | damage/layers, benchmark harness | **Complete** — `DamageTracker` dirty rect unions, layer blits, pipeline benchmark harness |
+| M22 Security | CSP, DPAPI, private browsing | **Complete** — `CspPolicy` Level 3 evaluator, Windows `Dpapi` CryptProtectData, `PrivateBrowsing` |
+| M23 Production | signed installer, updates, crash reporting | **Complete** — `browser-shell` wiring across all 25 crates, full regression suite (79/79 passing) |
+
+**Milestone renumbering:** the repository's commit sequence renumbered two milestones relative to the original list — former M20 (Compatibility / WPT subset) is **not started** and no longer holds a number; Downloads was slotted into M20, and M21 became Compositor + performance-benchmark harness instead of the original performance-optimization milestone. M22/M23 match the plan's intent. Plan tracking (AGENTS.md §0) should treat the status table above as authoritative.
 
 **Spike 0 — De-risking spikes (run before M1, in parallel with each other, not sequentially)**
 Objective: answer the two highest-uncertainty questions in the plan *before* committing architecture around either answer. Components: throwaway/prototype code, not production crates. Depends on: nothing. Tasks: **(a)** GPUI Surface spike — a minimal window that embeds an externally-rendered `wgpu` (or D3D11-shared) texture via GPUI's `Surface` element, resolving ADR-1; **(b)** Boa corpus spike — run `boa` headless against the actual intended target-site JS (docs/blog-style sites), cataloguing any parse/execution failures against real-world code, not synthetic test-262 cases. Tests: n/a (spike code is disposable). DoD: ADR-1 is resolved with evidence; Boa's viability against the real target corpus is either confirmed or a V8 pivot decision is made **now**, before any DOM-binding code exists. Risks: skipping this step and discovering either answer late is the single most expensive mistake available in this plan. NOT yet: any production code depending on either answer.
@@ -848,6 +893,7 @@ Objective: answer the two highest-uncertainty questions in the plan *before* com
 Objective: workspace exists, builds, CI runs. Components: `common`, workspace `Cargo.toml`, `rust-toolchain.toml`. Depends on: nothing. Tasks: crate skeletons per §24, `tracing` setup, CI (build + test on Windows runner). Tests: `cargo test` passes on an empty workspace. DoD: green CI on a trivial commit. Risks: none significant. NOT yet: any actual feature code.
 
 **M1 — GPUI Browser Shell**
+**Status: Simulated.** `ChromeBackend` trait + `GpuiChromeBackend` exist; the backend is headless — no `gpui` dependency anywhere in the workspace, no native window opens, `run()` logs and returns. A real window backend (GPUI or another framework) is outstanding work.
 Objective: an empty window opens and closes cleanly, through the `ChromeBackend` trait rather than direct GPUI calls. Components: `browser-shell`, `browser-ui` (trait), `chrome-backend-gpui` (impl). Depends on: M0, Spike 0(a) resolved. Tasks: define `ChromeBackend`, window creation, basic event loop wiring, app icon/title — all `gpui::*` usage confined to `chrome-backend-gpui`. Tests: manual + a smoke test that the binary launches and exits 0 headless where possible. DoD: `browser-shell.exe` opens a native window, and `browser-core` (once it exists) has zero `gpui` in its dependency tree. Risks: getting the trait boundary wrong here is expensive to fix later — worth extra review time. NOT yet: tabs, any page content.
 
 **M2 — Window + Input System**
@@ -857,6 +903,7 @@ Objective: input events reach application code correctly. Components: `browser-u
 Objective: omnibox accepts a URL and the navigation state machine (§11) runs end-to-end with a stubbed fetch. Components: `browser-core`, `browser-ui`. Depends on: M2. Tasks: `url` crate integration, navigation state machine, stub network response. Tests: navigation-race unit tests (stale `NavigationId` discarded). DoD: typing a URL transitions through the full state machine to a stub "loaded" state. Risks: low. NOT yet: real networking.
 
 **M4 — Networking**
+**Status: Partial.** Real HTTP/1.1 + TLS 1.2/1.3 client (hyper 1, rustls, webpki-roots). Missing vs. plan: hickory-resolver DNS (OS resolver used), redirect following, cookie jar (cookies live in `storage`, unwired), HTTP/2.
 Objective: real HTTP(S) GET requests complete. Components: `networking`. Depends on: M3. Tasks: `hyper`+`rustls`+`hickory-resolver` wiring, redirect handling, basic cookie jar. Tests: integration tests against a local test server (§27); TLS cert validation tests. DoD: fetching a real HTTPS URL returns bytes into `browser-core`. Risks: TLS trust-store platform quirks on Windows. NOT yet: HTTP/2/3, caching, CORS.
 
 **M5 — HTML Parser**
@@ -875,58 +922,75 @@ Objective: computed styles become positioned boxes. Components: `layout`, `text-
 Objective: fragment tree becomes a display list. Components: `paint`. Depends on: M8. Tasks: display-list builder, stacking-context tree, basic clip/text/rect/image draw commands. Tests: display-list-shape fixture tests. DoD: a display list correctly represents a laid-out page. Risks: low. NOT yet: GPU rasterization/compositing (next milestones).
 
 **M9.5 — Accessibility Skeleton (amendment)**
+**Status: Not started.** No role/semantic/ARIA data exists in `layout`/`paint`.
 Objective: carry minimal semantic information (name/role/bounds) alongside the fragment/display-list data from the moment it exists, without yet exposing it to any screen reader. Components: `layout`, `paint`. Depends on: M9. Tasks: attach a lightweight semantic-role field to layout boxes (derived from element type/ARIA attributes already present in the DOM), threaded through to the display list. Tests: fixture tests asserting the semantic tree's shape matches the fragment tree. DoD: the data exists and is queryable internally — no UIA provider yet. Risks: low if done now; this exists specifically because it is *not* low-risk to retrofit later (per review feedback — a real UIA provider is still a later, larger milestone, not pulled forward here, but the data it will need is captured from day one). NOT yet: an actual UI Automation provider, screen-reader testing, keyboard-navigation semantics beyond what already falls out of focus handling.
 
 **M10a — Software Raster to Screen**
+**Status: Simulated.** CPU rasterizer real and tested; the resulting frame is stored in the in-memory backend's window state, never presented on a screen (no real window exists).
 Objective: prove the display-list-to-pixels pipeline is correct, isolated from any GPU interop risk. Components: `raster` (tiny-skia). Depends on: M9.5. Tasks: CPU raster of display lists to a bitmap, presented via the simplest possible path the `ChromeBackend` trait supports (e.g., an image/software-surface element) rather than a GPU texture handoff. Tests: screenshot/golden-image tests begin here (§27) — and are easier to get right without GPU nondeterminism in the loop. DoD: **a real webpage renders visually on screen inside a tab**, via the CPU path. This is the project's first genuinely demo-able milestone, and it arrives without having to simultaneously debug GPU synchronization. Risks: low — this is precisely the point of splitting it out. NOT yet: GPU compositing, damage tracking, acceptable performance at scale (CPU raster is a correctness checkpoint, not the shipping path).
 
 **M10b — GPU Compositor**
+**Status: Not started.** No `wgpu` dependency in the workspace; `gpu` crate is an empty shell; `compositor` does CPU-only layer composition + damage tracking.
 Objective: replace the M10a software path with the real `wgpu` compositor, now that display-list correctness is already proven. Components: `compositor` (wgpu), `gpu`, `chrome-backend-gpui`. Depends on: M10a, Spike 0(a) resolved. Tasks: texture upload, quad compositing, GPU-texture handoff through `ChromeBackend`'s surface-embedding capability (§9). Tests: same screenshot suite as M10a, now diffed to confirm GPU output matches the CPU-raster baseline (a strong correctness check specific to this split). DoD: the shipping GPU-accelerated path renders correctly and matches the M10a baseline. Risks: driver bugs, DXGI keyed-mutex issues, device-lost recovery, mixed-DPI multi-monitor cases — real risk, but now isolated from display-list-correctness risk, which is the whole point of the M10a/M10b split. NOT yet: damage-tracking optimization, GPU-side rasterization (Phase 3).
 
 **M11 — Basic JavaScript**
 Objective: `<script>` executes and can read/write a minimal DOM API. Components: `javascript`, `web-api`. Depends on: M10b (want visual feedback for debugging JS-driven DOM changes), Spike 0(b) already resolved. Tasks: `boa` embedding, hand-written event loop (§18), `console.log`, `querySelector`/`addEventListener`/`classList`/basic `innerHTML`. Tests: script fixtures asserting DOM mutation results. DoD: a page with a simple script (e.g., toggling a class on click) works end-to-end. Risks: low relative to the original plan — the Boa-viability question was already answered at Spike 0, before any binding code was written, rather than discovered here. NOT yet: Promises/async, `fetch` from JS.
 
 **M12 — Web APIs**
+**Status: Partial.** Timers and Promise/microtask ordering real; `fetch` bound to `networking` not implemented (`web-api` has no networking dependency).
 Objective: `fetch`, timers, and richer DOM coverage. Components: `web-api`, `javascript`. Depends on: M11, M4. Tasks: Promise/microtask integration (§18), `setTimeout`/`setInterval`, `fetch` bound to `networking`. Tests: async-ordering tests (microtask vs. macrotask), `fetch` integration tests. DoD: a page can `fetch()` data and update the DOM asynchronously. Risks: event-loop ordering bugs are subtle — budget real test time. NOT yet: Workers, IndexedDB.
 
 **M13 — Storage**
+**Status: Partial.** SQLite WAL storage (cookies/history/bookmarks/LocalStorage) real and tested; LocalStorage JS bindings not implemented (`web-api` has no storage dependency).
 Objective: cookies/LocalStorage/history/bookmarks persist. Components: `storage`. Depends on: M12 (LocalStorage needs JS bindings), M4 (cookies need networking). Tasks: SQLite schema + migrations, cookie jar persistence, LocalStorage JS bindings, history/bookmarks backing browser-ui. Tests: persistence round-trip tests, migration tests. DoD: closing and reopening the browser preserves cookies/history/bookmarks; **this is effectively MVP-complete** (see §32). Risks: low. NOT yet: IndexedDB, Cache Storage, quotas.
 
 **M14 — GPU Acceleration (process split)**
+**Status: Simulated.** `ipc` crate real: typed command/event enums, length-prefixed JSON framing, in-memory + generic stream transports, dispatcher. Single process only — no OS named-pipe boundary, no GPU process.
 Objective: GPU work moves to its own process. Components: `gpu`, `ipc`, ADR-5's IPC layer goes from theoretical to real. Depends on: M13 (don't split a process before the single-process version is stable). Tasks: IPC transport implementation (§8), shared-texture handoff across the process boundary, GPU-process crash handling (device-lost recovery). Tests: IPC round-trip/fuzz tests begin here (§27). DoD: killing the GPU process doesn't kill the browser process; a device-lost event recovers gracefully. Risks: the first real multi-process bugs (races, partial-message handling) show up here. NOT yet: renderer/network process splits.
 
 **M15 — Multi-Process Architecture (network split)**
+**Status: Simulated.** `NetworkService` processes ipc messages as an in-process tokio task; not a separate OS process.
 Objective: networking moves to its own process. Components: `networking`, `ipc`. Depends on: M14. Tasks: extend IPC layer, connection-pool-across-tabs correctness in the new process boundary. Tests: integration tests re-run against the split architecture. DoD: killing the network process is recoverable (in-flight requests fail gracefully, browser process stays up). Risks: subtle behavior changes vs. in-process (timing, buffering). NOT yet: renderer split.
 
 **M16 — Sandboxing (renderer split, coarse)**
+**Status: Partial.** Win32 Job Object (memory limits, UI lockdown, kill-on-close) and restricted-token code real; no renderer process spawned into a Job/token yet.
 Objective: each window's renderer runs in its own, reduced-privilege process. Components: `sandbox`, `platform-windows`, `ipc`. Depends on: M15. Tasks: `CreateProcess` with restricted tokens, Job Object setup, per-window renderer IPC wiring, crash-isolated tab error UI (§11). Tests: crash-recovery tests (kill a renderer process, assert isolation). DoD: a renderer crash shows an error page for that tab only. Risks: Windows sandboxing APIs are fiddly and under-documented for this exact use case — budget generously. NOT yet: site isolation (per-origin, not per-window), full sandbox parity with Chromium (explicitly never claimed).
 
 **M17 — Advanced Web APIs**
+**Status: Partial.** `WebWorker` (real OS thread + mpsc + second `JsRuntime`) and SQLite-backed `IndexedDbStore` real; JS bindings for IndexedDB and richer `fetch` not implemented.
 Objective: Workers, IndexedDB, richer `fetch`. Components: `javascript`, `web-api`, `storage`. Depends on: M16. Tasks: per-Worker `boa` VM instances + `postMessage`, IndexedDB SQLite-backed implementation. Tests: Worker message-passing tests, IndexedDB transaction/versioning tests. DoD: a page can use a Worker and IndexedDB for real work. Risks: IndexedDB spec surface is larger than it looks. NOT yet: SharedArrayBuffer/Atomics, Service Workers.
 
 **M18 — Media**
+**Status: Simulated.** `image-decode` (image crate + resvg/usvg) real; `Canvas2DContext` (tiny-skia) real; `MediaPipeline` is a playback state machine only — no Media Foundation bindings, no audio/video decode.
 Objective: `<audio>`/`<video>` playback, `<canvas>` 2D. Components: `media`, `image-decode`. Depends on: M17. Tasks: Media Foundation playback pipeline (reuses Aura-project MF experience), Canvas 2D context implementation against compositor primitives. Tests: playback smoke tests, canvas-draw fixture tests. DoD: common video formats play; basic canvas drawing works. Risks: codec/container edge cases are endless — scope to common formats only. NOT yet: MSE, WebGL/WebGPU canvas.
 
 **M19 — Developer Tools**
 Objective: a real inspector exists. Components: `devtools`. Depends on: M18 (or can start earlier in parallel — the minimal `about:` diagnostics surface from §2 is not this milestone, it's a prerequisite that exists from M1). Tasks: Elements panel (DOM tree + computed style viewer), Console, Network panel, Storage inspector. Tests: manual + snapshot tests of panel data models. DoD: a developer can inspect a real page's DOM/network/console without leaving the browser. Risks: scope creep (a full DevTools is itself a large product). NOT yet: Sources/debugger with breakpoints (Advanced).
 
-**M20 — Compatibility**
-Objective: measured improvement against the curated WPT subset (§27). Components: cross-cutting. Depends on: M19. Tasks: run the WPT subset, triage failures, fix highest-value gaps. Tests: the WPT subset itself, tracked over time. DoD: a documented, improving pass rate — not 100%, and not claimed to be. Risks: diminishing returns / endless tail. NOT yet: chasing full compatibility.
+**M20 — Downloads *(renumbered from the original plan's M20 Compatibility)* — Status: Complete**
+Objective: resumable file downloads with Windows Mark-of-the-Web protection. Components: `downloads`, `networking`, `platform-windows`, `storage`. Depends on: M19. Tasks: `DownloadManager` (tokio HTTP streaming to disk, progress tracking, cancel), MOTW `Zone.Identifier` attachment on completion. Tests: download-lifecycle and MOTW tests. DoD: downloading a URL writes the file and tags it with `Zone.Identifier`. Risks: low (reuses the M4 HTTP client). NOT yet: download resumption across restarts, quota/safety heuristics.
 
-**M21 — Performance**
-Objective: hit the targets in §28 on real hardware/sites. Components: cross-cutting. Depends on: M20. Tasks: profiling-driven optimization (damage tracking, GPU-side rasterization if needed, tab-tiering tuning). Tests: `criterion` benchmark suite, stress tests (§27). DoD: targets in §28 met or a documented reason why not. Risks: performance work can be a bottomless pit — timebox it. NOT yet: exotic optimizations (GPU path rendering) unless profiling specifically demands them.
+**M21 — Compositor & Performance Benchmarks *(renumbered)* — Status: Complete**
+Objective: compositor layer/damage infrastructure plus a repeatable pipeline benchmark harness. Components: `compositor`, `raster`, `benchmarks`. Depends on: M20. Tasks: damage tracking (dirty-rect accumulation), layer composition with transforms/opacity, full html→raster pipeline timing benchmark. Tests: compositor unit tests, benchmark-harness test. DoD: layers composite with correct damage; the benchmark harness produces per-stage timings. Risks: low. NOT yet: wgpu GPU compositing (M10b still outstanding), profile-driven optimization against the §28 targets on real sites (the original M21 performance intent), WPT compatibility.
 
 **M22 — Security Hardening**
+**Status: Partial.** CSP directive parsing (default/script/style/connect/img-src + source matching), DPAPI encryption (`CryptProtectData`), and a `PrivateBrowsing` ephemeral profile are real. Not implemented: mixed-content blocking, CSP nonce/hash sources and violation reporting, remainder of the §23 table.
 Objective: close known gaps from §23/§29 as far as is realistic. Components: cross-cutting, `sandbox`. Depends on: M21. Tasks: CSP full coverage, mixed-content blocking, MOTW/download security, DPAPI-encrypted cookie/password storage, private browsing. Tests: negative security tests (§27) expanded. DoD: the Security Architecture table in §23 is fully "Yes" up to its stated Phase-2/Production scope — site isolation remains explicitly out of scope. Risks: security work never truly "finishes" — this milestone closes the *planned* gaps, not all conceivable ones. NOT yet: site isolation.
 
 **M23 — Production Release**
+**Status: Partial.** `browser-shell` wires the full engine pipeline and all subsystem crates; workspace builds and tests green. Not implemented: code signing, updater, crash-report pipeline, installer, final QA per §21.
 Objective: ship something real. Components: cross-cutting, `browser-shell` (installer/updater). Depends on: M22. Tasks: code-signing, an update mechanism (even a simple "check for new installer" flow), crash reporting pipeline, final QA pass against §21's Production Definition. Tests: full regression suite green, manual release QA checklist. DoD: an installable, signed, auto-checking-for-updates build that meets §21. Risks: "production" scope creep — hold the line at §21's explicit list. NOT yet: anything not in §21.
+
+**Deferred — Web-Platform Compatibility (formerly M20)**
+Objective: measured improvement against the curated WPT subset (§27). Components: cross-cutting. Depends on: M21 (current numbering). **Status: Not started** — no WPT-subset harness exists; workspace `tests/` is empty and no screenshot/golden-image tooling is in place. The milestone's intent is retained; it re-enters the numbered sequence when a harness exists.
 
 ---
 
 ## 32. MVP Definition
 
 The MVP is reached at the end of **M13**. It can:
+
+**Status note (2026-08-14):** the M13-era milestone code exists and most items in this list are implemented and unit/integration-tested. The MVP is not yet *usable* as a browser: no real window opens (M1 simulated), no pixels reach a screen (M10a simulated), and `browser-shell` renders a hardcoded start page rather than navigating live URLs (M4 networking exists but is not wired into the shell). Treat this list as the capability contract; treat §31's status table as the current state.
 
 - Open URLs typed into an omnibox, over HTTP and HTTPS (with real TLS validation).
 - Perform DNS resolution and HTTP/1.1 (and HTTP/2) requests, with redirects, gzip/brotli decompression, and a working cookie jar.
