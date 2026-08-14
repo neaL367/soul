@@ -321,7 +321,6 @@ dependencies = [
  "paint",
  "raster",
  "storage",
- "tiny-skia",
  "tokio",
  "tracing",
  "url",
