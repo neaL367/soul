@@ -4,4 +4,4 @@
 
 pub mod backend;
 
-pub use backend::{GpuiChromeBackend, GpuiWindowState};
+pub use backend::GpuiChromeBackend;

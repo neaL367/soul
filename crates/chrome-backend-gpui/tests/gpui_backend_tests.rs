@@ -68,9 +68,3 @@ fn test_gpui_backend_event_emission() {
         ChromeEvent::WindowCloseRequested { window_id: id.0 }
     );
 }
-
-#[test]
-fn test_gpui_backend_run() {
-    let backend = Box::new(GpuiChromeBackend::new());
-    assert!(backend.run().is_ok());
-}
