@@ -10,6 +10,6 @@ pub mod restricted_token;
 
 pub use error::SandboxError;
 pub use job_object::JobObject;
-pub use launcher::ProcessLauncher;
+pub use launcher::{ProcessLauncher, SandboxedChild};
 pub use profile::{SandboxKind, SandboxProfile};
 pub use restricted_token::RestrictedToken;

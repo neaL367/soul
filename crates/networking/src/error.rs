@@ -38,14 +38,18 @@ pub enum NetworkError {
     HttpFormatError(#[from] http::Error),
 
     /// IO error during payload transfer.
-    #[error("IO error: {0}")]
+    #[error("IO transfer error: {0}")]
     IoError(#[from] std::io::Error),
 
-    /// Request timed out.
-    #[error("Network request timed out after {0:?}")]
-    Timeout(std::time::Duration),
-
-    /// IPC transport communication error.
-    #[error("IPC transport error: {0}")]
+    /// IPC transport failure during out-of-process networking.
+    #[error("Transport error: {0}")]
     TransportError(String),
+
+    /// Insecure HTTP resource blocked on HTTPS document origin.
+    #[error("Mixed content blocked: insecure request to '{0}' from secure origin '{1}'")]
+    MixedContentBlocked(String, String),
+
+    /// Cross-Origin Resource Sharing (CORS) check failed.
+    #[error("CORS access denied for request origin '{0}'")]
+    CorsViolation(String),
 }

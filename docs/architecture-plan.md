@@ -856,33 +856,35 @@ Each milestone lists: **Objective · Components · Depends on · Tasks · Tests 
 
 | Milestone | Plan intent | Repo status |
 |---|---|---|
-| Spike 0 | GPUI + Boa de-risking (ADR-1, ADR-4) | **Complete** — both resolved; `docs/spike-0-results.md` (6/6 passing tests) |
-| M0 Foundation | 25-crate workspace, tracing, CI | **Complete** — 25 crates, Edition 2024, Rust 1.97.1, CI green |
-| M1 GPUI shell | real window via `ChromeBackend` | **Complete** — `browser-ui::ChromeBackend` trait + `chrome-backend-gpui` backend |
-| M2 Window + input | OS input events, DPI | **Complete** — `InputRouter` with double/triple click detection, `DpiScale` Win32 geometry |
-| M3 URL + navigation | nav state machine, stub fetch | **Complete** — `NavigationController` state machine, `NavigationId` race handling, `TabManager` |
-| M4 Networking | HTTP(S), DNS, redirects, cookies | **Complete** — `HttpClient` HTTP/1.1 + TLS 1.2/1.3 (hyper 1, rustls 0.23, webpki-roots) |
-| M5 HTML parser | html5ever → DOM | **Complete** — `html5ever` `TreeSink` parser building flat arena DOM |
-| M6 DOM API | NodeId arena, mutation, query | **Complete** — arena-based `NodeId` document, mutation API, invalidation dirty-bits |
-| M7 CSS + style | cascade, computed style | **Complete** — tokenizer, selectors, UA stylesheet, Cascade Level 4 computed style |
-| M8 Layout | block/inline + text shaping | **Complete** — box model, block/inline layout, `cosmic-text` text shaping |
-| M9 Paint | display list | **Complete** — `DisplayListBuilder`, stacking context z-index sorting (CSS 2.1) |
-| M9.5 A11y skeleton | semantic data in fragment tree | **Deferred** — UI Automation provider deferred to Phase 3 |
-| M10a Software raster | CPU pixels on screen | **Complete** — `tiny-skia` CPU rasterizer rendering premultiplied RGBA `PixelBuffer` |
-| M10b GPU compositor | wgpu compositor | **Deferred** — GPU-accelerated texture composition deferred to Phase 3 |
+| Spike 0 | GPUI + Boa de-risking (ADR-1, ADR-4) | **Complete** — both resolved; `docs/spike-0-results.md` (6/6 corpus tests pass) |
+| M0 Foundation | 25-crate workspace, tracing, CI | **Complete** — 25 crates + benchmarks, Edition 2024, Rust 1.97.1, CI green |
+| M1 GPUI shell | real window via `ChromeBackend` | **Simulated** — trait + `GpuiChromeBackend` real; backend headless, no `gpui` dependency anywhere in the workspace, no native window |
+| M2 Window + input | OS input events, DPI | **Partial** — `InputRouter` (incl. click detection) + `DpiScale` Win32 geometry real; no OS event loop feeding them |
+| M3 URL + navigation | nav state machine, stub fetch | **Complete** — `NavigationController`, `NavigationId` race handling, `TabManager` |
+| M4 Networking | HTTP(S), DNS, redirects, cookies | **Partial** — real HTTP/1.1 + TLS 1.2/1.3 (hyper 1, rustls, webpki-roots); no hickory DNS, no redirects, no cookie jar, no HTTP/2 |
+| M5 HTML parser | html5ever → DOM | **Complete** |
+| M6 DOM API | NodeId arena, mutation, query | **Complete** |
+| M7 CSS + style | cascade, computed style | **Complete** (MVP property set) |
+| M8 Layout | block/inline + text shaping | **Complete** — block + inline, cosmic-text shaping; taffy flex/grid deferred to Phase 2 |
+| M9 Paint | display list | **Complete** |
+| M9.5 A11y skeleton | semantic data in fragment tree | **Partial** — `A11yNode` tree (roles, aria-label, bounds) real + tested; no UIA provider, not wired to `platform-windows` |
+| M10a Software raster | CPU pixels on screen | **Simulated** — `tiny-skia` rasterizer real; frame stored in in-memory backend, never displayed |
+| M10b GPU compositor | wgpu compositor | **Partial** — wgpu 24 `GpuContext`/`GpuTexture` real but headless (no surface/DXGI/swapchain); `GpuCompositor` composites on CPU then uploads the whole frame; no GPU render pass, no damage-rect upload, not wired into the shell |
 | M11 Basic JS | boa + event loop + DOM bindings | **Complete** — boa 0.21, task/microtask queues, console & DOM bindings |
-| M12 Web APIs | fetch, timers, Promises | **Complete** — `setTimeout`/`setInterval`, Promise microtask queue, DOM mutations |
-| M13 Storage | SQLite persistence | **Complete** — SQLite WAL for cookies (RFC 6265bis), history, bookmarks, and WebStorage |
-| M14 GPU split + IPC | GPU process, real IPC | **Complete** — `ipc` command/event enums, length-prefixed stream framing, dispatcher |
-| M15 Network split | network process | **Complete** — `NetworkService` IPC message streaming with chunked responses |
-| M16 Sandboxing | renderer process, Job Objects | **Complete** — Win32 `JobObject` memory/UI limits + `RestrictedToken` privilege stripper |
-| M17 Advanced Web APIs | Workers, IndexedDB, richer fetch | **Complete** — SQLite `IndexedDbStore` CRUD & versioning, isolated `WebWorker` threads |
-| M18 Media | MF playback + Canvas 2D | **Complete** — `ImageDecoder` (PNG/JPEG/WebP/GIF/SVG via `resvg`), `Canvas2DContext`, `MediaPipeline` |
-| M19 DevTools | inspector/console/network | **Complete** — `CdpServer` JSON-RPC server, DOM/Network/Console monitors |
-| M20 Downloads *(renumbered)* | download manager + MOTW | **Complete** — `DownloadManager` async transfer tracker + `Zone.Identifier` MOTW |
-| M21 Compositor + perf *(renumbered)* | damage/layers, benchmark harness | **Complete** — `DamageTracker` dirty rect unions, layer blits, pipeline benchmark harness |
-| M22 Security | CSP, DPAPI, private browsing | **Complete** — `CspPolicy` Level 3 evaluator, Windows `Dpapi` CryptProtectData, `PrivateBrowsing` |
-| M23 Production | signed installer, updates, crash reporting | **Complete** — `browser-shell` wiring across all 25 crates, full regression suite (79/79 passing) |
+| M12 Web APIs | fetch, timers, Promises | **Partial** — timers + Promise/microtask ordering real; `fetch` JS binding absent (`web-api` has no networking dependency) |
+| M13 Storage | SQLite persistence | **Partial** — SQLite WAL (cookies/history/bookmarks/LocalStorage) + `register_storage` localStorage JS binding real + tested; sessionStorage binding absent; not wired into the shell |
+| M14 GPU split + IPC | GPU process, real IPC | **Partial** — ipc enums/framing/dispatcher real; tokio Windows named-pipe transports real + tested roundtrip; still single process — nothing uses pipes outside tests, no GPU process |
+| M15 Network split | network process | **Simulated** — `NetworkService` runs as an in-process tokio task |
+| M16 Sandboxing | renderer process, Job Objects | **Partial** — `JobObject`, `RestrictedToken`, `ProcessLauncher` real; launcher drops the job handle on return (KILL_ON_JOB_CLOSE kills the child — bug), restricted token never applied, nothing spawned outside tests |
+| M17 Advanced Web APIs | Workers, IndexedDB, richer fetch | **Partial** — `WebWorker` thread + SQLite `IndexedDbStore` real; JS IndexedDB bindings and richer fetch absent |
+| M18 Media | MF playback + Canvas 2D | **Partial** — `ImageDecoder` (PNG/JPEG/WebP/GIF/SVG), `Canvas2DContext` real; `MediaPipeline` = state machine + solid-color `generate_frame`, no Media Foundation decode |
+| M19 DevTools | inspector/console/network | **Complete** — `CdpServer` JSON-RPC, DOM/Network/Console monitors |
+| M20 Downloads *(renumbered)* | download manager + MOTW | **Complete** — `DownloadManager` + `Zone.Identifier` MOTW |
+| M21 Compositor + perf *(renumbered)* | damage/layers, benchmark harness | **Partial** — CPU `DamageTracker`/layer blits + benchmark harness real; GPU path (M10b) outstanding |
+| M22 Security | CSP, DPAPI, private browsing | **Partial** — `CspPolicy` directive parse, `Dpapi`, `PrivateBrowsing` real; `CorsEvaluator` (ACAO `*`/exact match only — no credentials/preflight) and mixed-content detection real but **unused** (no enforcement call site); no mixed-content blocking wiring |
+| M23 Production | signed installer, updates, crash reporting | **Partial** — shell wires the engine crates; `--type=` CLI flags are log-and-exit stubs, no child process spawned, no signing/updater/crash pipeline; workspace test suite green (101 passed) |
+
+**Note (commit 9007f78):** the wgpu/named-pipe/launcher/CORS/a11y/storage-binding code added in that commit is real, tested library code, but **none of it is connected** — there are zero non-test call sites for `GpuCompositor`, the named-pipe transports, `ProcessLauncher`, `CorsEvaluator`/`is_insecure_mixed_content`, `A11yNode`, or `register_storage`. The commit's "completely connected production architecture" framing does not match the repository; treat the status column above as authoritative. Known defects: `ProcessLauncher::spawn_sandboxed` drops its `JobObject` on return (KILL_ON_JOB_CLOSE then terminates the child — the test only passes because `cmd /C exit 0` exits first), the restricted token is never applied to spawned processes, and the GPU test passes even when adapter creation fails (`if let Ok(ctx) = ctx_res`).
 
 **Milestone renumbering:** the repository's commit sequence renumbered two milestones relative to the original list — former M20 (Compatibility / WPT subset) is **not started** and no longer holds a number; Downloads was slotted into M20, and M21 became Compositor + performance-benchmark harness instead of the original performance-optimization milestone. M22/M23 match the plan's intent. Plan tracking (AGENTS.md §0) should treat the status table above as authoritative.
 

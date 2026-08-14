@@ -1,6 +1,8 @@
 //! HTTP/1.1 and TLS 1.2/1.3 client implementation using Hyper, Tokio, and Rustls.
 
+use crate::cors::CorsEvaluator;
 use crate::error::NetworkError;
+use crate::mixed_content::is_insecure_mixed_content;
 use crate::types::{HttpMethod, HttpRequest, HttpResponse};
 use http_body_util::{BodyExt, Full};
 use hyper::client::conn::http1;
@@ -66,6 +68,36 @@ impl HttpClient {
     /// Returns `NetworkError` if connection, TLS handshake, or protocol exchange fails.
     pub async fn fetch(&self, url: &Url) -> Result<HttpResponse, NetworkError> {
         self.fetch_request(&HttpRequest::get(url.clone())).await
+    }
+
+    /// Executes an HTTP request with document origin security checks (Mixed Content and CORS).
+    ///
+    /// # Errors
+    /// Returns `NetworkError` if mixed content or CORS validation fails.
+    pub async fn fetch_with_security_context(
+        &self,
+        request: &HttpRequest,
+        document_origin: Option<&Url>,
+    ) -> Result<HttpResponse, NetworkError> {
+        if let Some(doc_origin) = document_origin
+            && is_insecure_mixed_content(doc_origin, &request.url)
+        {
+            return Err(NetworkError::MixedContentBlocked(
+                request.url.to_string(),
+                doc_origin.to_string(),
+            ));
+        }
+
+        let response = self.fetch_request(request).await?;
+
+        if let Some(doc_origin) = document_origin
+            && request.url.origin() != doc_origin.origin()
+            && !CorsEvaluator::is_allowed(doc_origin, &response.headers)
+        {
+            return Err(NetworkError::CorsViolation(doc_origin.to_string()));
+        }
+
+        Ok(response)
     }
 
     /// Executes an arbitrary `HttpRequest` over HTTP/1.1.

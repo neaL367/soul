@@ -1,6 +1,6 @@
-//! Integration tests for CORS validation and mixed content security checks.
+//! Integration tests for CORS validation, mixed content security checks, and client enforcement.
 
-use networking::{CorsEvaluator, is_insecure_mixed_content};
+use networking::{CorsEvaluator, HttpClient, HttpRequest, NetworkError, is_insecure_mixed_content};
 use std::collections::HashMap;
 use url::Url;
 
@@ -33,4 +33,17 @@ fn test_mixed_content_detection() {
 
     assert!(is_insecure_mixed_content(&secure_page, &insecure_asset));
     assert!(!is_insecure_mixed_content(&secure_page, &secure_asset));
+}
+
+#[tokio::test]
+async fn test_http_client_blocks_mixed_content_request() {
+    let client = HttpClient::default();
+    let secure_origin = Url::parse("https://secure.bank.com").unwrap();
+    let insecure_req = HttpRequest::get(Url::parse("http://insecure.cdn.com/pixel.png").unwrap());
+
+    let res = client
+        .fetch_with_security_context(&insecure_req, Some(&secure_origin))
+        .await;
+
+    assert!(matches!(res, Err(NetworkError::MixedContentBlocked(..))));
 }

@@ -1,14 +1,16 @@
-//! Web APIs implementation including DOM, Console, Timers, Web Storage, and Workers.
+//! Web APIs implementation including DOM, Console, Timers, Web Storage, Fetch, and Workers.
 
 pub mod console;
 pub mod dom_bindings;
+pub mod fetch_binding;
 pub mod storage_binding;
 pub mod timers;
 pub mod worker;
 
 pub use console::register_console;
 pub use dom_bindings::register_dom;
-pub use storage_binding::register_storage;
+pub use fetch_binding::{FetchHandler, register_fetch};
+pub use storage_binding::{register_local_storage, register_session_storage};
 pub use timers::{TimerQueue, register_timers};
 pub use worker::WebWorker;
 
