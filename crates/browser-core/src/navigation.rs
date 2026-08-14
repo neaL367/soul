@@ -82,6 +82,15 @@ impl NavigationState {
             | Self::Failed { url, .. } => Some(url),
         }
     }
+
+    /// Returns `true` if a navigation request or document parsing is currently in progress.
+    #[must_use]
+    pub const fn is_loading(&self) -> bool {
+        matches!(
+            self,
+            Self::Navigating { .. } | Self::ResponseReceived { .. } | Self::DomReady { .. }
+        )
+    }
 }
 
 /// Errors originating during URL resolution or navigation processing.

@@ -144,4 +144,15 @@ impl TabManager {
         let active_id = self.active_tab_id;
         active_id.and_then(|id| self.tabs.iter_mut().find(|t| t.id == id))
     }
+
+    /// Returns a reference to a tab by ID.
+    #[must_use]
+    pub fn get_tab(&self, id: TabId) -> Option<&Tab> {
+        self.tabs.iter().find(|t| t.id == id)
+    }
+
+    /// Returns a mutable reference to a tab by ID.
+    pub fn get_tab_mut(&mut self, id: TabId) -> Option<&mut Tab> {
+        self.tabs.iter_mut().find(|t| t.id == id)
+    }
 }
