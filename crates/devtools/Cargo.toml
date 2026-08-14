@@ -10,5 +10,10 @@ workspace = true
 
 [dependencies]
 common = { path = "../common" }
+css = { path = "../css" }
+dom = { path = "../dom" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+storage = { path = "../storage" }
 thiserror.workspace = true
 tracing.workspace = true

@@ -444,6 +444,11 @@ name = "devtools"
 version = "0.1.0"
 dependencies = [
  "common",
+ "css",
+ "dom",
+ "serde",
+ "serde_json",
+ "storage",
  "thiserror",
  "tracing",
 ]
