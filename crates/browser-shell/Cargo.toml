@@ -9,6 +9,7 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
+anyhow = "1"
 browser-core = { path = "../browser-core" }
 browser-ui = { path = "../browser-ui" }
 chrome-backend-gpui = { path = "../chrome-backend-gpui" }
@@ -17,6 +18,7 @@ css = { path = "../css" }
 devtools = { path = "../devtools" }
 downloads = { path = "../downloads" }
 html = { path = "../html" }
+image-decode = { path = "../image-decode" }
 ipc = { path = "../ipc" }
 layout = { path = "../layout" }
 networking = { path = "../networking" }
@@ -25,3 +27,4 @@ raster = { path = "../raster" }
 storage = { path = "../storage" }
 tokio = { version = "1", features = ["full"] }
 tracing.workspace = true
+url = "2.5"

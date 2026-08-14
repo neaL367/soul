@@ -16,4 +16,8 @@ pub enum ImageError {
     /// Unsupported or unrecognized image format.
     #[error("Unsupported image format: {0}")]
     UnsupportedFormat(String),
+
+    /// PNG encoding of a pixel buffer failed.
+    #[error("PNG encode error: {0}")]
+    PngEncode(String),
 }

@@ -4,6 +4,8 @@ pub mod navigation;
 pub mod profile;
 pub mod tab;
 
-pub use navigation::{NavigationController, NavigationHistory, NavigationId, NavigationState};
+pub use navigation::{
+    NavigationController, NavigationError, NavigationHistory, NavigationId, NavigationState,
+};
 pub use profile::BrowserProfile;
 pub use tab::{Tab, TabId, TabManager, TabTier};
