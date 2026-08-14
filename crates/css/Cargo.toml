@@ -13,3 +13,6 @@ common = { path = "../common" }
 dom = { path = "../dom" }
 thiserror.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+html = { path = "../html" }
