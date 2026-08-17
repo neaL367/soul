@@ -92,7 +92,7 @@ fn main() -> Result<()> {
     );
     let viewport_height = cli.height;
     backend.set_event_handler(Box::new(move |event| {
-        tracing::info!(?event, "Soul UI event");
+        tracing::debug!(?event, "Soul UI event");
         let command = match event {
             SoulEvent::OmniboxSubmitted { input, .. } => Some(NavigationCommand::Navigate(input)),
             SoulEvent::LinkActivated { url, .. } => Some(NavigationCommand::Navigate(url)),
