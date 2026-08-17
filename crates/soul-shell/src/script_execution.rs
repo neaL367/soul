@@ -1,9 +1,10 @@
-//! Inline-script execution for the shell rendering pipeline.
+//! Script execution for the shell rendering pipeline.
 
-use dom::Document;
+use dom::{Document, NodeId};
 use javascript::JsRuntime;
 use networking::{HttpClient, HttpRequest};
 use soul_core::NavigationError;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use storage::{LocalStorage, SessionStorage, StorageDatabase};
 use url::Url;
@@ -13,9 +14,6 @@ use web_api::{
 
 /// Executes inline scripts against a parsed document before style and layout.
 ///
-/// Script evaluation failures are isolated to the offending script and logged,
-/// matching browser behavior where a page can continue after a script error.
-///
 /// # Errors
 ///
 /// Returns `NavigationError` only if the in-process DOM handoff fails.
@@ -24,12 +22,33 @@ pub fn execute_inline_scripts(
     document_url: Option<&Url>,
     client: Option<&HttpClient>,
 ) -> Result<Document, NavigationError> {
-    let scripts: Vec<String> = document
-        .get_elements_by_tag_name("script")
-        .into_iter()
-        .map(|node_id| document.text_content(node_id))
-        .filter(|source| !source.trim().is_empty())
-        .collect();
+    execute_scripts(document, document_url, client, None)
+}
+
+/// Executes all scripts (both inline and external) in document order.
+///
+/// # Errors
+///
+/// Returns `NavigationError` only if the in-process DOM handoff fails.
+pub fn execute_scripts(
+    document: Document,
+    document_url: Option<&Url>,
+    client: Option<&HttpClient>,
+    external_scripts: Option<&HashMap<NodeId, String>>,
+) -> Result<Document, NavigationError> {
+    let mut scripts: Vec<String> = Vec::new();
+    for script_id in document.get_elements_by_tag_name("script") {
+        if let Some(ext) = external_scripts.and_then(|map| map.get(&script_id)) {
+            if !ext.trim().is_empty() {
+                scripts.push(ext.clone());
+            }
+        } else {
+            let inline_text = document.text_content(script_id);
+            if !inline_text.trim().is_empty() {
+                scripts.push(inline_text);
+            }
+        }
+    }
     if scripts.is_empty() {
         return Ok(document);
     }

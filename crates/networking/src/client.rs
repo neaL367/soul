@@ -257,6 +257,13 @@ impl HttpClient {
 
         let mut headers = HashMap::new();
         let mut mime_type = "text/html".to_string();
+        let mut set_cookies = Vec::new();
+
+        for val in response.headers().get_all(http::header::SET_COOKIE) {
+            if let Ok(str_val) = val.to_str() {
+                set_cookies.push(str_val.to_string());
+            }
+        }
 
         for (name, value) in response.headers() {
             if let Ok(str_val) = value.to_str() {
@@ -274,6 +281,7 @@ impl HttpClient {
             url: request.url.clone(),
             status_code,
             headers,
+            set_cookies,
             body: body_payload,
             mime_type,
         })

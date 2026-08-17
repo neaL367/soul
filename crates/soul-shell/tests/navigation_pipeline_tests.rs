@@ -171,3 +171,71 @@ async fn test_styles_and_images_render_end_to_end() {
 
     server_handle.abort();
 }
+
+/// External `<link rel="stylesheet" href="...">` files are fetched through the
+/// security-checked path, parsed, and applied during cascade resolution.
+#[tokio::test]
+async fn test_external_stylesheet_link_applied_end_to_end() {
+    let css_file = "body { background-color: #0000ff; } h1 { color: #ffffff; }";
+    let html_page = r#"<!DOCTYPE html>
+    <html>
+    <head>
+        <link rel="stylesheet" href="/styles/main.css">
+    </head>
+    <body>
+        <h1>Linked Stylesheet Heading</h1>
+    </body>
+    </html>"#;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let css_copy = css_file.to_string();
+    let html_copy = html_page.to_string();
+
+    let server_handle = tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let mut buf = [0u8; 4096];
+            let n = tokio::io::AsyncReadExt::read(&mut socket, &mut buf)
+                .await
+                .unwrap_or(0);
+            let req_str = String::from_utf8_lossy(&buf[..n]);
+
+            let response = if req_str.contains("GET /styles/main.css ") {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/css\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    css_copy.len(),
+                    css_copy
+                )
+            } else {
+                http_response(&html_copy)
+            };
+            let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, response.as_bytes()).await;
+            let _ = tokio::io::AsyncWriteExt::flush(&mut socket).await;
+            drop(socket);
+        }
+    });
+
+    let url = Url::parse(&format!("http://127.0.0.1:{}/linked", addr.port())).unwrap();
+    let options = RenderOptions {
+        width: 320,
+        height: 240,
+    };
+
+    let result = navigate_and_render(url, options)
+        .await
+        .expect("navigation with linked CSS failed");
+    let buffer = &result.pixel_buffer.data;
+    let width = result.pixel_buffer.width;
+
+    // Body background is blue (#0000ff) from external stylesheet.
+    let bg = pixel_at(buffer, width, 10, 10);
+    assert!(
+        bg[2] > 200 && bg[0] < 100 && bg[1] < 100,
+        "expected blue background from linked stylesheet, got {bg:?}"
+    );
+
+    server_handle.abort();
+}

@@ -1,13 +1,12 @@
-//! Individual rendering pipeline execution stages: subresource fetching, layout, paint, and rasterization.
+//! Rendering pipeline stages: document title extraction, layout, paint, and rasterization.
 
 use super::pipeline_types::{PipelineTimings, RenderOptions, crop_viewport};
 use crate::hit_testing::build_hit_test_map;
-use dom::{Document, NodeData, NodeId};
-use image_decode::{DecodedImage, ImageDecoder};
+use dom::{Document, NodeId};
+use image_decode::DecodedImage;
 use layout::{
     A11yNode, Dimensions, IntrinsicSize, Rect, build_box_tree_with_intrinsics, layout_block,
 };
-use networking::{HttpClient, HttpRequest};
 use paint::DisplayListBuilder;
 use raster::{CpuRasterizer, PixelBuffer};
 use soul_core::NavigationError;
@@ -25,66 +24,6 @@ pub(super) fn document_title(doc: &Document, url: &Url) -> String {
     title
         .or_else(|| url.host_str().map(str::to_string))
         .unwrap_or_else(|| "New Tab".to_string())
-}
-
-/// Fetches and decodes every `<img>` subresource through the security-checked
-/// client path (mixed content + CORS enforced against the document origin).
-/// Individual failures are non-fatal: the image is skipped and logged.
-pub(super) async fn load_subresource_images(
-    client: &HttpClient,
-    document_url: &Url,
-    doc: &Document,
-) -> HashMap<NodeId, DecodedImage> {
-    let mut images = HashMap::new();
-
-    for img_id in doc.get_elements_by_tag_name("img") {
-        let Some(node) = doc.get_node(img_id) else {
-            continue;
-        };
-        let NodeData::Element(element) = &node.data else {
-            continue;
-        };
-        let Some(src) = element.attr("src") else {
-            continue;
-        };
-        let Ok(url) = document_url.join(src) else {
-            tracing::warn!(src, "Skipping image with unresolvable src");
-            continue;
-        };
-
-        let request = HttpRequest::get(url.clone());
-        match client
-            .fetch_with_security_context(&request, Some(document_url))
-            .await
-        {
-            Ok(response) => {
-                let decoded = if response.mime_type.contains("svg") {
-                    ImageDecoder::decode_svg(&response.body, 0, 0)
-                } else {
-                    ImageDecoder::decode_raster(&response.body)
-                };
-                match decoded {
-                    Ok(image) => {
-                        tracing::debug!(
-                            url = %url,
-                            width = image.width,
-                            height = image.height,
-                            "Decoded image"
-                        );
-                        images.insert(img_id, image);
-                    }
-                    Err(err) => {
-                        tracing::warn!(url = %url, %err, "Skipping undecodable image");
-                    }
-                }
-            }
-            Err(err) => {
-                tracing::warn!(url = %url, %err, "Blocked image subresource (CORS/mixed content)");
-            }
-        }
-    }
-
-    images
 }
 
 /// Shared layout → paint → raster core with accessibility extraction.

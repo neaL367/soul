@@ -26,6 +26,66 @@ pub struct Cookie {
     pub same_site: String,
 }
 
+impl Cookie {
+    /// Parses a `Set-Cookie` header value string into a `Cookie` scoped to `request_url`.
+    #[must_use]
+    pub fn parse(header_val: &str, request_url: &Url) -> Option<Self> {
+        let mut parts = header_val.split(';');
+        let first = parts.next()?.trim();
+        let (name, value) = first.split_once('=')?;
+        if name.is_empty() {
+            return None;
+        }
+
+        let default_domain = request_url.host_str().unwrap_or("").to_ascii_lowercase();
+        let mut domain = default_domain;
+        let mut path = "/".to_string();
+        let mut expires_at = None;
+        let mut is_secure = false;
+        let mut is_http_only = false;
+        let mut same_site = "Lax".to_string();
+
+        for part in parts {
+            let part = part.trim();
+            if part.eq_ignore_ascii_case("secure") {
+                is_secure = true;
+            } else if part.eq_ignore_ascii_case("httponly") {
+                is_http_only = true;
+            } else if let Some((attr_name, attr_val)) = part.split_once('=') {
+                let attr_name = attr_name.trim();
+                let attr_val = attr_val.trim();
+                if attr_name.eq_ignore_ascii_case("domain") && !attr_val.is_empty() {
+                    domain = attr_val.trim_start_matches('.').to_ascii_lowercase();
+                } else if attr_name.eq_ignore_ascii_case("path") && !attr_val.is_empty() {
+                    path = attr_val.to_string();
+                } else if attr_name.eq_ignore_ascii_case("samesite") && !attr_val.is_empty() {
+                    same_site = attr_val.to_string();
+                } else if attr_name.eq_ignore_ascii_case("max-age")
+                    && let Ok(delta) = attr_val.parse::<i64>()
+                {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    let now_i64 = i64::try_from(now).unwrap_or(i64::MAX);
+                    expires_at = Some(now_i64.saturating_add(delta));
+                }
+            }
+        }
+
+        Some(Self {
+            name: name.trim().to_string(),
+            domain,
+            path,
+            value: value.trim().to_string(),
+            expires_at,
+            is_secure,
+            is_http_only,
+            same_site,
+        })
+    }
+}
+
 /// Persistent and RFC 6265bis-compliant Cookie Jar.
 #[derive(Debug, Clone)]
 pub struct CookieJar {

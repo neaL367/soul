@@ -3,21 +3,25 @@
 
 mod pipeline_types;
 mod stages;
+mod subresources;
 
 pub use pipeline_types::{PipelineTimings, RenderOptions, RenderResult};
 
 pub use crate::diagnostics::{a11y_lines, has_visible_pixels};
 pub use layout::{A11yNode, A11yRole};
 
-use crate::script_execution::execute_inline_scripts;
+use crate::script_execution::{execute_inline_scripts, execute_scripts};
 use css::{CascadeResolver, Origin, parse_stylesheet};
 use html::parse_html_with_styles;
 use networking::HttpClient;
 use raster::PixelBuffer;
 use soul_core::{NavigationController, NavigationError};
-use stages::{document_title, load_subresource_images};
+use stages::document_title;
 use std::collections::HashMap;
 use std::time::Instant;
+use subresources::{
+    load_subresource_images, load_subresource_scripts, load_subresource_stylesheets,
+};
 use url::Url;
 
 /// Fetches `url` with an isolated navigation controller and renders the document.
@@ -71,9 +75,7 @@ pub async fn render_active_navigation(
         .ok_or_else(|| NavigationError::Other("active navigation has no URL".to_string()))?;
     let mut timings = PipelineTimings::default();
 
-    // Stage 1: network fetch (top-level document navigation — CORS is not applied
-    // to top-level loads; mixed-content/CORS enforcement for subresources happens
-    // in `load_subresource_images` via `fetch_with_security_context`).
+    // Stage 1: network fetch (top-level document navigation).
     let fetch_start = Instant::now();
     let client = HttpClient::default();
     let response = client
@@ -109,14 +111,19 @@ pub async fn render_active_navigation(
 
     // Stage 2: parse document and extract author `<style>` sheets.
     let parse_start = Instant::now();
-    let (doc, style_sources) = parse_html_with_styles(&html);
+    let (doc, mut style_sources) = parse_html_with_styles(&html);
     timings.parse = parse_start.elapsed();
-    let doc = execute_inline_scripts(doc, Some(&url), Some(&client))?;
+
+    // Stage 2.5: fetch external scripts and execute all scripts in document order.
+    let external_scripts = load_subresource_scripts(&client, &url, &doc).await;
+    let doc = execute_scripts(doc, Some(&url), Some(&client), Some(&external_scripts))?;
     let title = document_title(&doc, &url);
 
-    // Stage 3: fetch + decode `<img>` subresources (CORS/mixed content enforced).
+    // Stage 3: fetch + decode `<img>` and `<link rel="stylesheet">` subresources.
     let images_start = Instant::now();
     let images = load_subresource_images(&client, &url, &doc).await;
+    let external_stylesheets = load_subresource_stylesheets(&client, &url, &doc).await;
+    style_sources.extend(external_stylesheets);
     timings.images = images_start.elapsed();
 
     // Stage 4: author stylesheet parse + cascade.

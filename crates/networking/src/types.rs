@@ -76,6 +76,8 @@ pub struct HttpResponse {
     pub status_code: u16,
     /// HTTP response headers.
     pub headers: HashMap<String, String>,
+    /// Raw `Set-Cookie` header values.
+    pub set_cookies: Vec<String>,
     /// Response payload bytes.
     pub body: Bytes,
     /// MIME content type extracted from headers (defaults to `text/html`).
