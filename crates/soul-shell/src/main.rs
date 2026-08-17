@@ -88,6 +88,7 @@ fn main() -> Result<()> {
             width: cli.width,
             height: cli.height,
         },
+        frame,
     );
     let viewport_height = cli.height;
     backend.set_event_handler(Box::new(move |event| {
@@ -126,12 +127,6 @@ fn main() -> Result<()> {
             tracing::warn!(%error, "Navigation driver unavailable");
         }
     }));
-
-    if let Some(frame) = frame {
-        backend
-            .update_viewport(window_id, frame)
-            .context("failed to present frame to viewport")?;
-    }
 
     backend.run().context("chrome backend runtime error")?;
     Ok(())

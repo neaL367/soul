@@ -3,7 +3,7 @@
 use crate::engine::{RenderOptions, RenderResult, render_active_navigation};
 use soul_backend_gpui::SoulBackendHandle;
 use soul_core::{NavigationController, PageScrollState, TabId, TabManager};
-use soul_ui::{SoulError, TabStripModel, ViewportFrame, WindowId};
+use soul_ui::{HitTestMap, SoulError, TabStripModel, ViewportFrame, WindowId};
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Sender};
 use std::thread;
@@ -49,7 +49,13 @@ impl NavigationDriver {
     /// Starts a driver thread owning navigation state and a Tokio runtime.
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
-    pub fn spawn(backend: SoulBackendHandle, window_id: WindowId, options: RenderOptions) -> Self {
+    #[allow(clippy::too_many_lines)]
+    pub fn spawn(
+        backend: SoulBackendHandle,
+        window_id: WindowId,
+        options: RenderOptions,
+        initial_frame: Option<ViewportFrame>,
+    ) -> Self {
         let (sender, receiver) = mpsc::channel();
         thread::spawn(move || {
             let Ok(runtime) = Runtime::new() else {
@@ -59,7 +65,21 @@ impl NavigationDriver {
             let mut tabs = TabManager::new();
             tabs.create_tab();
             let mut results: HashMap<TabId, RenderResult> = HashMap::new();
+            let mut initial_frames = HashMap::new();
+            if let Some(frame) = initial_frame {
+                initial_frames.insert(TabId(1), frame);
+            }
             publish_tab_strip(&backend, window_id, &tabs);
+            if let Some(active_id) = tabs.active_tab_id() {
+                publish_active_result(
+                    &backend,
+                    window_id,
+                    options,
+                    &results,
+                    &initial_frames,
+                    active_id,
+                );
+            }
 
             while let Ok(command) = receiver.recv() {
                 match command {
@@ -74,7 +94,12 @@ impl NavigationDriver {
                             if tabs.select_tab(tab_id) {
                                 publish_tab_strip(&backend, window_id, &tabs);
                                 publish_active_result(
-                                    &backend, window_id, options, &results, tab_id,
+                                    &backend,
+                                    window_id,
+                                    options,
+                                    &results,
+                                    &initial_frames,
+                                    tab_id,
                                 );
                             }
                         }
@@ -87,7 +112,12 @@ impl NavigationDriver {
                                 publish_tab_strip(&backend, window_id, &tabs);
                                 if let Some(active_id) = tabs.active_tab_id() {
                                     publish_active_result(
-                                        &backend, window_id, options, &results, active_id,
+                                        &backend,
+                                        window_id,
+                                        options,
+                                        &results,
+                                        &initial_frames,
+                                        active_id,
                                     );
                                 } else {
                                     clear_active_page(&backend, window_id);
@@ -131,7 +161,12 @@ impl NavigationDriver {
                                 results.insert(active_id, result);
                                 publish_tab_strip(&backend, window_id, &tabs);
                                 publish_active_result(
-                                    &backend, window_id, options, &results, active_id,
+                                    &backend,
+                                    window_id,
+                                    options,
+                                    &results,
+                                    &initial_frames,
+                                    active_id,
                                 );
                             }
                             Err(error) => {
@@ -186,10 +221,17 @@ fn publish_active_result(
     window_id: WindowId,
     options: RenderOptions,
     results: &HashMap<TabId, RenderResult>,
+    initial_frames: &HashMap<TabId, ViewportFrame>,
     tab_id: TabId,
 ) {
     if let Some(result) = results.get(&tab_id) {
         publish_result(backend, window_id, options, result);
+    } else if let Some(frame) = initial_frames.get(&tab_id) {
+        if let Err(error) =
+            backend.update_page_state(window_id, frame.clone(), HitTestMap::default(), 0.0)
+        {
+            log_backend_error(&error);
+        }
     } else {
         clear_active_page(backend, window_id);
     }
