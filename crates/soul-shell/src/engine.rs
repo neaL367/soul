@@ -2,6 +2,7 @@
 //! content enforced) → HTML parse → CSS cascade → layout → display list → raster.
 
 use crate::hit_testing::build_hit_test_map;
+use crate::script_execution::execute_inline_scripts;
 use css::{CascadeResolver, Origin, parse_stylesheet};
 use dom::{Document, NodeData, NodeId};
 use html::parse_html_with_styles;
@@ -209,6 +210,7 @@ pub async fn render_active_navigation(
     let parse_start = Instant::now();
     let (doc, style_sources) = parse_html_with_styles(&html);
     timings.parse = parse_start.elapsed();
+    let doc = execute_inline_scripts(doc)?;
     let title = document_title(&doc, &url);
 
     // Stage 3: fetch + decode `<img>` subresources (CORS/mixed content enforced).
@@ -279,6 +281,7 @@ pub fn render_html_to_buffer(
 
     let parse_start = Instant::now();
     let (doc, style_sources) = parse_html_with_styles(html);
+    let doc = execute_inline_scripts(doc)?;
     let mut timings = PipelineTimings {
         parse: parse_start.elapsed(),
         ..Default::default()

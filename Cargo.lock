@@ -5896,6 +5896,7 @@ dependencies = [
  "html",
  "image-decode",
  "ipc",
+ "javascript",
  "layout",
  "networking",
  "paint",
@@ -5907,6 +5908,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "web-api",
  "windows 0.58.0",
 ]
 

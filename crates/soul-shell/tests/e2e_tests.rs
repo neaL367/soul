@@ -58,6 +58,39 @@ fn http_response(body: &str) -> String {
     )
 }
 
+/// Inline scripts execute before the document is styled, laid out, and painted.
+#[tokio::test]
+async fn test_inline_script_mutation_reaches_rendered_accessibility_tree() {
+    let page = r#"<!DOCTYPE html>
+    <html><body>
+        <h1 id="message">Initial</h1>
+        <script>
+            document.getElementById("message").setTextContent("Updated by script");
+        </script>
+    </body></html>"#;
+    let (addr, server_handle) = spawn_mock_http_server(move |_req| http_response(page)).await;
+    let url = Url::parse(&format!("http://127.0.0.1:{}/scripted", addr.port())).unwrap();
+
+    let result = navigate_and_render(
+        url,
+        RenderOptions {
+            width: 320,
+            height: 240,
+        },
+    )
+    .await
+    .expect("scripted page should render");
+    let tree = result.a11y_tree.expect("a11y tree expected");
+    let mut lines = Vec::new();
+    a11y_lines(&tree, &mut lines);
+    assert!(
+        lines.iter().any(|line| line.contains("Updated by script")),
+        "script mutation was not reflected in the rendered document: {lines:?}"
+    );
+
+    let _ = server_handle.await;
+}
+
 #[tokio::test]
 async fn test_scroll_updates_retained_viewport_without_refetch() {
     let mut paragraphs = String::new();
