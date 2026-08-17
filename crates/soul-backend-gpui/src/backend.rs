@@ -1,88 +1,20 @@
-//! Real GPUI implementation of the `SoulBackend` trait for Windows 11.
-//!
-//! The backend opens genuine native windows through GPUI and presents engine
-//! frames (`ViewportFrame::SoftwareRgba`) as window content. GPUI windows can
-//! only be created inside the GPUI application event loop, so `open_window` and
-//! `update_viewport` stage state, and `run` launches the loop and materializes
-//! the staged windows.
+//! GPUI lifecycle implementation of Soul's backend boundary.
 
+pub use crate::state::{EventHandlerCallback, SharedEventHandler, SoulBackendHandle};
+
+use crate::state;
+use crate::state::{lock_state, new_event_handler, new_state, window_state};
+use crate::view::PageView;
 use gpui::{
-    App, AppContext, Bounds, Context, FocusHandle, ImageCacheError, ImageSource,
-    InteractiveElement, IntoElement, KeyDownEvent, Modifiers, MouseButton as GpuiMouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection, ParentElement, Render,
-    RenderImage, ScrollDelta, ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled,
-    Task, TitlebarOptions, Window, WindowBounds, WindowOptions, div, img, px, rgb, size,
+    App, AppContext, Bounds, SharedString, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };
-use image::{Frame as ImageFrame, RgbaImage};
-use soul_ui::{
-    InputRouter, KeyModifiers, KeyPhase, MouseButton, MousePhase, PhysicalPosition, SoulBackend,
-    SoulConfig, SoulError, SoulEvent, ViewportFrame, WheelDeltaMode, WindowId, WindowSpec,
-};
-use std::collections::HashMap;
+use soul_ui::{SoulBackend, SoulConfig, SoulError, SoulEvent, ViewportFrame, WindowId, WindowSpec};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
-/// Boxed callback function for chrome event handling.
-pub type EventHandlerCallback = Box<dyn Fn(SoulEvent) + Send + Sync + 'static>;
-
-/// Thread-safe shared slot for the active event handler callback.
-pub type SharedEventHandler = Arc<Mutex<Option<EventHandlerCallback>>>;
-
-/// Per-window state shared between the backend and the live GPUI view.
-#[derive(Default)]
-struct WindowSharedState {
-    /// Window title shown in the native title bar.
-    title: String,
-    /// Initial window width in logical pixels.
-    width: u32,
-    /// Initial window height in logical pixels.
-    height: u32,
-    /// Latest engine frame converted to a GPU image, if any.
-    frame: Option<Arc<RenderImage>>,
-}
-
-/// Backend-wide state shared with every live view.
-#[derive(Default)]
-struct BackendSharedState {
-    windows: HashMap<WindowId, WindowSharedState>,
-}
-
-/// Thread-safe handle for pushing frames into a live GPUI window after `run()`.
-#[derive(Clone)]
-pub struct SoulBackendHandle {
-    state: Arc<Mutex<BackendSharedState>>,
-}
-
-impl SoulBackendHandle {
-    /// Updates a live window frame without requiring mutable access to the backend.
-    ///
-    /// # Errors
-    ///
-    /// Returns `SoulError` when target window is missing or state lock is poisoned.
-    #[allow(clippy::significant_drop_tightening)]
-    pub fn update_viewport(
-        &self,
-        window_id: WindowId,
-        frame: ViewportFrame,
-    ) -> Result<(), SoulError> {
-        let render_image = GpuiSoulBackend::frame_to_render_image(frame);
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| SoulError::Other("backend state lock poisoned".to_string()))?;
-        let window = state
-            .windows
-            .get_mut(&window_id)
-            .ok_or(SoulError::WindowNotFound(window_id))?;
-        window.frame = render_image;
-        Ok(())
-    }
-}
-
-/// Concrete `SoulBackend` implementation using `GPUI`.
+/// Concrete `SoulBackend` implementation using GPUI.
 pub struct GpuiSoulBackend {
     next_window_id: u64,
-    state: Arc<Mutex<BackendSharedState>>,
+    state: Arc<Mutex<state::BackendSharedState>>,
     event_handler: SharedEventHandler,
 }
 
@@ -93,13 +25,13 @@ impl Default for GpuiSoulBackend {
 }
 
 impl GpuiSoulBackend {
-    /// Creates a new uninitialized `GPUI` Soul backend.
+    /// Creates a new uninitialized GPUI Soul backend.
     #[must_use]
     pub fn new() -> Self {
         Self {
             next_window_id: 1,
-            state: Arc::new(Mutex::new(BackendSharedState::default())),
-            event_handler: Arc::new(Mutex::new(None)),
+            state: new_state(),
+            event_handler: new_event_handler(),
         }
     }
 
@@ -110,34 +42,11 @@ impl GpuiSoulBackend {
             state: self.state.clone(),
         }
     }
-
-    /// Converts an engine software frame into a GPU-resident `RenderImage`.
-    fn frame_to_render_image(frame: ViewportFrame) -> Option<Arc<RenderImage>> {
-        match frame {
-            ViewportFrame::SoftwareRgba {
-                width,
-                height,
-                pixels,
-            } => {
-                let rgba = RgbaImage::from_raw(width, height, pixels)?;
-                Some(Arc::new(RenderImage::new(vec![ImageFrame::new(rgba)])))
-            }
-            // DXGI shared-handle frames are not presentable by the software backend.
-            ViewportFrame::DxgiSharedHandle { .. } => None,
-        }
-    }
-
-    /// Locks shared backend state, mapping lock poisoning to a backend error.
-    fn lock_state(&self) -> Result<std::sync::MutexGuard<'_, BackendSharedState>, SoulError> {
-        self.state
-            .lock()
-            .map_err(|_| SoulError::Other("backend state lock poisoned".to_string()))
-    }
 }
 
 impl SoulBackend for GpuiSoulBackend {
     fn init(&mut self, config: SoulConfig) -> Result<(), SoulError> {
-        tracing::info!(app_name = %config.app_name, "Initializing GPUI chrome backend");
+        tracing::info!(app_name = %config.app_name, "Initializing GPUI Soul backend");
         Ok(())
     }
 
@@ -151,30 +60,22 @@ impl SoulBackend for GpuiSoulBackend {
             title = %spec.title,
             width = spec.width,
             height = spec.height,
-            "Registering GPUI browser window"
+            "Registering GPUI Soul window"
         );
 
-        let mut state = self.lock_state()?;
-        state.windows.insert(
-            window_id,
-            WindowSharedState {
-                title: spec.title,
-                width: spec.width,
-                height: spec.height,
-                frame: None,
-            },
-        );
+        let mut state = lock_state(&self.state)?;
+        state.windows.insert(window_id, window_state(spec));
         Ok(window_id)
     }
 
     #[allow(clippy::significant_drop_tightening)]
     fn close_window(&mut self, window_id: WindowId) -> Result<(), SoulError> {
-        let mut state = self.lock_state()?;
+        let mut state = lock_state(&self.state)?;
         if state.windows.remove(&window_id).is_some() {
-            tracing::info!(window_id = window_id.0, "Closing GPUI browser window");
+            tracing::info!(window_id = window_id.0, "Closing GPUI Soul window");
             drop(state);
-            if let Some(handler) = self.event_handler.lock().ok().as_deref()
-                && let Some(handler) = handler
+            if let Ok(handler) = self.event_handler.lock()
+                && let Some(handler) = handler.as_deref()
             {
                 handler(SoulEvent::WindowCloseRequested {
                     window_id: window_id.0,
@@ -192,16 +93,7 @@ impl SoulBackend for GpuiSoulBackend {
         window_id: WindowId,
         frame: ViewportFrame,
     ) -> Result<(), SoulError> {
-        let render_image = Self::frame_to_render_image(frame);
-
-        let mut state = self.lock_state()?;
-        let window = state
-            .windows
-            .get_mut(&window_id)
-            .ok_or(SoulError::WindowNotFound(window_id))?;
-        window.frame = render_image;
-        tracing::debug!(window_id = window_id.0, "Viewport frame staged");
-        Ok(())
+        self.shared_handle().update_viewport(window_id, frame)
     }
 
     fn set_event_handler(&mut self, handler: Box<dyn Fn(SoulEvent) + Send + Sync + 'static>) {
@@ -212,25 +104,23 @@ impl SoulBackend for GpuiSoulBackend {
     fn run(self: Box<Self>) -> Result<(), SoulError> {
         let state = self.state.clone();
         let event_handler = self.event_handler.clone();
-
-        // Snapshot staged window specs before entering the (blocking) GPUI loop.
-        let staged: Vec<(WindowId, String, u32, u32)> = self
-            .lock_state()?
+        let staged: Vec<(WindowId, String, u32, u32)> = lock_state(&self.state)?
             .windows
             .iter()
-            .map(|(id, w)| (*id, w.title.clone(), w.width, w.height))
+            .map(|(id, window)| (*id, window.title.clone(), window.width, window.height))
             .collect();
 
-        tracing::info!(windows = staged.len(), "Launching GPUI application loop");
+        tracing::info!(
+            windows = staged.len(),
+            "Launching GPUI Soul application loop"
+        );
 
         gpui_platform::application().run(move |cx: &mut App| {
-            // MVP: emit a close event when any window closes. The backend is
-            // single-window today; a handle->WindowId map lands with M2 input routing.
             let close_handler = event_handler.clone();
             let close_ids: Vec<WindowId> = staged.iter().map(|(id, _, _, _)| *id).collect();
             let _ = cx.on_window_closed(move |_app, _window_id| {
-                if let Some(handler) = close_handler.lock().ok().as_deref()
-                    && let Some(handler) = handler
+                if let Ok(handler) = close_handler.lock()
+                    && let Some(handler) = handler.as_deref()
                 {
                     for id in &close_ids {
                         handler(SoulEvent::WindowCloseRequested { window_id: id.0 });
@@ -257,353 +147,12 @@ impl SoulBackend for GpuiSoulBackend {
 
                 let view_state = state.clone();
                 let view_handler = event_handler.clone();
-                let input_router = Arc::new(Mutex::new(InputRouter::default()));
-                let input_handler = view_handler.clone();
-                if let Ok(mut router) = input_router.lock() {
-                    router.subscribe(move |routed_window_id, event| {
-                        if let Ok(handler) = input_handler.lock()
-                            && let Some(handler) = handler.as_deref()
-                        {
-                            handler(SoulEvent::InputRouted {
-                                window_id: routed_window_id.0,
-                                event: event.clone(),
-                            });
-                        }
-                    });
-                }
                 let _ = cx.open_window(options, move |_window, cx| {
-                    cx.new(move |cx| PageView {
-                        window_id,
-                        state: view_state,
-                        event_handler: view_handler,
-                        input_router,
-                        focus_handle: cx.focus_handle(),
-                        omnibox: String::new(),
-                        omnibox_focused: false,
-                        poll_task: None,
-                    })
+                    cx.new(|cx| PageView::new(window_id, view_state, view_handler, cx))
                 });
             }
         });
 
         Ok(())
-    }
-}
-
-/// Root view of a Soul window: raw GPUI toolbar + page viewport.
-struct PageView {
-    window_id: WindowId,
-    state: Arc<Mutex<BackendSharedState>>,
-    event_handler: SharedEventHandler,
-    input_router: Arc<Mutex<InputRouter>>,
-    focus_handle: FocusHandle,
-    omnibox: String,
-    omnibox_focused: bool,
-    poll_task: Option<Task<()>>,
-}
-
-impl PageView {
-    /// Snapshot of the latest staged frame for this window.
-    fn current_frame(&self) -> Option<Arc<RenderImage>> {
-        let guard = self.state.lock().ok()?;
-        guard
-            .windows
-            .get(&self.window_id)
-            .and_then(|w| w.frame.clone())
-    }
-
-    /// Emits a Soul event to browser-shell's event handler.
-    fn emit_event(&self, event: SoulEvent) {
-        if let Ok(handler) = self.event_handler.lock()
-            && let Some(handler) = handler.as_deref()
-        {
-            handler(event);
-        }
-    }
-
-    /// Converts GPUI modifiers into backend-neutral modifiers.
-    const fn modifiers(modifiers: Modifiers) -> KeyModifiers {
-        KeyModifiers {
-            shift: modifiers.shift,
-            ctrl: modifiers.control,
-            alt: modifiers.alt,
-            meta: modifiers.platform,
-        }
-    }
-
-    /// Converts a GPUI button into Soul's backend-neutral button type.
-    const fn mouse_button(button: GpuiMouseButton) -> MouseButton {
-        match button {
-            GpuiMouseButton::Left => MouseButton::Left,
-            GpuiMouseButton::Right => MouseButton::Right,
-            GpuiMouseButton::Middle => MouseButton::Middle,
-            GpuiMouseButton::Navigate(NavigationDirection::Back) => MouseButton::Back,
-            GpuiMouseButton::Navigate(NavigationDirection::Forward) => MouseButton::Forward,
-        }
-    }
-
-    /// Routes a GPUI mouse-down event through `InputRouter`.
-    fn on_mouse_down(
-        &mut self,
-        event: &MouseDownEvent,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
-        if let Ok(mut router) = self.input_router.lock() {
-            router.handle_mouse_button(
-                self.window_id,
-                Self::mouse_button(event.button),
-                MousePhase::Down,
-                PhysicalPosition::new(f64::from(event.position.x), f64::from(event.position.y)),
-            );
-        }
-    }
-
-    /// Routes a GPUI mouse-up event through `InputRouter`.
-    fn on_mouse_up(&mut self, event: &MouseUpEvent, _window: &mut Window, _cx: &mut Context<Self>) {
-        if let Ok(mut router) = self.input_router.lock() {
-            router.handle_mouse_button(
-                self.window_id,
-                Self::mouse_button(event.button),
-                MousePhase::Up,
-                PhysicalPosition::new(f64::from(event.position.x), f64::from(event.position.y)),
-            );
-        }
-    }
-
-    /// Routes GPUI mouse movement through `InputRouter`.
-    fn on_mouse_move(
-        &mut self,
-        event: &MouseMoveEvent,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
-        if let Ok(mut router) = self.input_router.lock() {
-            router.handle_mouse_move(
-                self.window_id,
-                PhysicalPosition::new(f64::from(event.position.x), f64::from(event.position.y)),
-            );
-        }
-    }
-
-    /// Routes GPUI wheel input through `InputRouter`.
-    fn on_scroll_wheel(
-        &mut self,
-        event: &ScrollWheelEvent,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
-        let (delta_x, delta_y, mode) = match event.delta {
-            ScrollDelta::Pixels(point) => (
-                f64::from(point.x),
-                f64::from(point.y),
-                WheelDeltaMode::Pixel,
-            ),
-            ScrollDelta::Lines(point) => {
-                (f64::from(point.x), f64::from(point.y), WheelDeltaMode::Line)
-            }
-        };
-        if let Ok(mut router) = self.input_router.lock() {
-            router.handle_wheel(self.window_id, delta_x, delta_y, mode);
-        }
-    }
-
-    /// Routes a GPUI key event through `InputRouter` before omnibox handling.
-    fn route_key(&self, event: &KeyDownEvent) {
-        if let Ok(mut router) = self.input_router.lock() {
-            let phase = if event.is_held {
-                KeyPhase::Repeat
-            } else {
-                KeyPhase::Down
-            };
-            let key = event.keystroke.key.clone();
-            router.handle_key(
-                self.window_id,
-                key.clone(),
-                key,
-                phase,
-                Self::modifiers(event.keystroke.modifiers),
-                event.keystroke.key_char.clone(),
-            );
-        }
-    }
-
-    /// Handles raw keystrokes for the from-scratch omnibox.
-    fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        self.route_key(event);
-        if !self.omnibox_focused {
-            return;
-        }
-
-        let key = event.keystroke.key.as_str();
-        match key {
-            "enter" => {
-                self.emit_event(SoulEvent::OmniboxSubmitted {
-                    window_id: self.window_id.0,
-                    input: self.omnibox.clone(),
-                });
-                self.omnibox_focused = false;
-            }
-            "backspace" => {
-                self.omnibox.pop();
-            }
-            "escape" => {
-                self.omnibox_focused = false;
-            }
-            _ => {
-                if let Some(character) = &event.keystroke.key_char {
-                    self.omnibox.push_str(character);
-                }
-            }
-        }
-        cx.notify();
-    }
-
-    /// Starts low-frequency polling so background navigation frame updates reach GPUI.
-    fn start_frame_poll(&mut self, cx: &Context<Self>) {
-        if self.poll_task.is_some() {
-            return;
-        }
-        self.poll_task = Some(cx.spawn(async move |view, cx| {
-            loop {
-                if view.update(cx, |_view, cx| cx.notify()).is_err() {
-                    break;
-                }
-                cx.background_executor()
-                    .timer(Duration::from_millis(100))
-                    .await;
-            }
-        }));
-    }
-
-    /// Builds a raw GPUI button for Soul toolbar actions.
-    fn action_button(
-        window_id: u64,
-        event_handler: SharedEventHandler,
-        label: &'static str,
-        event: SoulEvent,
-    ) -> impl IntoElement {
-        div()
-            .px_2()
-            .py_1()
-            .rounded_sm()
-            .bg(rgb(0x0045_475a))
-            .text_color(rgb(0x00cd_d6f4))
-            .cursor_pointer()
-            .id(label)
-            .on_click(move |_, _, _| {
-                if let Ok(handler) = event_handler.lock()
-                    && let Some(handler) = handler.as_deref()
-                {
-                    let event = match event.clone() {
-                        SoulEvent::NavigateBack { .. } => SoulEvent::NavigateBack { window_id },
-                        SoulEvent::NavigateForward { .. } => {
-                            SoulEvent::NavigateForward { window_id }
-                        }
-                        SoulEvent::Reload { bypass_cache, .. } => SoulEvent::Reload {
-                            window_id,
-                            bypass_cache,
-                        },
-                        other => other,
-                    };
-                    handler(event);
-                }
-            })
-            .child(label)
-            .into_element()
-    }
-}
-
-impl Render for PageView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.start_frame_poll(cx);
-
-        let source: ImageSource = self.current_frame().map_or_else(
-            || ImageSource::Custom(Arc::new(|_window: &mut Window, _app: &mut App| None)),
-            |render_image| {
-                ImageSource::Custom(Arc::new(move |_window: &mut Window, _app: &mut App| {
-                    Some(Ok::<Arc<RenderImage>, ImageCacheError>(
-                        render_image.clone(),
-                    ))
-                }))
-            },
-        );
-
-        let omnibox_text = if self.omnibox.is_empty() {
-            "Enter address".to_string()
-        } else {
-            self.omnibox.clone()
-        };
-        let window_id = self.window_id.0;
-
-        div()
-            .size_full()
-            .flex_col()
-            .capture_any_mouse_down(cx.listener(Self::on_mouse_down))
-            .capture_any_mouse_up(cx.listener(Self::on_mouse_up))
-            .on_mouse_move(cx.listener(Self::on_mouse_move))
-            .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
-            .bg(rgb(0x001e_1e2e))
-            .child(
-                div()
-                    .w_full()
-                    .h(px(44.0))
-                    .px_2()
-                    .gap_2()
-                    .items_center()
-                    .flex()
-                    .bg(rgb(0x0018_1825))
-                    .child(Self::action_button(
-                        window_id,
-                        self.event_handler.clone(),
-                        "Back",
-                        SoulEvent::NavigateBack { window_id },
-                    ))
-                    .child(Self::action_button(
-                        window_id,
-                        self.event_handler.clone(),
-                        "Forward",
-                        SoulEvent::NavigateForward { window_id },
-                    ))
-                    .child(Self::action_button(
-                        window_id,
-                        self.event_handler.clone(),
-                        "Reload",
-                        SoulEvent::Reload {
-                            window_id,
-                            bypass_cache: false,
-                        },
-                    ))
-                    .child(
-                        div()
-                            .flex_1()
-                            .h(px(30.0))
-                            .px_2()
-                            .flex()
-                            .items_center()
-                            .rounded_md()
-                            .bg(rgb(0x0031_3244))
-                            .text_color(rgb(0x00cd_d6f4))
-                            .id("omnibox")
-                            .track_focus(&self.focus_handle)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.omnibox_focused = true;
-                                window.focus(&this.focus_handle, cx);
-                                cx.notify();
-                            }))
-                            .on_key_down(cx.listener(Self::on_key_down))
-                            .child(omnibox_text),
-                    )
-                    .child(
-                        div()
-                            .px_2()
-                            .py_1()
-                            .rounded_sm()
-                            .bg(rgb(0x0089_b4fa))
-                            .text_color(rgb(0x001e_1e2e))
-                            .child("New tab"),
-                    ),
-            )
-            .child(div().flex_1().size_full().child(img(source)))
     }
 }
