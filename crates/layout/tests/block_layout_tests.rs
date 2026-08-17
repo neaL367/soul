@@ -124,10 +124,62 @@ fn test_nested_block_layout_geometry() {
     assert!((child1.dimensions.content.y - 25.0).abs() < f32::EPSILON);
     assert!((child1.dimensions.content.height - 100.0).abs() < f32::EPSILON);
 
-    // Child 2:
+    // Child 2 (with vertical margin collapsing max(10, 20) = 20):
     let child2 = &root_box.children[1];
     assert!((child2.dimensions.content.x - 10.0).abs() < f32::EPSILON);
-    // y = container.y (10) + child1.margin_box_h (130) + child2.margin.top (20) = 160
-    assert!((child2.dimensions.content.y - 160.0).abs() < f32::EPSILON);
+    // y = container.y (10) + child1.margin.top (10) + child1.border_box (110) + collapsed_margin (20) = 150
+    assert!((child2.dimensions.content.y - 150.0).abs() < f32::EPSILON);
     assert!((child2.dimensions.content.height - 50.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn test_box_sizing_border_box_geometry() {
+    let html = r#"<html><body>
+        <div id="content_box">Box 1</div>
+        <div id="border_box">Box 2</div>
+    </body></html>"#;
+    let doc = parse_html(html);
+
+    let css = r"
+        #content_box {
+            box-sizing: content-box;
+            width: 200px;
+            height: 100px;
+            padding: 10px;
+            border: 5px;
+        }
+        #border_box {
+            box-sizing: border-box;
+            width: 200px;
+            height: 100px;
+            padding: 10px;
+            border: 5px;
+        }
+    ";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let body_id = doc.get_elements_by_tag_name("body")[0];
+    let mut root_box = build_box_tree(&doc, body_id, &styles).unwrap();
+    let viewport = Dimensions {
+        content: Rect::new(0.0, 0.0, 800.0, 600.0),
+        ..Default::default()
+    };
+    layout_block(&mut root_box, &viewport);
+
+    let content_box = &root_box.children[0];
+    let border_box = &root_box.children[1];
+
+    // content-box: content.width = 200, border_box.width = 200 + 20 + 10 = 230
+    assert!((content_box.dimensions.content.width - 200.0).abs() < f32::EPSILON);
+    assert!((content_box.dimensions.border_box().width - 230.0).abs() < f32::EPSILON);
+
+    // border-box: border_box.width = 200, content.width = 200 - 20 - 10 = 170
+    assert!((border_box.dimensions.content.width - 170.0).abs() < f32::EPSILON);
+    assert!((border_box.dimensions.border_box().width - 200.0).abs() < f32::EPSILON);
+
+    // content-box height = 100, border-box height = 100 - 20 - 10 = 70
+    assert!((content_box.dimensions.content.height - 100.0).abs() < f32::EPSILON);
+    assert!((border_box.dimensions.content.height - 70.0).abs() < f32::EPSILON);
 }

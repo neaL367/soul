@@ -117,3 +117,67 @@ fn test_combinators_child_and_descendant() {
     // Deep descendant matches `#app p`
     assert!((styles.get(&deep_p).unwrap().font_size - 24.0).abs() < f32::EPSILON);
 }
+
+#[test]
+fn test_box_sizing_and_shorthand_expansions() {
+    let html = r#"<html><body><div id="card">Card</div></body></html>"#;
+    let doc = parse_html(html);
+
+    let css = r"
+        #card {
+            box-sizing: border-box;
+            margin: 10px 20px;
+            padding: 5px 10px 15px 20px;
+            border: 2px solid red;
+            line-height: 1.5;
+        }
+    ";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let card_id = doc.get_element_by_id("card").unwrap();
+    let card_style = styles.get(&card_id).unwrap();
+
+    assert_eq!(card_style.box_sizing, css::BoxSizing::BorderBox);
+    assert!((card_style.margin_top - 10.0).abs() < f32::EPSILON);
+    assert!((card_style.margin_right - 20.0).abs() < f32::EPSILON);
+    assert!((card_style.margin_bottom - 10.0).abs() < f32::EPSILON);
+    assert!((card_style.margin_left - 20.0).abs() < f32::EPSILON);
+
+    assert!((card_style.padding_top - 5.0).abs() < f32::EPSILON);
+    assert!((card_style.padding_right - 10.0).abs() < f32::EPSILON);
+    assert!((card_style.padding_bottom - 15.0).abs() < f32::EPSILON);
+    assert!((card_style.padding_left - 20.0).abs() < f32::EPSILON);
+
+    assert!((card_style.border_top_width - 2.0).abs() < f32::EPSILON);
+    assert_eq!(card_style.border_top_color, Color::rgb(255, 0, 0));
+    assert!(card_style.line_height.is_some());
+}
+
+#[test]
+fn test_hsl_color_and_border_radius() {
+    let html = r#"<html><body><div id="badge">Badge</div></body></html>"#;
+    let doc = parse_html(html);
+
+    let css = r"
+        #badge {
+            background-color: hsl(120, 100%, 50%);
+            border-radius: 8px;
+            font-style: italic;
+            text-decoration: underline;
+        }
+    ";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let badge_id = doc.get_element_by_id("badge").unwrap();
+    let badge_style = styles.get(&badge_id).unwrap();
+
+    // HSL(120, 100%, 50%) is pure green (0, 255, 0)
+    assert_eq!(badge_style.background_color, Color::rgb(0, 255, 0));
+    assert!((badge_style.border_radius_top_left - 8.0).abs() < f32::EPSILON);
+    assert_eq!(badge_style.font_style, css::FontStyle::Italic);
+    assert_eq!(badge_style.text_decoration, css::TextDecoration::Underline);
+}

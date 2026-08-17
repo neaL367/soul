@@ -1,6 +1,9 @@
 //! CSS property declaration parsing and application to `ComputedStyle`.
 
-use crate::properties::{Color, ComputedStyle, Display, FontWeight, Length, Position, TextAlign};
+use crate::properties::{
+    BoxSizing, Color, ComputedStyle, Display, FontStyle, FontWeight, Length, Position, TextAlign,
+    TextDecoration,
+};
 use crate::rule::Declaration;
 
 #[allow(clippy::too_many_lines)]
@@ -21,6 +24,11 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             "absolute" => style.position = Position::Absolute,
             "fixed" => style.position = Position::Fixed,
             "sticky" => style.position = Position::Sticky,
+            _ => {}
+        },
+        "box-sizing" => match decl.value.as_str() {
+            "border-box" => style.box_sizing = BoxSizing::BorderBox,
+            "content-box" => style.box_sizing = BoxSizing::ContentBox,
             _ => {}
         },
         "color" => {
@@ -46,6 +54,22 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
         "font-weight" => match decl.value.as_str() {
             "bold" | "700" => style.font_weight = FontWeight::Bold,
             "normal" | "400" => style.font_weight = FontWeight::Normal,
+            _ => {
+                if let Ok(w) = decl.value.parse::<u16>() {
+                    style.font_weight = FontWeight::Number(w);
+                }
+            }
+        },
+        "font-style" => match decl.value.as_str() {
+            "italic" => style.font_style = FontStyle::Italic,
+            "oblique" => style.font_style = FontStyle::Oblique,
+            "normal" => style.font_style = FontStyle::Normal,
+            _ => {}
+        },
+        "text-decoration" => match decl.value.as_str() {
+            "underline" => style.text_decoration = TextDecoration::Underline,
+            "line-through" => style.text_decoration = TextDecoration::LineThrough,
+            "none" => style.text_decoration = TextDecoration::None,
             _ => {}
         },
         "text-align" => match decl.value.as_str() {
@@ -55,6 +79,13 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             "justify" => style.text_align = TextAlign::Justify,
             _ => {}
         },
+        "line-height" => {
+            if let Some(px) = parse_px(&decl.value) {
+                style.line_height = Some(px);
+            } else if let Ok(factor) = decl.value.parse::<f32>() {
+                style.line_height = Some(style.font_size * factor);
+            }
+        }
         "margin" => {
             if let Some((t, r, b, l)) = parse_4_edges(&decl.value) {
                 style.margin_top = t;
@@ -111,12 +142,31 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
                 style.padding_right = px;
             }
         }
-        "border-width" | "border" => {
+        "border" => {
+            apply_border_shorthand(style, &decl.value);
+        }
+        "border-width" => {
             if let Some((t, r, b, l)) = parse_4_edges(&decl.value) {
                 style.border_top_width = t;
                 style.border_right_width = r;
                 style.border_bottom_width = b;
                 style.border_left_width = l;
+            }
+        }
+        "border-color" => {
+            if let Some(c) = Color::parse(&decl.value) {
+                style.border_top_color = c;
+                style.border_right_color = c;
+                style.border_bottom_color = c;
+                style.border_left_color = c;
+            }
+        }
+        "border-radius" => {
+            if let Some((tl, tr, br, bl)) = parse_4_edges(&decl.value) {
+                style.border_radius_top_left = tl;
+                style.border_radius_top_right = tr;
+                style.border_radius_bottom_right = br;
+                style.border_radius_bottom_left = bl;
             }
         }
         "border-top-width" => {
@@ -159,6 +209,22 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         _ => {}
+    }
+}
+
+fn apply_border_shorthand(style: &mut ComputedStyle, value: &str) {
+    for part in value.split_whitespace() {
+        if let Some(px) = parse_px(part) {
+            style.border_top_width = px;
+            style.border_right_width = px;
+            style.border_bottom_width = px;
+            style.border_left_width = px;
+        } else if let Some(color) = Color::parse(part) {
+            style.border_top_color = color;
+            style.border_right_color = color;
+            style.border_bottom_color = color;
+            style.border_left_color = color;
+        }
     }
 }
 

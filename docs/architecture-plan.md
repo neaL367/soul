@@ -864,8 +864,8 @@ Each milestone lists: **Objective · Components · Depends on · Tasks · Tests 
 | M4 Networking | HTTP(S), DNS, redirects, cookies | **Partial** — real HTTP/1.1 + TLS 1.2/1.3 (hyper 1, rustls, webpki-roots) wired into shell live navigation; bounded redirect following (5 hops, POST→GET on 301/302/303); `Set-Cookie` multi-header extraction and RFC 6265bis parsing into `storage::Cookie`; no hickory DNS, no HTTP/2 |
 | M5 HTML parser | html5ever → DOM | **Complete** — plus `parse_html_with_styles` extracting author `<style>` sheets |
 | M6 DOM API | NodeId arena, mutation, query | **Complete** |
-| M7 CSS + style | cascade, computed style | **Complete** (MVP property set) — cascade resolver parses and merges inline `<style>` and external `<link rel="stylesheet">` sheets in document order |
-| M8 Layout | block/inline + text shaping | **Complete** — block + inline, cosmic-text shaping; taffy flex/grid deferred to Phase 2 |
+| M7 CSS + style | cascade, computed style | **Complete** — full W3C `box-sizing` (`content-box`/`border-box`), 1-4 value margin/padding/border shorthands, `border-radius`, HSL/HSLA and 140+ named colors, `line-height`, `font-style`, `text-decoration`, inline `<style>` and external `<link>` cascade resolution |
+| M8 Layout | block/inline + text shaping | **Complete** — block + inline layout, CSS 2.1 §8.3.1 vertical margin collapsing between in-flow siblings, W3C box-sizing geometry, cosmic-text shaping; taffy flex/grid deferred to Phase 2 |
 | M9 Paint | display list | **Complete** |
 | M9.5 A11y skeleton | semantic data in fragment tree | **Partial** — `A11yNode` tree (roles, aria-label, bounds) real + tested; no UIA provider, not wired to `platform-windows` |
 | M10a Software raster | CPU pixels on screen | **Partial** — `tiny-skia` rasterizer real; frames reach disk as PNG via `soul-shell --output` (verified against live sites incl. image subresources); presented on native GPUI window; still CPU blit rather than GPU surface swap |
