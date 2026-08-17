@@ -2,6 +2,38 @@
 
 use crate::navigation::NavigationController;
 
+/// Scroll position and bounds for one rendered page viewport.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct PageScrollState {
+    /// Current document-space vertical offset.
+    pub offset_y: f32,
+    /// Total laid-out document height.
+    pub content_height: f32,
+    /// Visible viewport height.
+    pub viewport_height: f32,
+}
+
+impl PageScrollState {
+    /// Updates document and viewport bounds, clamping the current offset.
+    pub fn set_bounds(&mut self, content_height: f32, viewport_height: f32) {
+        self.content_height = content_height.max(0.0);
+        self.viewport_height = viewport_height.max(0.0);
+        self.offset_y = self.offset_y.clamp(0.0, self.max_offset());
+    }
+
+    /// Moves the viewport by a document-space delta and returns the new offset.
+    pub fn scroll_by(&mut self, delta_y: f32) -> f32 {
+        self.offset_y = (self.offset_y + delta_y).clamp(0.0, self.max_offset());
+        self.offset_y
+    }
+
+    /// Returns the largest valid vertical offset.
+    #[must_use]
+    pub fn max_offset(&self) -> f32 {
+        (self.content_height - self.viewport_height).max(0.0)
+    }
+}
+
 /// Unique identifier for a browser tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TabId(pub u64);
@@ -28,6 +60,8 @@ pub struct Tab {
     pub title: String,
     /// Current execution and resource tier.
     pub tier: TabTier,
+    /// Current page viewport scroll state.
+    pub scroll: PageScrollState,
 }
 
 impl Tab {
@@ -39,6 +73,7 @@ impl Tab {
             controller: NavigationController::new(),
             title: "New Tab".to_string(),
             tier: TabTier::Active,
+            scroll: PageScrollState::default(),
         }
     }
 }

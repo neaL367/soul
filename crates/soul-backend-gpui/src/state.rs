@@ -25,6 +25,8 @@ pub struct WindowSharedState {
     pub frame: Option<Arc<RenderImage>>,
     /// Interactive page regions associated with the latest frame.
     pub hit_test_map: HitTestMap,
+    /// Current document-space page scroll offset.
+    pub page_scroll_y: f32,
 }
 
 /// Backend-wide state shared with every live view.
@@ -87,6 +89,30 @@ impl SoulBackendHandle {
         window.hit_test_map = hit_test_map;
         Ok(())
     }
+
+    /// Atomically publishes a frame, hit-test map, and scroll offset.
+    #[allow(clippy::significant_drop_tightening)]
+    pub fn update_page_state(
+        &self,
+        window_id: WindowId,
+        frame: ViewportFrame,
+        hit_test_map: HitTestMap,
+        page_scroll_y: f32,
+    ) -> Result<(), SoulError> {
+        let render_image = frame_to_render_image(frame);
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| SoulError::Other("backend state lock poisoned".to_string()))?;
+        let window = state
+            .windows
+            .get_mut(&window_id)
+            .ok_or(SoulError::WindowNotFound(window_id))?;
+        window.frame = render_image;
+        window.hit_test_map = hit_test_map;
+        window.page_scroll_y = page_scroll_y.max(0.0);
+        Ok(())
+    }
 }
 
 /// Converts an engine software frame into a GPU-resident GPUI image.
@@ -132,5 +158,6 @@ pub fn window_state(spec: WindowSpec) -> WindowSharedState {
         height: spec.height,
         frame: None,
         hit_test_map: HitTestMap::default(),
+        page_scroll_y: 0.0,
     }
 }

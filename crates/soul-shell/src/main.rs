@@ -12,7 +12,9 @@ use soul_shell::engine::{
     RenderOptions, a11y_lines, has_visible_pixels, navigate_and_render, render_html_to_buffer,
 };
 use soul_shell::navigation_driver::{NavigationCommand, NavigationDriver};
-use soul_ui::{SoulBackend, SoulConfig, SoulEvent, ViewportFrame, WindowSpec};
+use soul_ui::{
+    InputEvent, SoulBackend, SoulConfig, SoulEvent, ViewportFrame, WheelDeltaMode, WindowSpec,
+};
 use std::path::PathBuf;
 use url::Url;
 
@@ -50,6 +52,7 @@ fn parse_args(args: &[String]) -> Result<Cli> {
     Ok(cli)
 }
 
+#[allow(clippy::cast_possible_truncation)]
 fn main() -> Result<()> {
     common::init_tracing();
     let cli = parse_args(&std::env::args().skip(1).collect::<Vec<_>>())?;
@@ -86,6 +89,7 @@ fn main() -> Result<()> {
             height: cli.height,
         },
     );
+    let viewport_height = cli.height;
     backend.set_event_handler(Box::new(move |event| {
         tracing::info!(?event, "Soul UI event");
         let command = match event {
@@ -94,6 +98,19 @@ fn main() -> Result<()> {
             SoulEvent::NavigateBack { .. } => Some(NavigationCommand::Back),
             SoulEvent::NavigateForward { .. } => Some(NavigationCommand::Forward),
             SoulEvent::Reload { .. } => Some(NavigationCommand::Reload),
+            SoulEvent::InputRouted {
+                event: InputEvent::Wheel(wheel),
+                ..
+            } if wheel.position.y > 44.0 => {
+                let multiplier = match wheel.delta_mode {
+                    WheelDeltaMode::Pixel => 1.0,
+                    WheelDeltaMode::Line => 40.0,
+                    WheelDeltaMode::Page => f64::from(viewport_height),
+                };
+                Some(NavigationCommand::Scroll {
+                    delta_y: (wheel.delta_y * multiplier) as f32,
+                })
+            }
             _ => None,
         };
         if let Some(command) = command

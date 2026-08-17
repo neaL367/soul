@@ -1,15 +1,15 @@
 //! Single-owner navigation command driver for the live Soul window.
 
-use crate::engine::{RenderOptions, render_active_navigation};
+use crate::engine::{RenderOptions, RenderResult, render_active_navigation};
 use soul_backend_gpui::SoulBackendHandle;
-use soul_core::NavigationController;
+use soul_core::{NavigationController, PageScrollState};
 use soul_ui::{SoulError, ViewportFrame, WindowId};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 use tokio::runtime::Runtime;
 
 /// Commands accepted from the Soul toolbar and omnibox.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum NavigationCommand {
     /// Navigate to user-entered URL or search text.
     Navigate(String),
@@ -19,6 +19,11 @@ pub enum NavigationCommand {
     Forward,
     /// Re-fetch current URL.
     Reload,
+    /// Scroll the active page without refetching it.
+    Scroll {
+        /// Vertical document-space delta in logical pixels.
+        delta_y: f32,
+    },
 }
 
 /// Handle for sending navigation commands to one controller-owning worker.
@@ -30,6 +35,7 @@ pub struct NavigationDriver {
 impl NavigationDriver {
     /// Starts a driver thread owning navigation state and a Tokio runtime.
     #[must_use]
+    #[allow(clippy::cast_precision_loss)]
     pub fn spawn(backend: SoulBackendHandle, window_id: WindowId, options: RenderOptions) -> Self {
         let (sender, receiver) = mpsc::channel();
         thread::spawn(move || {
@@ -38,27 +44,30 @@ impl NavigationDriver {
                 return;
             };
             let mut controller = NavigationController::new();
+            let mut active_result: Option<RenderResult> = None;
+            let mut scroll = PageScrollState::default();
 
             while let Ok(command) = receiver.recv() {
+                if let NavigationCommand::Scroll { delta_y } = command {
+                    if let Some(result) = active_result.as_mut() {
+                        scroll.set_bounds(result.document_height, options.height as f32);
+                        scroll.scroll_by(delta_y);
+                        result.scroll_by(delta_y, options.height);
+                        publish_result(&backend, window_id, options, result);
+                    }
+                    continue;
+                }
                 if !start_command(&mut controller, command) {
                     continue;
                 }
                 let result = runtime.block_on(render_active_navigation(&mut controller, options));
                 match result {
                     Ok(result) => {
-                        let frame = ViewportFrame::SoftwareRgba {
-                            width: options.width,
-                            height: options.height,
-                            pixels: result.pixel_buffer.data,
-                        };
-                        if let Err(error) = backend.update_viewport(window_id, frame) {
-                            log_backend_error(&error);
-                        } else if let Err(error) =
-                            backend.update_hit_test_map(window_id, result.hit_test_map)
-                        {
-                            log_backend_error(&error);
-                        } else {
-                            tracing::info!(url = %result.url, "Navigation frame updated");
+                        scroll = PageScrollState::default();
+                        scroll.set_bounds(result.document_height, options.height as f32);
+                        active_result = Some(result);
+                        if let Some(result) = active_result.as_ref() {
+                            publish_result(&backend, window_id, options, result);
                         }
                     }
                     Err(error) => {
@@ -83,6 +92,29 @@ impl NavigationDriver {
     }
 }
 
+fn publish_result(
+    backend: &SoulBackendHandle,
+    window_id: WindowId,
+    options: RenderOptions,
+    result: &RenderResult,
+) {
+    let frame = ViewportFrame::SoftwareRgba {
+        width: options.width,
+        height: options.height,
+        pixels: result.pixel_buffer.data.clone(),
+    };
+    if let Err(error) = backend.update_page_state(
+        window_id,
+        frame,
+        result.hit_test_map.clone(),
+        result.scroll_y,
+    ) {
+        log_backend_error(&error);
+    } else {
+        tracing::info!(url = %result.url, scroll_y = result.scroll_y, "Navigation frame updated");
+    }
+}
+
 fn start_command(controller: &mut NavigationController, command: NavigationCommand) -> bool {
     match command {
         NavigationCommand::Navigate(input) => match controller.navigate(&input) {
@@ -95,6 +127,7 @@ fn start_command(controller: &mut NavigationController, command: NavigationComma
         NavigationCommand::Back => controller.go_back().is_some(),
         NavigationCommand::Forward => controller.go_forward().is_some(),
         NavigationCommand::Reload => controller.reload().is_some(),
+        NavigationCommand::Scroll { .. } => false,
     }
 }
 

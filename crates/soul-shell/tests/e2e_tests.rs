@@ -6,6 +6,7 @@ use soul_shell::engine::{
     render_html_to_buffer,
 };
 use soul_ui::HitTestTarget;
+use std::fmt::Write as _;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -53,6 +54,42 @@ fn http_response(body: &str) -> String {
         body.len(),
         body
     )
+}
+
+#[tokio::test]
+async fn test_scroll_updates_retained_viewport_without_refetch() {
+    let mut paragraphs = String::new();
+    for index in 0..30 {
+        let color = if index < 15 { "#ff0000" } else { "#0000ff" };
+        let _ = write!(
+            paragraphs,
+            "<p style=\"background-color: {color};\">scroll line {index}</p>"
+        );
+    }
+    let tall_html = format!("<!DOCTYPE html><html><body>{paragraphs}</body></html>");
+    let (addr, server_handle) = spawn_mock_http_server(move |_req| http_response(&tall_html)).await;
+    let url = Url::parse(&format!("http://127.0.0.1:{}/scroll", addr.port())).unwrap();
+    let options = RenderOptions {
+        width: 100,
+        height: 100,
+    };
+
+    let mut result = navigate_and_render(url, options)
+        .await
+        .expect("scroll fixture navigation failed");
+    assert!(result.document_height > 100.0);
+    let first_viewport = result.pixel_buffer.data.clone();
+
+    result.scroll_by(250.0, options.height);
+
+    assert!((result.scroll_y - 250.0).abs() < 0.001);
+    assert_ne!(result.pixel_buffer.data, first_viewport);
+    result.scroll_by(10_000.0, options.height);
+    assert!((result.scroll_y - (result.document_height - 100.0)).abs() < 0.001);
+    result.scroll_by(-10_000.0, options.height);
+    assert!(result.scroll_y.abs() < 0.001);
+
+    let _ = server_handle.await;
 }
 
 /// The full connected path: real HTTP fetch over a local socket, then the whole

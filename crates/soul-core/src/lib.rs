@@ -8,4 +8,4 @@ pub use navigation::{
     NavigationController, NavigationError, NavigationHistory, NavigationId, NavigationState,
 };
 pub use profile::BrowserProfile;
-pub use tab::{Tab, TabId, TabManager, TabTier};
+pub use tab::{PageScrollState, Tab, TabId, TabManager, TabTier};

@@ -1,6 +1,8 @@
 //! Integration tests for the navigation state machine, race condition prevention, and tab management.
 
-use soul_core::{NavigationController, NavigationId, NavigationState, TabManager, TabTier};
+use soul_core::{
+    NavigationController, NavigationId, NavigationState, PageScrollState, TabManager, TabTier,
+};
 use url::Url;
 
 #[test]
@@ -215,4 +217,19 @@ fn test_tab_manager_lifecycle_and_tiering() {
     assert!(manager.close_tab(tab1));
     assert_eq!(manager.tab_count(), 1);
     assert_eq!(manager.active_tab_id(), Some(tab3));
+}
+
+#[test]
+fn page_scroll_state_clamps_and_tracks_bounds() {
+    let mut scroll = PageScrollState::default();
+    scroll.set_bounds(1_000.0, 300.0);
+
+    assert!((scroll.max_offset() - 700.0).abs() < 0.001);
+    assert!((scroll.scroll_by(250.0) - 250.0).abs() < 0.001);
+    assert!((scroll.scroll_by(1_000.0) - 700.0).abs() < 0.001);
+    assert!(scroll.scroll_by(-2_000.0).abs() < 0.001);
+
+    scroll.set_bounds(100.0, 300.0);
+    assert!(scroll.offset_y.abs() < 0.001);
+    assert!(scroll.max_offset().abs() < 0.001);
 }

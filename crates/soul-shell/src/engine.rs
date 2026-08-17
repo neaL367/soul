@@ -76,6 +76,12 @@ pub struct RenderResult {
     pub status_code: u16,
     /// Rasterized page pixels.
     pub pixel_buffer: PixelBuffer,
+    /// Full document raster retained for viewport-only scrolling.
+    document_buffer: PixelBuffer,
+    /// Total laid-out document height in pixels.
+    pub document_height: f32,
+    /// Current document-space vertical offset.
+    pub scroll_y: f32,
     /// Accessibility tree extracted from the laid-out page.
     pub a11y_tree: Option<A11yNode>,
     /// Interactive page regions generated from the laid-out page.
@@ -85,6 +91,16 @@ pub struct RenderResult {
 }
 
 impl RenderResult {
+    /// Scrolls the retained page raster without refetching or relayout.
+    #[allow(clippy::cast_precision_loss)]
+    pub fn scroll_by(&mut self, delta_y: f32, viewport_height: u32) {
+        self.scroll_y = (self.scroll_y + delta_y).clamp(
+            0.0,
+            (self.document_height - viewport_height as f32).max(0.0),
+        );
+        self.pixel_buffer = crop_viewport(&self.document_buffer, viewport_height, self.scroll_y);
+    }
+
     /// Encodes the rasterized page as a PNG byte stream.
     ///
     /// # Errors
@@ -215,7 +231,7 @@ pub async fn render_active_navigation(
     }
 
     // Stage 5: layout, paint, raster + accessibility tree.
-    let (pixel_buffer, a11y_tree, hit_test_map, stage_timings) =
+    let (pixel_buffer, document_buffer, document_height, a11y_tree, hit_test_map, stage_timings) =
         layout_paint_raster(&doc, &styles, &images, options)?;
     timings.layout = stage_timings.layout;
     timings.paint = stage_timings.paint;
@@ -232,6 +248,9 @@ pub async fn render_active_navigation(
         url,
         status_code: response.status_code,
         pixel_buffer,
+        document_buffer,
+        document_height,
+        scroll_y: 0.0,
         a11y_tree,
         hit_test_map,
         timings,
@@ -272,7 +291,7 @@ pub fn render_html_to_buffer(
     timings.style = style_start.elapsed();
 
     let _ = controller.handle_dom_ready(id);
-    let (pixel_buffer, a11y_tree, _hit_test_map, stage_timings) =
+    let (pixel_buffer, _document_buffer, _document_height, a11y_tree, _hit_test_map, stage_timings) =
         layout_paint_raster(&doc, &styles, &HashMap::new(), options)?;
     timings.layout = stage_timings.layout;
     timings.paint = stage_timings.paint;
@@ -343,13 +362,28 @@ async fn load_subresource_images(
 }
 
 /// Shared layout → paint → raster core with accessibility extraction.
-#[allow(clippy::cast_precision_loss, clippy::type_complexity)]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::type_complexity
+)]
 fn layout_paint_raster(
     doc: &Document,
     styles: &HashMap<NodeId, css::ComputedStyle>,
     images: &HashMap<NodeId, DecodedImage>,
     options: RenderOptions,
-) -> Result<(PixelBuffer, Option<A11yNode>, HitTestMap, PipelineTimings), NavigationError> {
+) -> Result<
+    (
+        PixelBuffer,
+        PixelBuffer,
+        f32,
+        Option<A11yNode>,
+        HitTestMap,
+        PipelineTimings,
+    ),
+    NavigationError,
+> {
     let mut timings = PipelineTimings::default();
 
     let layout_start = Instant::now();
@@ -373,12 +407,44 @@ fn layout_paint_raster(
     timings.paint = paint_start.elapsed();
 
     let raster_start = Instant::now();
-    let pixel_buffer = CpuRasterizer::rasterize(&display_list, options.width, options.height)
-        .map_err(|e| NavigationError::Other(format!("rasterization failed: {e}")))?;
+    let document_height = (layout_box.dimensions.content.y + layout_box.dimensions.content.height)
+        .ceil()
+        .max(options.height as f32);
+    let document_buffer =
+        CpuRasterizer::rasterize(&display_list, options.width, document_height as u32)
+            .map_err(|e| NavigationError::Other(format!("rasterization failed: {e}")))?;
+    let pixel_buffer = crop_viewport(&document_buffer, options.height, 0.0);
     timings.raster = raster_start.elapsed();
 
     let a11y_tree = A11yNode::from_layout_box(doc, &layout_box);
     let hit_test_map = build_hit_test_map(doc, &layout_box);
 
-    Ok((pixel_buffer, a11y_tree, hit_test_map, timings))
+    Ok((
+        pixel_buffer,
+        document_buffer,
+        document_height,
+        a11y_tree,
+        hit_test_map,
+        timings,
+    ))
+}
+
+/// Copies visible rows from a retained full-document raster.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn crop_viewport(document: &PixelBuffer, viewport_height: u32, scroll_y: f32) -> PixelBuffer {
+    let max_scroll = document.height.saturating_sub(viewport_height);
+    let offset = (scroll_y.max(0.0) as u32).min(max_scroll);
+    let row_bytes = document.width as usize * 4;
+    let mut data = vec![0; row_bytes * viewport_height as usize];
+    for row in 0..viewport_height {
+        let source_row = offset + row;
+        if source_row >= document.height {
+            break;
+        }
+        let source_start = source_row as usize * row_bytes;
+        let target_start = row as usize * row_bytes;
+        data[target_start..target_start + row_bytes]
+            .copy_from_slice(&document.data[source_start..source_start + row_bytes]);
+    }
+    PixelBuffer::from_raw(document.width, viewport_height, data)
 }

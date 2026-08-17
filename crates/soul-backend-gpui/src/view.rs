@@ -147,10 +147,12 @@ impl PageView {
     /// Finds a page target at client coordinates.
     fn hit_test(&self, x: f32, y: f32) -> Option<HitTestTarget> {
         let guard = self.state.lock().ok()?;
-        guard
-            .windows
-            .get(&self.window_id)
-            .and_then(|window| window.hit_test_map.hit_test(x, y).cloned())
+        guard.windows.get(&self.window_id).and_then(|window| {
+            window
+                .hit_test_map
+                .hit_test(x, y + window.page_scroll_y)
+                .cloned()
+        })
     }
 
     /// Routes GPUI mouse movement through `InputRouter`.
