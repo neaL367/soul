@@ -8,12 +8,16 @@
 
 use gpui::{
     App, AppContext, Bounds, Context, FocusHandle, ImageCacheError, ImageSource,
-    InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, RenderImage,
-    SharedString, StatefulInteractiveElement, Styled, Task, TitlebarOptions, Window, WindowBounds,
-    WindowOptions, div, img, px, rgb, size,
+    InteractiveElement, IntoElement, KeyDownEvent, Modifiers, MouseButton as GpuiMouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection, ParentElement, Render,
+    RenderImage, ScrollDelta, ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled,
+    Task, TitlebarOptions, Window, WindowBounds, WindowOptions, div, img, px, rgb, size,
 };
 use image::{Frame as ImageFrame, RgbaImage};
-use soul_ui::{SoulBackend, SoulConfig, SoulError, SoulEvent, ViewportFrame, WindowId, WindowSpec};
+use soul_ui::{
+    InputRouter, KeyModifiers, KeyPhase, MouseButton, MousePhase, PhysicalPosition, SoulBackend,
+    SoulConfig, SoulError, SoulEvent, ViewportFrame, WheelDeltaMode, WindowId, WindowSpec,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -253,11 +257,26 @@ impl SoulBackend for GpuiSoulBackend {
 
                 let view_state = state.clone();
                 let view_handler = event_handler.clone();
+                let input_router = Arc::new(Mutex::new(InputRouter::default()));
+                let input_handler = view_handler.clone();
+                if let Ok(mut router) = input_router.lock() {
+                    router.subscribe(move |routed_window_id, event| {
+                        if let Ok(handler) = input_handler.lock()
+                            && let Some(handler) = handler.as_deref()
+                        {
+                            handler(SoulEvent::InputRouted {
+                                window_id: routed_window_id.0,
+                                event: event.clone(),
+                            });
+                        }
+                    });
+                }
                 let _ = cx.open_window(options, move |_window, cx| {
                     cx.new(move |cx| PageView {
                         window_id,
                         state: view_state,
                         event_handler: view_handler,
+                        input_router,
                         focus_handle: cx.focus_handle(),
                         omnibox: String::new(),
                         omnibox_focused: false,
@@ -276,6 +295,7 @@ struct PageView {
     window_id: WindowId,
     state: Arc<Mutex<BackendSharedState>>,
     event_handler: SharedEventHandler,
+    input_router: Arc<Mutex<InputRouter>>,
     focus_handle: FocusHandle,
     omnibox: String,
     omnibox_focused: bool,
@@ -301,8 +321,116 @@ impl PageView {
         }
     }
 
+    /// Converts GPUI modifiers into backend-neutral modifiers.
+    const fn modifiers(modifiers: Modifiers) -> KeyModifiers {
+        KeyModifiers {
+            shift: modifiers.shift,
+            ctrl: modifiers.control,
+            alt: modifiers.alt,
+            meta: modifiers.platform,
+        }
+    }
+
+    /// Converts a GPUI button into Soul's backend-neutral button type.
+    const fn mouse_button(button: GpuiMouseButton) -> MouseButton {
+        match button {
+            GpuiMouseButton::Left => MouseButton::Left,
+            GpuiMouseButton::Right => MouseButton::Right,
+            GpuiMouseButton::Middle => MouseButton::Middle,
+            GpuiMouseButton::Navigate(NavigationDirection::Back) => MouseButton::Back,
+            GpuiMouseButton::Navigate(NavigationDirection::Forward) => MouseButton::Forward,
+        }
+    }
+
+    /// Routes a GPUI mouse-down event through `InputRouter`.
+    fn on_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
+        if let Ok(mut router) = self.input_router.lock() {
+            router.handle_mouse_button(
+                self.window_id,
+                Self::mouse_button(event.button),
+                MousePhase::Down,
+                PhysicalPosition::new(f64::from(event.position.x), f64::from(event.position.y)),
+            );
+        }
+    }
+
+    /// Routes a GPUI mouse-up event through `InputRouter`.
+    fn on_mouse_up(&mut self, event: &MouseUpEvent, _window: &mut Window, _cx: &mut Context<Self>) {
+        if let Ok(mut router) = self.input_router.lock() {
+            router.handle_mouse_button(
+                self.window_id,
+                Self::mouse_button(event.button),
+                MousePhase::Up,
+                PhysicalPosition::new(f64::from(event.position.x), f64::from(event.position.y)),
+            );
+        }
+    }
+
+    /// Routes GPUI mouse movement through `InputRouter`.
+    fn on_mouse_move(
+        &mut self,
+        event: &MouseMoveEvent,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
+        if let Ok(mut router) = self.input_router.lock() {
+            router.handle_mouse_move(
+                self.window_id,
+                PhysicalPosition::new(f64::from(event.position.x), f64::from(event.position.y)),
+            );
+        }
+    }
+
+    /// Routes GPUI wheel input through `InputRouter`.
+    fn on_scroll_wheel(
+        &mut self,
+        event: &ScrollWheelEvent,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
+        let (delta_x, delta_y, mode) = match event.delta {
+            ScrollDelta::Pixels(point) => (
+                f64::from(point.x),
+                f64::from(point.y),
+                WheelDeltaMode::Pixel,
+            ),
+            ScrollDelta::Lines(point) => {
+                (f64::from(point.x), f64::from(point.y), WheelDeltaMode::Line)
+            }
+        };
+        if let Ok(mut router) = self.input_router.lock() {
+            router.handle_wheel(self.window_id, delta_x, delta_y, mode);
+        }
+    }
+
+    /// Routes a GPUI key event through `InputRouter` before omnibox handling.
+    fn route_key(&self, event: &KeyDownEvent) {
+        if let Ok(mut router) = self.input_router.lock() {
+            let phase = if event.is_held {
+                KeyPhase::Repeat
+            } else {
+                KeyPhase::Down
+            };
+            let key = event.keystroke.key.clone();
+            router.handle_key(
+                self.window_id,
+                key.clone(),
+                key,
+                phase,
+                Self::modifiers(event.keystroke.modifiers),
+                event.keystroke.key_char.clone(),
+            );
+        }
+    }
+
     /// Handles raw keystrokes for the from-scratch omnibox.
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.route_key(event);
         if !self.omnibox_focused {
             return;
         }
@@ -411,6 +539,10 @@ impl Render for PageView {
         div()
             .size_full()
             .flex_col()
+            .capture_any_mouse_down(cx.listener(Self::on_mouse_down))
+            .capture_any_mouse_up(cx.listener(Self::on_mouse_up))
+            .on_mouse_move(cx.listener(Self::on_mouse_move))
+            .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
             .bg(rgb(0x001e_1e2e))
             .child(
                 div()
