@@ -1,63 +1,23 @@
-//! Single-owner navigation command driver for the live Soul window.
+//! Background worker loop and command executor for `NavigationDriver`.
 
+use super::publisher::{
+    clear_active_page, publish_active_result, publish_result, publish_tab_strip,
+};
+use super::types::{NavigationCommand, NavigationDriver};
 use crate::engine::{RenderOptions, RenderResult, render_active_navigation};
 use crate::local_page::render_new_tab_frame;
 use soul_backend_gpui::SoulBackendHandle;
 use soul_core::{NavigationController, PageScrollState, TabId, TabManager};
-use soul_ui::{HitTestMap, SoulError, TabStripModel, ViewportFrame, WindowId};
+use soul_ui::{ViewportFrame, WindowId};
 use std::collections::HashMap;
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc;
 use std::thread;
 use tokio::runtime::Runtime;
-
-/// Commands accepted from the Soul toolbar and omnibox.
-#[derive(Debug, Clone, PartialEq)]
-pub enum NavigationCommand {
-    /// Navigate to user-entered URL or search text.
-    Navigate(String),
-    /// Traverse one entry backward.
-    Back,
-    /// Traverse one entry forward.
-    Forward,
-    /// Re-fetch current URL.
-    Reload,
-    /// Scroll the active page without refetching it.
-    Scroll {
-        /// Vertical document-space delta in logical pixels.
-        delta_y: f32,
-    },
-    /// Resize the active viewport dimensions.
-    Resize {
-        /// New window/viewport width.
-        width: u32,
-        /// New window/viewport height.
-        height: u32,
-    },
-    /// Open a new blank tab and make it active.
-    NewTab,
-    /// Select a tab by its current tab-strip index.
-    SelectTab {
-        /// Zero-based tab-strip index.
-        tab_index: usize,
-    },
-    /// Close a tab by its current tab-strip index.
-    CloseTab {
-        /// Zero-based tab-strip index.
-        tab_index: usize,
-    },
-}
-
-/// Handle for sending navigation commands to one controller-owning worker.
-#[derive(Clone)]
-pub struct NavigationDriver {
-    sender: Sender<NavigationCommand>,
-}
 
 impl NavigationDriver {
     /// Starts a driver thread owning navigation state and a Tokio runtime.
     #[must_use]
-    #[allow(clippy::cast_precision_loss)]
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
     pub fn spawn(
         backend: SoulBackendHandle,
         window_id: WindowId,
@@ -116,24 +76,24 @@ impl NavigationDriver {
                     NavigationCommand::SelectTab { tab_index } => {
                         if let Some(tab) = tabs.tabs().get(tab_index) {
                             let tab_id = tab.id;
-                            if tabs.select_tab(tab_id) {
-                                publish_tab_strip(&backend, window_id, &tabs);
-                                publish_active_result(
-                                    &backend,
-                                    window_id,
-                                    options,
-                                    &results,
-                                    &initial_frames,
-                                    tab_id,
-                                );
-                            }
+                            tabs.select_tab(tab_id);
+                            publish_tab_strip(&backend, window_id, &tabs);
+                            publish_active_result(
+                                &backend,
+                                window_id,
+                                options,
+                                &results,
+                                &initial_frames,
+                                tab_id,
+                            );
                         }
                     }
                     NavigationCommand::CloseTab { tab_index } => {
                         if let Some(tab) = tabs.tabs().get(tab_index) {
-                            let closed_id = tab.id;
-                            if tabs.close_tab(closed_id) {
-                                results.remove(&closed_id);
+                            let tab_id = tab.id;
+                            if tabs.close_tab(tab_id) {
+                                results.remove(&tab_id);
+                                initial_frames.remove(&tab_id);
                                 publish_tab_strip(&backend, window_id, &tabs);
                                 if let Some(active_id) = tabs.active_tab_id() {
                                     publish_active_result(
@@ -240,84 +200,6 @@ impl NavigationDriver {
         });
         Self { sender }
     }
-
-    /// Sends a command to the navigation worker.
-    ///
-    /// # Errors
-    ///
-    /// Returns `SendError` if the navigation worker has exited.
-    pub fn send(
-        &self,
-        command: NavigationCommand,
-    ) -> Result<(), mpsc::SendError<NavigationCommand>> {
-        self.sender.send(command)
-    }
-}
-
-fn publish_result(
-    backend: &SoulBackendHandle,
-    window_id: WindowId,
-    options: RenderOptions,
-    result: &RenderResult,
-) {
-    let frame = ViewportFrame::SoftwareRgba {
-        width: options.width,
-        height: options.height,
-        pixels: result.pixel_buffer.data.clone(),
-    };
-    if let Err(error) = backend.update_page_state(
-        window_id,
-        frame,
-        result.hit_test_map.clone(),
-        result.scroll_y,
-    ) {
-        log_backend_error(&error);
-    } else {
-        tracing::info!(url = %result.url, scroll_y = result.scroll_y, "Navigation frame updated");
-    }
-}
-
-fn publish_active_result(
-    backend: &SoulBackendHandle,
-    window_id: WindowId,
-    options: RenderOptions,
-    results: &HashMap<TabId, RenderResult>,
-    initial_frames: &HashMap<TabId, ViewportFrame>,
-    tab_id: TabId,
-) {
-    if let Some(result) = results.get(&tab_id) {
-        publish_result(backend, window_id, options, result);
-    } else if let Some(frame) = initial_frames.get(&tab_id) {
-        if let Err(error) =
-            backend.update_page_state(window_id, frame.clone(), HitTestMap::default(), 0.0)
-        {
-            log_backend_error(&error);
-        }
-    } else {
-        clear_active_page(backend, window_id);
-    }
-}
-
-fn clear_active_page(backend: &SoulBackendHandle, window_id: WindowId) {
-    if let Err(error) = backend.clear_page_state(window_id) {
-        log_backend_error(&error);
-    }
-}
-
-fn publish_tab_strip(backend: &SoulBackendHandle, window_id: WindowId, tabs: &TabManager) {
-    let active_id = tabs.active_tab_id();
-    let mut strip = TabStripModel::new();
-    for tab in tabs.tabs() {
-        strip.add_tab(tab.id, tab.title.clone(), Some(tab.id) == active_id);
-        if let Some(item) = strip.tabs().last()
-            && tab.controller.state().is_loading()
-        {
-            strip.set_loading(item.id, true);
-        }
-    }
-    if let Err(error) = backend.update_tab_strip(window_id, strip) {
-        log_backend_error(&error);
-    }
 }
 
 fn start_command(controller: &mut NavigationController, command: NavigationCommand) -> bool {
@@ -338,8 +220,4 @@ fn start_command(controller: &mut NavigationController, command: NavigationComma
         | NavigationCommand::SelectTab { .. }
         | NavigationCommand::CloseTab { .. } => false,
     }
-}
-
-fn log_backend_error(error: &SoulError) {
-    tracing::warn!(%error, "Failed to publish navigation frame");
 }
