@@ -4,4 +4,4 @@
 
 pub mod backend;
 
-pub use backend::GpuiSoulBackend;
+pub use backend::{GpuiSoulBackend, SoulBackendHandle};

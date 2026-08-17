@@ -11,7 +11,7 @@ use soul_backend_gpui::GpuiSoulBackend;
 use soul_shell::engine::{
     RenderOptions, a11y_lines, has_visible_pixels, navigate_and_render, render_html_to_buffer,
 };
-use soul_ui::{SoulBackend, SoulConfig, ViewportFrame, WindowSpec};
+use soul_ui::{SoulBackend, SoulConfig, SoulEvent, ViewportFrame, WindowId, WindowSpec};
 use std::path::PathBuf;
 use url::Url;
 
@@ -64,8 +64,20 @@ fn main() -> Result<()> {
         })
         .context("failed to initialize chrome backend")?;
 
-    backend.set_event_handler(Box::new(|event| {
-        tracing::info!(?event, "Chrome event");
+    let navigation_handle = backend.shared_handle();
+    let navigation_width = cli.width;
+    let navigation_height = cli.height;
+    backend.set_event_handler(Box::new(move |event| {
+        tracing::info!(?event, "Soul UI event");
+        if let SoulEvent::OmniboxSubmitted { window_id, input } = event {
+            spawn_navigation(
+                navigation_handle.clone(),
+                WindowId(window_id),
+                input,
+                navigation_width,
+                navigation_height,
+            );
+        }
     }));
 
     let window_id = backend
@@ -207,6 +219,47 @@ fn save_png(png: &[u8], path: &PathBuf) -> Result<()> {
 }
 
 /// Normalizes a user-typed address into a parseable `Url`, defaulting to HTTPS.
+fn spawn_navigation(
+    backend: soul_backend_gpui::SoulBackendHandle,
+    window_id: WindowId,
+    input: String,
+    width: u32,
+    height: u32,
+) {
+    std::thread::spawn(move || {
+        let url = match normalize_url(&input) {
+            Ok(url) => url,
+            Err(error) => {
+                tracing::warn!(%error, input = %input, "Ignoring invalid omnibox navigation");
+                return;
+            }
+        };
+        let runtime = match tokio::runtime::Runtime::new() {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                tracing::error!(%error, "Failed to create navigation runtime");
+                return;
+            }
+        };
+        let options = RenderOptions { width, height };
+        match runtime.block_on(navigate_and_render(url.clone(), options)) {
+            Ok(result) => {
+                let frame = ViewportFrame::SoftwareRgba {
+                    width,
+                    height,
+                    pixels: result.pixel_buffer.data,
+                };
+                if let Err(error) = backend.update_viewport(window_id, frame) {
+                    tracing::warn!(%error, "Failed to update live Soul window frame");
+                } else {
+                    tracing::info!(url = %url, "Live navigation frame updated");
+                }
+            }
+            Err(error) => tracing::warn!(%error, url = %url, "Live navigation failed"),
+        }
+    });
+}
+
 fn normalize_url(input: &str) -> Result<Url> {
     if input.starts_with("http://") || input.starts_with("https://") || input.starts_with("about:")
     {
