@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use url::Url;
 
 /// Re-exports for callers that inspect the accessibility tree.
+pub use crate::diagnostics::{a11y_lines, has_visible_pixels};
 pub use layout::{A11yNode, A11yRole};
 
 /// Viewport configuration for the rendering pipeline.
@@ -95,10 +96,7 @@ impl RenderResult {
     }
 }
 
-/// Fetches `url` and renders the resulting document through the full pipeline.
-///
-/// Transitions the `NavigationController` through `Navigating` → `ResponseReceived`
-/// → `DomReady` → `Loaded`.
+/// Fetches `url` with an isolated navigation controller and renders the document.
 ///
 /// # Errors
 ///
@@ -108,7 +106,45 @@ pub async fn navigate_and_render(
     options: RenderOptions,
 ) -> Result<RenderResult, NavigationError> {
     let mut controller = NavigationController::new();
-    let navigation_id = controller.navigate_url(url.clone());
+    navigate_and_render_with_controller(&mut controller, url, options).await
+}
+
+/// Fetches `url` using caller-owned navigation state.
+///
+/// Caller-owned state is required for browser actions such as Back, Forward, and
+/// Reload to share one `NavigationController` and one session history.
+///
+/// # Errors
+///
+/// Returns `NavigationError` if the fetch, parse, layout, or raster stages fail.
+pub async fn navigate_and_render_with_controller(
+    controller: &mut NavigationController,
+    url: Url,
+    options: RenderOptions,
+) -> Result<RenderResult, NavigationError> {
+    controller.navigate_url(url);
+    render_active_navigation(controller, options).await
+}
+
+/// Renders the navigation already active in `controller` without creating a
+/// second navigation id. Used by Back, Forward, and Reload.
+///
+/// # Errors
+///
+/// Returns `NavigationError` if no navigation is active or rendering fails.
+pub async fn render_active_navigation(
+    controller: &mut NavigationController,
+    options: RenderOptions,
+) -> Result<RenderResult, NavigationError> {
+    let navigation_id = controller
+        .state()
+        .navigation_id()
+        .ok_or_else(|| NavigationError::Other("no active navigation".to_string()))?;
+    let url = controller
+        .state()
+        .current_url()
+        .cloned()
+        .ok_or_else(|| NavigationError::Other("active navigation has no URL".to_string()))?;
     let mut timings = PipelineTimings::default();
 
     // Stage 1: network fetch (top-level document navigation — CORS is not applied
@@ -339,33 +375,4 @@ fn layout_paint_raster(
     let a11y_tree = A11yNode::from_layout_box(doc, &layout_box);
 
     Ok((pixel_buffer, a11y_tree, timings))
-}
-
-/// Collects human-readable accessibility tree lines for logging or dump output.
-pub fn a11y_lines(tree: &A11yNode, out: &mut Vec<String>) {
-    a11y_lines_indented(tree, 0, out);
-}
-
-fn a11y_lines_indented(node: &A11yNode, depth: usize, out: &mut Vec<String>) {
-    let name = node.name.as_deref().unwrap_or("");
-    out.push(format!(
-        "{:indent$}- {:?} \"{}\" bounds=({:.0},{:.0} {:.0}x{:.0})",
-        "",
-        node.role,
-        name,
-        node.bounds.x,
-        node.bounds.y,
-        node.bounds.width,
-        node.bounds.height,
-        indent = depth * 2
-    ));
-    for child in &node.children {
-        a11y_lines_indented(child, depth + 1, out);
-    }
-}
-
-/// Convenience: returns `true` if the pixel buffer contains any non-transparent pixel.
-#[must_use]
-pub fn has_visible_pixels(buffer: &PixelBuffer) -> bool {
-    buffer.data.chunks_exact(4).any(|px| px[3] != 0)
 }

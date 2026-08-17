@@ -206,6 +206,7 @@ pub struct NavigationController {
     next_id: u64,
     state: NavigationState,
     history: NavigationHistory,
+    history_traversal: bool,
 }
 
 impl Default for NavigationController {
@@ -222,6 +223,7 @@ impl NavigationController {
             next_id: 1,
             state: NavigationState::Init,
             history: NavigationHistory::new(),
+            history_traversal: false,
         }
     }
 
@@ -261,6 +263,7 @@ impl NavigationController {
         self.next_id += 1;
 
         tracing::info!(navigation_id = id.0, url = %url, "Starting navigation");
+        self.history_traversal = false;
         self.state = NavigationState::Navigating { id, url };
         id
     }
@@ -331,7 +334,10 @@ impl NavigationController {
                     id,
                     url: committed_url.clone(),
                 };
-                self.history.push(committed_url);
+                if !self.history_traversal {
+                    self.history.push(committed_url);
+                }
+                self.history_traversal = false;
                 true
             }
             _ => {
@@ -360,12 +366,20 @@ impl NavigationController {
 
     /// Triggers backward navigation in history if available.
     pub fn go_back(&mut self) -> Option<NavigationId> {
-        self.history.go_back().map(|url| self.navigate_url(url))
+        self.history.go_back().map(|url| {
+            let id = self.navigate_url(url);
+            self.history_traversal = true;
+            id
+        })
     }
 
     /// Triggers forward navigation in history if available.
     pub fn go_forward(&mut self) -> Option<NavigationId> {
-        self.history.go_forward().map(|url| self.navigate_url(url))
+        self.history.go_forward().map(|url| {
+            let id = self.navigate_url(url);
+            self.history_traversal = true;
+            id
+        })
     }
 
     /// Triggers reload of the current URL.

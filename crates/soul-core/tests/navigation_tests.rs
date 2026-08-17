@@ -134,26 +134,43 @@ fn test_back_forward_history_navigation() {
     assert!(controller.history().can_go_back());
     assert!(!controller.history().can_go_forward());
 
-    // Go back to page 2
-    let _ = controller.go_back().unwrap();
+    // Go back to page 2 and complete traversal without duplicating history.
+    let back_id = controller.go_back().unwrap();
     assert_eq!(
         controller.state().current_url().unwrap().as_str(),
         "https://page-2.com/"
     );
+    controller.handle_response(back_id, 200, "text/html".to_string());
+    controller.handle_dom_ready(back_id);
+    controller.handle_loaded(back_id);
+    assert_eq!(
+        controller.history().current_entry().unwrap().url.as_str(),
+        "https://page-2.com/"
+    );
     assert!(controller.history().can_go_forward());
 
-    // Go back to page 1
-    let _ = controller.go_back().unwrap();
+    // Go back to page 1 and complete traversal.
+    let back_id = controller.go_back().unwrap();
     assert_eq!(
         controller.state().current_url().unwrap().as_str(),
         "https://page-1.com/"
     );
+    controller.handle_response(back_id, 200, "text/html".to_string());
+    controller.handle_dom_ready(back_id);
+    controller.handle_loaded(back_id);
     assert!(!controller.history().can_go_back());
 
-    // Go forward to page 2
-    let _ = controller.go_forward().unwrap();
+    // Go forward to page 2 and complete traversal.
+    let forward_id = controller.go_forward().unwrap();
     assert_eq!(
         controller.state().current_url().unwrap().as_str(),
+        "https://page-2.com/"
+    );
+    controller.handle_response(forward_id, 200, "text/html".to_string());
+    controller.handle_dom_ready(forward_id);
+    controller.handle_loaded(forward_id);
+    assert_eq!(
+        controller.history().current_entry().unwrap().url.as_str(),
         "https://page-2.com/"
     );
 
