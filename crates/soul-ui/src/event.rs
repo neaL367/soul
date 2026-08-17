@@ -1,8 +1,17 @@
 //! Event types delivered between the browser UI and core state machines.
 
+use crate::input::InputEvent;
+
 /// Events originating from user interaction with the browser chrome or native window.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SoulEvent {
+    /// Input event routed from GPUI into Soul's backend-agnostic input model.
+    InputRouted {
+        /// ID of the window receiving input.
+        window_id: u64,
+        /// Normalized input event with logical and physical coordinates.
+        event: InputEvent,
+    },
     /// Window close requested by the user or OS.
     WindowCloseRequested {
         /// ID of the window requesting closure.
