@@ -5,7 +5,9 @@ use soul_shell::engine::{
     A11yRole, RenderOptions, a11y_lines, has_visible_pixels, navigate_and_render,
     render_html_to_buffer,
 };
+use soul_shell::local_page::render_new_tab_frame;
 use soul_ui::HitTestTarget;
+use soul_ui::ViewportFrame;
 use std::fmt::Write as _;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -202,6 +204,31 @@ fn test_render_html_to_buffer_inline_styles() {
     assert!(has_visible_pixels(&buffer));
     assert!(timings.total() > std::time::Duration::ZERO);
     assert!(tree.is_some());
+}
+
+/// Newly-created tabs use the same HTML → CSS → layout → paint → raster path
+/// as the start page instead of presenting an uninitialized viewport.
+#[test]
+fn test_new_tab_page_renders_visible_pixels() {
+    let frame = render_new_tab_frame(RenderOptions {
+        width: 320,
+        height: 240,
+    })
+    .expect("new tab page should render");
+
+    let ViewportFrame::SoftwareRgba {
+        width,
+        height,
+        pixels,
+    } = frame
+    else {
+        panic!("new tab page must use the software-raster frame");
+    };
+    assert_eq!((width, height), (320, 240));
+    assert!(
+        pixels.chunks_exact(4).any(|pixel| pixel[3] > 0),
+        "new tab page should contain opaque pixels"
+    );
 }
 
 fn collect_roles(node: &soul_shell::engine::A11yNode, roles: &mut Vec<A11yRole>) {

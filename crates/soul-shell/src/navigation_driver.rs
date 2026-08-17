@@ -1,6 +1,7 @@
 //! Single-owner navigation command driver for the live Soul window.
 
 use crate::engine::{RenderOptions, RenderResult, render_active_navigation};
+use crate::local_page::render_new_tab_frame;
 use soul_backend_gpui::SoulBackendHandle;
 use soul_core::{NavigationController, PageScrollState, TabId, TabManager};
 use soul_ui::{HitTestMap, SoulError, TabStripModel, ViewportFrame, WindowId};
@@ -84,9 +85,24 @@ impl NavigationDriver {
             while let Ok(command) = receiver.recv() {
                 match command {
                     NavigationCommand::NewTab => {
-                        tabs.create_tab();
+                        let tab_id = tabs.create_tab();
+                        match render_new_tab_frame(options) {
+                            Ok(frame) => {
+                                initial_frames.insert(tab_id, frame);
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "Failed to render new tab page");
+                            }
+                        }
                         publish_tab_strip(&backend, window_id, &tabs);
-                        clear_active_page(&backend, window_id);
+                        publish_active_result(
+                            &backend,
+                            window_id,
+                            options,
+                            &results,
+                            &initial_frames,
+                            tab_id,
+                        );
                     }
                     NavigationCommand::SelectTab { tab_index } => {
                         if let Some(tab) = tabs.tabs().get(tab_index) {
