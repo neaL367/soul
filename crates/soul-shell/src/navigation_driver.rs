@@ -145,12 +145,19 @@ impl NavigationDriver {
                         let Some(active_id) = tabs.active_tab_id() else {
                             continue;
                         };
+                        let should_render = {
+                            let Some(tab) = tabs.get_tab_mut(active_id) else {
+                                continue;
+                            };
+                            start_command(&mut tab.controller, command)
+                        };
+                        if !should_render {
+                            continue;
+                        }
+                        publish_tab_strip(&backend, window_id, &tabs);
                         let Some(tab) = tabs.get_tab_mut(active_id) else {
                             continue;
                         };
-                        if !start_command(&mut tab.controller, command) {
-                            continue;
-                        }
                         let result = runtime
                             .block_on(render_active_navigation(&mut tab.controller, options));
                         match result {
@@ -158,6 +165,7 @@ impl NavigationDriver {
                                 tab.scroll = PageScrollState::default();
                                 tab.scroll
                                     .set_bounds(result.document_height, options.height as f32);
+                                tab.title.clone_from(&result.title);
                                 results.insert(active_id, result);
                                 publish_tab_strip(&backend, window_id, &tabs);
                                 publish_active_result(

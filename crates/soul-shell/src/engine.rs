@@ -72,6 +72,8 @@ pub struct RenderResult {
     pub navigation_id: NavigationId,
     /// Final page URL.
     pub url: Url,
+    /// Document title used by browser chrome.
+    pub title: String,
     /// HTTP status code of the response.
     pub status_code: u16,
     /// Rasterized page pixels.
@@ -207,6 +209,7 @@ pub async fn render_active_navigation(
     let parse_start = Instant::now();
     let (doc, style_sources) = parse_html_with_styles(&html);
     timings.parse = parse_start.elapsed();
+    let title = document_title(&doc, &url);
 
     // Stage 3: fetch + decode `<img>` subresources (CORS/mixed content enforced).
     let images_start = Instant::now();
@@ -246,6 +249,7 @@ pub async fn render_active_navigation(
     Ok(RenderResult {
         navigation_id,
         url,
+        title,
         status_code: response.status_code,
         pixel_buffer,
         document_buffer,
@@ -299,6 +303,17 @@ pub fn render_html_to_buffer(
     let _ = controller.handle_loaded(id);
 
     Ok((pixel_buffer, a11y_tree, timings))
+}
+
+fn document_title(doc: &Document, url: &Url) -> String {
+    let title = doc
+        .get_elements_by_tag_name("title")
+        .first()
+        .map(|id| doc.text_content(*id).trim().to_string())
+        .filter(|title| !title.is_empty());
+    title
+        .or_else(|| url.host_str().map(str::to_string))
+        .unwrap_or_else(|| "New Tab".to_string())
 }
 
 /// Fetches and decodes every `<img>` subresource through the security-checked

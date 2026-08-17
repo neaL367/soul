@@ -114,6 +114,7 @@ async fn test_end_to_end_navigation_and_render() {
 
     assert_eq!(result.status_code, 200);
     assert_eq!(result.url, url);
+    assert_eq!(result.title, "Fixture");
     assert!(result.navigation_id.0 > 0);
     assert!(has_visible_pixels(&result.pixel_buffer));
     assert!(
