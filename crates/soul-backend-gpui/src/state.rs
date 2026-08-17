@@ -136,6 +136,23 @@ impl SoulBackendHandle {
         window.tab_strip = tab_strip;
         Ok(())
     }
+
+    /// Clears the current page frame and interaction state for a blank tab.
+    #[allow(clippy::significant_drop_tightening)]
+    pub fn clear_page_state(&self, window_id: WindowId) -> Result<(), SoulError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| SoulError::Other("backend state lock poisoned".to_string()))?;
+        let window = state
+            .windows
+            .get_mut(&window_id)
+            .ok_or(SoulError::WindowNotFound(window_id))?;
+        window.frame = None;
+        window.hit_test_map = HitTestMap::default();
+        window.page_scroll_y = 0.0;
+        Ok(())
+    }
 }
 
 /// Converts an engine software frame into a GPU-resident GPUI image.

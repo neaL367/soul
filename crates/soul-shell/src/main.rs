@@ -98,6 +98,13 @@ fn main() -> Result<()> {
             SoulEvent::NavigateBack { .. } => Some(NavigationCommand::Back),
             SoulEvent::NavigateForward { .. } => Some(NavigationCommand::Forward),
             SoulEvent::Reload { .. } => Some(NavigationCommand::Reload),
+            SoulEvent::NewTabRequested { .. } => Some(NavigationCommand::NewTab),
+            SoulEvent::TabSelected { tab_index, .. } => {
+                Some(NavigationCommand::SelectTab { tab_index })
+            }
+            SoulEvent::TabCloseRequested { tab_index, .. } => {
+                Some(NavigationCommand::CloseTab { tab_index })
+            }
             SoulEvent::InputRouted {
                 event: InputEvent::Wheel(wheel),
                 ..

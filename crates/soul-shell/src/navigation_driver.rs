@@ -2,8 +2,9 @@
 
 use crate::engine::{RenderOptions, RenderResult, render_active_navigation};
 use soul_backend_gpui::SoulBackendHandle;
-use soul_core::{NavigationController, PageScrollState};
-use soul_ui::{SoulError, ViewportFrame, WindowId};
+use soul_core::{NavigationController, PageScrollState, TabId, TabManager};
+use soul_ui::{SoulError, TabStripModel, ViewportFrame, WindowId};
+use std::collections::HashMap;
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 use tokio::runtime::Runtime;
@@ -24,6 +25,18 @@ pub enum NavigationCommand {
         /// Vertical document-space delta in logical pixels.
         delta_y: f32,
     },
+    /// Open a new blank tab and make it active.
+    NewTab,
+    /// Select a tab by its current tab-strip index.
+    SelectTab {
+        /// Zero-based tab-strip index.
+        tab_index: usize,
+    },
+    /// Close a tab by its current tab-strip index.
+    CloseTab {
+        /// Zero-based tab-strip index.
+        tab_index: usize,
+    },
 }
 
 /// Handle for sending navigation commands to one controller-owning worker.
@@ -43,35 +56,88 @@ impl NavigationDriver {
                 tracing::error!("Failed to create navigation runtime");
                 return;
             };
-            let mut controller = NavigationController::new();
-            let mut active_result: Option<RenderResult> = None;
-            let mut scroll = PageScrollState::default();
+            let mut tabs = TabManager::new();
+            tabs.create_tab();
+            let mut results: HashMap<TabId, RenderResult> = HashMap::new();
+            publish_tab_strip(&backend, window_id, &tabs);
 
             while let Ok(command) = receiver.recv() {
-                if let NavigationCommand::Scroll { delta_y } = command {
-                    if let Some(result) = active_result.as_mut() {
-                        scroll.set_bounds(result.document_height, options.height as f32);
-                        scroll.scroll_by(delta_y);
+                match command {
+                    NavigationCommand::NewTab => {
+                        tabs.create_tab();
+                        publish_tab_strip(&backend, window_id, &tabs);
+                        clear_active_page(&backend, window_id);
+                    }
+                    NavigationCommand::SelectTab { tab_index } => {
+                        if let Some(tab) = tabs.tabs().get(tab_index) {
+                            let tab_id = tab.id;
+                            if tabs.select_tab(tab_id) {
+                                publish_tab_strip(&backend, window_id, &tabs);
+                                publish_active_result(
+                                    &backend, window_id, options, &results, tab_id,
+                                );
+                            }
+                        }
+                    }
+                    NavigationCommand::CloseTab { tab_index } => {
+                        if let Some(tab) = tabs.tabs().get(tab_index) {
+                            let closed_id = tab.id;
+                            if tabs.close_tab(closed_id) {
+                                results.remove(&closed_id);
+                                publish_tab_strip(&backend, window_id, &tabs);
+                                if let Some(active_id) = tabs.active_tab_id() {
+                                    publish_active_result(
+                                        &backend, window_id, options, &results, active_id,
+                                    );
+                                } else {
+                                    clear_active_page(&backend, window_id);
+                                }
+                            }
+                        }
+                    }
+                    NavigationCommand::Scroll { delta_y } => {
+                        let Some(active_id) = tabs.active_tab_id() else {
+                            continue;
+                        };
+                        let Some(result) = results.get_mut(&active_id) else {
+                            continue;
+                        };
+                        let Some(tab) = tabs.get_tab_mut(active_id) else {
+                            continue;
+                        };
+                        tab.scroll
+                            .set_bounds(result.document_height, options.height as f32);
+                        tab.scroll.scroll_by(delta_y);
                         result.scroll_by(delta_y, options.height);
                         publish_result(&backend, window_id, options, result);
                     }
-                    continue;
-                }
-                if !start_command(&mut controller, command) {
-                    continue;
-                }
-                let result = runtime.block_on(render_active_navigation(&mut controller, options));
-                match result {
-                    Ok(result) => {
-                        scroll = PageScrollState::default();
-                        scroll.set_bounds(result.document_height, options.height as f32);
-                        active_result = Some(result);
-                        if let Some(result) = active_result.as_ref() {
-                            publish_result(&backend, window_id, options, result);
+                    command => {
+                        let Some(active_id) = tabs.active_tab_id() else {
+                            continue;
+                        };
+                        let Some(tab) = tabs.get_tab_mut(active_id) else {
+                            continue;
+                        };
+                        if !start_command(&mut tab.controller, command) {
+                            continue;
                         }
-                    }
-                    Err(error) => {
-                        tracing::warn!(%error, "Navigation command failed");
+                        let result = runtime
+                            .block_on(render_active_navigation(&mut tab.controller, options));
+                        match result {
+                            Ok(result) => {
+                                tab.scroll = PageScrollState::default();
+                                tab.scroll
+                                    .set_bounds(result.document_height, options.height as f32);
+                                results.insert(active_id, result);
+                                publish_tab_strip(&backend, window_id, &tabs);
+                                publish_active_result(
+                                    &backend, window_id, options, &results, active_id,
+                                );
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "Navigation command failed");
+                            }
+                        }
                     }
                 }
             }
@@ -115,6 +181,42 @@ fn publish_result(
     }
 }
 
+fn publish_active_result(
+    backend: &SoulBackendHandle,
+    window_id: WindowId,
+    options: RenderOptions,
+    results: &HashMap<TabId, RenderResult>,
+    tab_id: TabId,
+) {
+    if let Some(result) = results.get(&tab_id) {
+        publish_result(backend, window_id, options, result);
+    } else {
+        clear_active_page(backend, window_id);
+    }
+}
+
+fn clear_active_page(backend: &SoulBackendHandle, window_id: WindowId) {
+    if let Err(error) = backend.clear_page_state(window_id) {
+        log_backend_error(&error);
+    }
+}
+
+fn publish_tab_strip(backend: &SoulBackendHandle, window_id: WindowId, tabs: &TabManager) {
+    let active_id = tabs.active_tab_id();
+    let mut strip = TabStripModel::new();
+    for tab in tabs.tabs() {
+        strip.add_tab(tab.id, tab.title.clone(), Some(tab.id) == active_id);
+        if let Some(item) = strip.tabs().last()
+            && tab.controller.state().is_loading()
+        {
+            strip.set_loading(item.id, true);
+        }
+    }
+    if let Err(error) = backend.update_tab_strip(window_id, strip) {
+        log_backend_error(&error);
+    }
+}
+
 fn start_command(controller: &mut NavigationController, command: NavigationCommand) -> bool {
     match command {
         NavigationCommand::Navigate(input) => match controller.navigate(&input) {
@@ -127,7 +229,10 @@ fn start_command(controller: &mut NavigationController, command: NavigationComma
         NavigationCommand::Back => controller.go_back().is_some(),
         NavigationCommand::Forward => controller.go_forward().is_some(),
         NavigationCommand::Reload => controller.reload().is_some(),
-        NavigationCommand::Scroll { .. } => false,
+        NavigationCommand::Scroll { .. }
+        | NavigationCommand::NewTab
+        | NavigationCommand::SelectTab { .. }
+        | NavigationCommand::CloseTab { .. } => false,
     }
 }
 
