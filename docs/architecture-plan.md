@@ -570,7 +570,7 @@ browser/
 ├── resources/                    # default icons, built-in error pages, default stylesheet (UA stylesheet)
 ├── tests/                        # workspace-level integration + web-platform-test harness
 ├── benchmarks/                   # criterion benches: layout, paint, parse
-└── docs/                         # this document + ADRs (see §26) + per-crate design notes
+└── docs/                         # this document + ADRs (see §30) + per-crate design notes
 ```
 
 **Dependency direction** (no cycles, enforced by workspace lint or CI check): `soul-shell` → `soul-backend-gpui` → `soul-ui` (trait only) / `soul-core` → `ipc` → {`html`, `css`, `dom`, `layout`, `javascript`, `networking`, `storage`, `compositor`} → {`gpu`, `text-shaping`, `raster`, `image-decode`, `media`, `platform-windows`} → `common`. `dom`, `css`, and `layout` deliberately do not depend on `networking` or `storage` — they operate on bytes/values already fetched, keeping them unit-testable without any IO. **`gpui` itself appears only in `soul-backend-gpui`'s `Cargo.toml` — no other crate in the workspace, including `soul-core` and `compositor`, depends on it directly** (§9 amendment); this is the concrete enforcement mechanism behind the trait-boundary decision, checkable in CI via `cargo metadata`.
