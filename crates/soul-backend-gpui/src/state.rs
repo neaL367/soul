@@ -2,7 +2,9 @@
 
 use gpui::RenderImage;
 use image::{Frame as ImageFrame, RgbaImage};
-use soul_ui::{HitTestMap, SoulError, SoulEvent, ViewportFrame, WindowId, WindowSpec};
+use soul_ui::{
+    HitTestMap, SoulError, SoulEvent, TabStripModel, ViewportFrame, WindowId, WindowSpec,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -27,6 +29,8 @@ pub struct WindowSharedState {
     pub hit_test_map: HitTestMap,
     /// Current document-space page scroll offset.
     pub page_scroll_y: f32,
+    /// Backend-neutral tab-strip snapshot rendered by the GPUI chrome.
+    pub tab_strip: TabStripModel,
 }
 
 /// Backend-wide state shared with every live view.
@@ -113,6 +117,25 @@ impl SoulBackendHandle {
         window.page_scroll_y = page_scroll_y.max(0.0);
         Ok(())
     }
+
+    /// Replaces the tab-strip snapshot shown by a live window.
+    #[allow(clippy::significant_drop_tightening)]
+    pub fn update_tab_strip(
+        &self,
+        window_id: WindowId,
+        tab_strip: TabStripModel,
+    ) -> Result<(), SoulError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| SoulError::Other("backend state lock poisoned".to_string()))?;
+        let window = state
+            .windows
+            .get_mut(&window_id)
+            .ok_or(SoulError::WindowNotFound(window_id))?;
+        window.tab_strip = tab_strip;
+        Ok(())
+    }
 }
 
 /// Converts an engine software frame into a GPU-resident GPUI image.
@@ -159,5 +182,12 @@ pub fn window_state(spec: WindowSpec) -> WindowSharedState {
         frame: None,
         hit_test_map: HitTestMap::default(),
         page_scroll_y: 0.0,
+        tab_strip: initial_tab_strip(),
     }
+}
+
+fn initial_tab_strip() -> TabStripModel {
+    let mut tabs = TabStripModel::new();
+    tabs.add_tab(soul_ui::TabId(1), "New Tab".to_string(), true);
+    tabs
 }

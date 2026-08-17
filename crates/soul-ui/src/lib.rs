@@ -22,5 +22,6 @@ pub use input::{
 pub use input_router::InputRouter;
 pub use omnibox::{OmniboxEngine, OmniboxModel, OmniboxSuggestion, OmniboxSuggestionType};
 pub use soul::{SoulAction, SoulModel};
+pub use soul_core::TabId;
 pub use tab_strip::{TabItem, TabStripModel};
 pub use toolbar::ToolbarModel;
