@@ -106,6 +106,9 @@ fn main() -> Result<()> {
             SoulEvent::TabCloseRequested { tab_index, .. } => {
                 Some(NavigationCommand::CloseTab { tab_index })
             }
+            SoulEvent::WindowResized { width, height, .. } => {
+                Some(NavigationCommand::Resize { width, height })
+            }
             SoulEvent::InputRouted {
                 event: InputEvent::Wheel(wheel),
                 ..

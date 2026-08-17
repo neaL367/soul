@@ -26,6 +26,13 @@ pub enum NavigationCommand {
         /// Vertical document-space delta in logical pixels.
         delta_y: f32,
     },
+    /// Resize the active viewport dimensions.
+    Resize {
+        /// New window/viewport width.
+        width: u32,
+        /// New window/viewport height.
+        height: u32,
+    },
     /// Open a new blank tab and make it active.
     NewTab,
     /// Select a tab by its current tab-strip index.
@@ -54,7 +61,7 @@ impl NavigationDriver {
     pub fn spawn(
         backend: SoulBackendHandle,
         window_id: WindowId,
-        options: RenderOptions,
+        mut options: RenderOptions,
         initial_frame: Option<ViewportFrame>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel();
@@ -68,6 +75,8 @@ impl NavigationDriver {
             let mut results: HashMap<TabId, RenderResult> = HashMap::new();
             let mut initial_frames = HashMap::new();
             if let Some(frame) = initial_frame {
+                initial_frames.insert(TabId(1), frame);
+            } else if let Ok(frame) = render_new_tab_frame(options) {
                 initial_frames.insert(TabId(1), frame);
             }
             publish_tab_strip(&backend, window_id, &tabs);
@@ -156,6 +165,34 @@ impl NavigationDriver {
                         tab.scroll.scroll_by(delta_y);
                         result.scroll_by(delta_y, options.height);
                         publish_result(&backend, window_id, options, result);
+                    }
+                    NavigationCommand::Resize { width, height } => {
+                        options.width = width;
+                        options.height = height;
+                        let Some(active_id) = tabs.active_tab_id() else {
+                            continue;
+                        };
+                        if let Some(result) = results.get_mut(&active_id) {
+                            if let Some(tab) = tabs.get_tab_mut(active_id) {
+                                tab.scroll
+                                    .set_bounds(result.document_height, options.height as f32);
+                            }
+                            result.scroll_by(0.0, options.height);
+                            publish_result(&backend, window_id, options, result);
+                        } else if let std::collections::hash_map::Entry::Occupied(mut entry) =
+                            initial_frames.entry(active_id)
+                            && let Ok(frame) = render_new_tab_frame(options)
+                        {
+                            entry.insert(frame);
+                            publish_active_result(
+                                &backend,
+                                window_id,
+                                options,
+                                &results,
+                                &initial_frames,
+                                active_id,
+                            );
+                        }
                     }
                     command => {
                         let Some(active_id) = tabs.active_tab_id() else {
@@ -296,6 +333,7 @@ fn start_command(controller: &mut NavigationController, command: NavigationComma
         NavigationCommand::Forward => controller.go_forward().is_some(),
         NavigationCommand::Reload => controller.reload().is_some(),
         NavigationCommand::Scroll { .. }
+        | NavigationCommand::Resize { .. }
         | NavigationCommand::NewTab
         | NavigationCommand::SelectTab { .. }
         | NavigationCommand::CloseTab { .. } => false,

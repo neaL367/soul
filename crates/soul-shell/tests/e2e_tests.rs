@@ -6,8 +6,7 @@ use soul_shell::engine::{
     render_html_to_buffer,
 };
 use soul_shell::local_page::render_new_tab_frame;
-use soul_ui::HitTestTarget;
-use soul_ui::ViewportFrame;
+use soul_ui::{HitTestTarget, SoulBackend, ViewportFrame};
 use std::fmt::Write as _;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -89,6 +88,136 @@ async fn test_inline_script_mutation_reaches_rendered_accessibility_tree() {
     );
 
     let _ = server_handle.await;
+}
+
+/// Inline scripts can use localStorage, sessionStorage, and `fetch()` to mutate the DOM.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_inline_script_web_storage_and_fetch() {
+    let data_json = r#"{"msg":"from_fetch"}"#;
+    let page = r#"<!DOCTYPE html>
+    <html><body>
+        <h1 id="status">Initial</h1>
+        <script>
+            localStorage.setItem("user", "Alice");
+            sessionStorage.setItem("session", "Active");
+            let u = localStorage.getItem("user");
+            let s = sessionStorage.getItem("session");
+            fetch("/data.json")
+                .then(res => res.text())
+                .then(text => {
+                    document.getElementById("status").setTextContent(u + ":" + s + ":" + text);
+                });
+        </script>
+    </body></html>"#;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let page_clone = page.to_string();
+
+    let server_handle = tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let mut buf = [0u8; 4096];
+            let n = socket.read(&mut buf).await.unwrap_or(0);
+            let req_str = String::from_utf8_lossy(&buf[..n]);
+
+            let response = if req_str.contains("GET /data.json ") {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    data_json.len(),
+                    data_json
+                )
+            } else {
+                http_response(&page_clone)
+            };
+            let _ = socket.write_all(response.as_bytes()).await;
+            let _ = socket.flush().await;
+            drop(socket);
+        }
+    });
+
+    let url = Url::parse(&format!("http://127.0.0.1:{}/app", addr.port())).unwrap();
+    let result = navigate_and_render(
+        url,
+        RenderOptions {
+            width: 320,
+            height: 240,
+        },
+    )
+    .await
+    .expect("app page should render");
+
+    let tree = result.a11y_tree.expect("a11y tree expected");
+    let mut lines = Vec::new();
+    a11y_lines(&tree, &mut lines);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("Alice:Active:{\"msg\":\"from_fetch\"}")),
+        "storage and fetch mutations were not reflected in the rendered document: {lines:?}"
+    );
+
+    server_handle.abort();
+    let _ = server_handle.await;
+}
+
+/// Window resize command updates the active viewport frame.
+#[tokio::test]
+async fn test_window_resize_command_updates_viewport() {
+    let mut backend = soul_backend_gpui::GpuiSoulBackend::new();
+    let handle = backend.shared_handle();
+    let window_id = backend
+        .open_window(soul_ui::WindowSpec {
+            width: 320,
+            height: 240,
+            ..Default::default()
+        })
+        .expect("open window");
+
+    let driver = soul_shell::navigation_driver::NavigationDriver::spawn(
+        handle.clone(),
+        window_id,
+        RenderOptions {
+            width: 320,
+            height: 240,
+        },
+        None,
+    );
+
+    let mut initial_ok = false;
+    for _ in 0..50 {
+        tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+        let state = handle.state.lock().unwrap();
+        if let Some(win) = state.windows.get(&window_id)
+            && win.frame.is_some()
+        {
+            initial_ok = true;
+            break;
+        }
+    }
+    assert!(initial_ok, "initial frame expected");
+
+    driver
+        .send(soul_shell::navigation_driver::NavigationCommand::Resize {
+            width: 640,
+            height: 480,
+        })
+        .unwrap();
+
+    let mut resized_ok = false;
+    for _ in 0..50 {
+        tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+        let state = handle.state.lock().unwrap();
+        if let Some(win) = state.windows.get(&window_id)
+            && win.frame.is_some()
+        {
+            resized_ok = true;
+            break;
+        }
+    }
+    assert!(resized_ok, "resized frame expected");
 }
 
 #[tokio::test]

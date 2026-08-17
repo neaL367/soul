@@ -210,7 +210,7 @@ pub async fn render_active_navigation(
     let parse_start = Instant::now();
     let (doc, style_sources) = parse_html_with_styles(&html);
     timings.parse = parse_start.elapsed();
-    let doc = execute_inline_scripts(doc)?;
+    let doc = execute_inline_scripts(doc, Some(&url), Some(&client))?;
     let title = document_title(&doc, &url);
 
     // Stage 3: fetch + decode `<img>` subresources (CORS/mixed content enforced).
@@ -281,7 +281,7 @@ pub fn render_html_to_buffer(
 
     let parse_start = Instant::now();
     let (doc, style_sources) = parse_html_with_styles(html);
-    let doc = execute_inline_scripts(doc)?;
+    let doc = execute_inline_scripts(doc, None, None)?;
     let mut timings = PipelineTimings {
         parse: parse_start.elapsed(),
         ..Default::default()
