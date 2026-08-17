@@ -78,6 +78,62 @@ impl ElementData {
     pub fn has_class(&self, class_name: &str) -> bool {
         self.classes.iter().any(|c| c == class_name)
     }
+
+    /// Sets the value of an attribute and syncs `id` or `class` if modified.
+    pub fn set_attribute(&mut self, name: &str, value: &str) {
+        self.attributes.insert(name.to_string(), value.to_string());
+        if name.eq_ignore_ascii_case("id") {
+            self.id = Some(value.to_string());
+        } else if name.eq_ignore_ascii_case("class") {
+            self.classes = value.split_whitespace().map(String::from).collect();
+        }
+    }
+
+    /// Removes an attribute from the element.
+    pub fn remove_attribute(&mut self, name: &str) {
+        self.attributes.remove(name);
+        if name.eq_ignore_ascii_case("id") {
+            self.id = None;
+        } else if name.eq_ignore_ascii_case("class") {
+            self.classes.clear();
+        }
+    }
+
+    /// Adds a CSS class name if not already present.
+    pub fn add_class(&mut self, class_name: &str) {
+        if !self.has_class(class_name) {
+            self.classes.push(class_name.to_string());
+            self.sync_class_attribute();
+        }
+    }
+
+    /// Removes a CSS class name if present.
+    pub fn remove_class(&mut self, class_name: &str) {
+        if let Some(idx) = self.classes.iter().position(|c| c == class_name) {
+            self.classes.remove(idx);
+            self.sync_class_attribute();
+        }
+    }
+
+    /// Toggles a CSS class name (returns `true` if added, `false` if removed).
+    pub fn toggle_class(&mut self, class_name: &str) -> bool {
+        if self.has_class(class_name) {
+            self.remove_class(class_name);
+            false
+        } else {
+            self.add_class(class_name);
+            true
+        }
+    }
+
+    fn sync_class_attribute(&mut self) {
+        if self.classes.is_empty() {
+            self.attributes.remove("class");
+        } else {
+            self.attributes
+                .insert("class".to_string(), self.classes.join(" "));
+        }
+    }
 }
 
 /// Document type declaration metadata (e.g. `<!DOCTYPE html>`).

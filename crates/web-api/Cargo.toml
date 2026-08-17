@@ -18,6 +18,7 @@ storage = { path = "../storage" }
 thiserror.workspace = true
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread"] }
 tracing.workspace = true
+url = "2.5"
 
 [dev-dependencies]
 html = { path = "../html" }

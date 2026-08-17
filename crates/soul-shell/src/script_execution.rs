@@ -58,6 +58,9 @@ pub fn execute_scripts(
     bind_web_apis(&mut runtime.context, Some(document.clone()), None, None)
         .map_err(|error| NavigationError::Other(format!("failed to bind Web APIs: {error}")))?;
 
+    let current_url_str = document_url.map_or("about:blank", Url::as_str);
+    let _ = web_api::register_window(&mut runtime.context, current_url_str);
+
     let origin =
         document_url.map_or_else(|| "null".to_string(), |u| u.origin().ascii_serialization());
 

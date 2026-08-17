@@ -73,3 +73,97 @@ fn test_set_timeout_callback_queued() {
     let count = timer_queue.borrow().len();
     assert_eq!(count, 1);
 }
+
+#[test]
+#[allow(clippy::significant_drop_tightening)]
+fn test_dom_query_selector_and_class_list_manipulation() {
+    let html = r#"<html><body>
+        <div class="box card" id="card-1">Card Content</div>
+    </body></html>"#;
+    let doc = Arc::new(Mutex::new(parse_html(html)));
+
+    let mut runtime = JsRuntime::new();
+    bind_web_apis(&mut runtime.context, Some(doc.clone()), None, None)
+        .expect("bind_web_apis failed");
+
+    let js = r"
+        const card = document.querySelector('.card');
+        card.classList.add('highlighted');
+        card.classList.remove('box');
+        const hasHighlight = card.classList.contains('highlighted');
+        const hasBox = card.classList.contains('box');
+    ";
+    runtime.eval(js).expect("eval failed");
+
+    let (has_highlight, has_no_box, has_card) = {
+        let doc_guard = doc.lock().unwrap();
+        let card_id = doc_guard.get_element_by_id("card-1").unwrap();
+        let elem = doc_guard.get_node(card_id).unwrap().as_element().unwrap();
+        (
+            elem.has_class("highlighted"),
+            !elem.has_class("box"),
+            elem.has_class("card"),
+        )
+    };
+
+    assert!(has_highlight);
+    assert!(has_no_box);
+    assert!(has_card);
+}
+
+#[test]
+#[allow(clippy::significant_drop_tightening)]
+fn test_dom_set_get_remove_attribute() {
+    let html = r#"<html><body><a id="link" href="https://example.com">Link</a></body></html>"#;
+    let doc = Arc::new(Mutex::new(parse_html(html)));
+
+    let mut runtime = JsRuntime::new();
+    bind_web_apis(&mut runtime.context, Some(doc.clone()), None, None)
+        .expect("bind_web_apis failed");
+
+    let js = r"
+        const link = document.getElementById('link');
+        const oldHref = link.getAttribute('href');
+        link.setAttribute('target', '_blank');
+        link.removeAttribute('href');
+    ";
+    runtime.eval(js).expect("eval failed");
+
+    let (target_attr, href_attr) = {
+        let doc_guard = doc.lock().unwrap();
+        let link_id = doc_guard.get_element_by_id("link").unwrap();
+        let elem = doc_guard.get_node(link_id).unwrap().as_element().unwrap();
+        (
+            elem.attr("target").map(String::from),
+            elem.attr("href").map(String::from),
+        )
+    };
+
+    assert_eq!(target_attr.as_deref(), Some("_blank"));
+    assert_eq!(href_attr, None);
+}
+
+#[test]
+fn test_window_location_and_navigator_bindings() {
+    let mut runtime = JsRuntime::new();
+    web_api::register_window(
+        &mut runtime.context,
+        "https://docs.rs/hyper/1.0.0/hyper/index.html?search=client#top",
+    )
+    .expect("register_window failed");
+
+    let href = runtime.eval("location.href").expect("eval href");
+    let origin = runtime.eval("location.origin").expect("eval origin");
+    let pathname = runtime.eval("location.pathname").expect("eval pathname");
+    let search = runtime.eval("location.search").expect("eval search");
+    let user_agent = runtime.eval("navigator.userAgent").expect("eval userAgent");
+
+    assert_eq!(
+        href.trim_matches('"'),
+        "https://docs.rs/hyper/1.0.0/hyper/index.html?search=client#top"
+    );
+    assert_eq!(origin.trim_matches('"'), "https://docs.rs");
+    assert_eq!(pathname.trim_matches('"'), "/hyper/1.0.0/hyper/index.html");
+    assert_eq!(search.trim_matches('"'), "?search=client");
+    assert!(user_agent.contains("Soul/"));
+}

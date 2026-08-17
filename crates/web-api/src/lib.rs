@@ -5,6 +5,7 @@ pub mod dom_bindings;
 pub mod fetch_binding;
 pub mod storage_binding;
 pub mod timers;
+pub mod window_bindings;
 pub mod worker;
 
 pub use console::register_console;
@@ -12,6 +13,7 @@ pub use dom_bindings::register_dom;
 pub use fetch_binding::{FetchHandler, register_fetch};
 pub use storage_binding::{register_local_storage, register_session_storage};
 pub use timers::{TimerQueue, register_timers};
+pub use window_bindings::register_window;
 pub use worker::WebWorker;
 
 use boa_engine::{Context, JsResult};
