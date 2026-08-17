@@ -23,6 +23,7 @@ pub struct PageView {
     focus_handle: FocusHandle,
     omnibox: String,
     omnibox_focused: bool,
+    last_window_metrics: Option<(u32, u32, f32)>,
     poll_task: Option<Task<()>>,
 }
 
@@ -57,6 +58,7 @@ impl PageView {
             focus_handle: cx.focus_handle(),
             omnibox: String::new(),
             omnibox_focused: false,
+            last_window_metrics: None,
             poll_task: None,
         }
     }
@@ -216,6 +218,28 @@ impl PageView {
         cx.notify();
     }
 
+    /// Emits resize/DPI changes and updates input coordinate conversion.
+    fn emit_window_metrics(&mut self, window: &Window) {
+        let bounds = window.bounds();
+        let width = u32::from(bounds.size.width).max(1);
+        let height = u32::from(bounds.size.height).max(1);
+        let scale_factor = window.scale_factor();
+        let metrics = (width, height, scale_factor);
+        if self.last_window_metrics == Some(metrics) {
+            return;
+        }
+        self.last_window_metrics = Some(metrics);
+        if let Ok(mut router) = self.input_router.lock() {
+            router.set_scale_factor(f64::from(scale_factor));
+        }
+        self.emit_event(SoulEvent::WindowResized {
+            window_id: self.window_id.0,
+            width,
+            height,
+            scale_factor,
+        });
+    }
+
     /// Starts low-frequency polling so background navigation frames reach GPUI.
     fn start_frame_poll(&mut self, cx: &Context<Self>) {
         if self.poll_task.is_some() {
@@ -271,7 +295,8 @@ impl PageView {
 }
 
 impl Render for PageView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.emit_window_metrics(window);
         self.start_frame_poll(cx);
 
         let source: ImageSource = self.current_frame().map_or_else(
