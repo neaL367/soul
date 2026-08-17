@@ -60,4 +60,12 @@ pub enum NetworkError {
     /// `Location` header could not be resolved against the request URL.
     #[error("Invalid redirect location from '{0}': {1}")]
     InvalidRedirect(String, url::ParseError),
+
+    /// Decompression failure decoding compressed HTTP response payload.
+    #[error("Decompression failed: {0}")]
+    DecompressionFailed(String),
+
+    /// Generic unexpected error.
+    #[error("Network error: {0}")]
+    Other(String),
 }

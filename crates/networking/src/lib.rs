@@ -3,6 +3,7 @@
 pub mod client;
 pub mod cors;
 pub mod csp;
+pub mod decompression;
 pub mod error;
 pub mod mixed_content;
 pub mod service;
@@ -11,6 +12,7 @@ pub mod types;
 pub use client::HttpClient;
 pub use cors::CorsEvaluator;
 pub use csp::{CspDirective, CspPolicy, CspSource};
+pub use decompression::decompress_payload;
 pub use error::NetworkError;
 pub use mixed_content::is_insecure_mixed_content;
 pub use service::NetworkService;

@@ -199,3 +199,43 @@ async fn test_http_client_redirect_loop_fails() {
 
     handle.abort();
 }
+
+#[tokio::test]
+async fn test_http1_gzip_decompression_success() {
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+    use std::io::Write;
+
+    let original_html = "<html><body><h1>Gzip Compressed Content Delivered!</h1></body></html>";
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(original_html.as_bytes()).unwrap();
+    let compressed_bytes = encoder.finish().unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let compressed_clone = compressed_bytes.clone();
+    let server_handle = tokio::spawn(async move {
+        if let Ok((mut socket, _)) = listener.accept().await {
+            let mut buf = [0u8; 2048];
+            let _ = socket.read(&mut buf).await.unwrap_or(0);
+
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                compressed_clone.len()
+            );
+            let _ = socket.write_all(header.as_bytes()).await;
+            let _ = socket.write_all(&compressed_clone).await;
+            let _ = socket.flush().await;
+        }
+    });
+
+    let client = HttpClient::default();
+    let url = Url::parse(&format!("http://127.0.0.1:{}/compressed.html", addr.port())).unwrap();
+    let response = client.fetch(&url).await.expect("fetch compressed failed");
+
+    assert_eq!(response.status_code, 200);
+    assert_eq!(response.text().unwrap(), original_html);
+
+    let _ = server_handle.await;
+}

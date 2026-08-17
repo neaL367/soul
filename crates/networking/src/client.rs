@@ -243,7 +243,8 @@ impl HttpClient {
             .header(
                 http::header::ACCEPT,
                 "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            );
+            )
+            .header(http::header::ACCEPT_ENCODING, "gzip, deflate");
 
         for (key, val) in &request.headers {
             builder = builder.header(key.as_str(), val.as_str());
@@ -275,14 +276,17 @@ impl HttpClient {
             }
         }
 
-        let body_payload = response.into_body().collect().await?.to_bytes();
+        let raw_payload = response.into_body().collect().await?.to_bytes();
+        let content_encoding = headers.get("content-encoding").map(String::as_str);
+        let decompressed_body =
+            crate::decompression::decompress_payload(&raw_payload, content_encoding)?;
 
         Ok(HttpResponse {
             url: request.url.clone(),
             status_code,
             headers,
             set_cookies,
-            body: body_payload,
+            body: decompressed_body.into(),
             mime_type,
         })
     }

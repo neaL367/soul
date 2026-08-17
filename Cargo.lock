@@ -3862,6 +3862,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "common",
+ "flate2",
  "http",
  "http-body-util",
  "hyper",
