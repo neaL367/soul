@@ -12,6 +12,13 @@ pub enum SoulEvent {
         /// Normalized input event with logical and physical coordinates.
         event: InputEvent,
     },
+    /// Page hyperlink activated by a pointer click.
+    LinkActivated {
+        /// ID of the window receiving the click.
+        window_id: u64,
+        /// Destination URL from the anchor's `href` attribute.
+        url: String,
+    },
     /// Window close requested by the user or OS.
     WindowCloseRequested {
         /// ID of the window requesting closure.

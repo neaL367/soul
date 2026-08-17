@@ -4,6 +4,7 @@
 
 pub mod backend;
 mod state;
+mod toolbar;
 mod view;
 
 pub use backend::{GpuiSoulBackend, SoulBackendHandle};

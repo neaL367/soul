@@ -2,7 +2,7 @@
 
 use gpui::RenderImage;
 use image::{Frame as ImageFrame, RgbaImage};
-use soul_ui::{SoulError, SoulEvent, ViewportFrame, WindowId, WindowSpec};
+use soul_ui::{HitTestMap, SoulError, SoulEvent, ViewportFrame, WindowId, WindowSpec};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -23,6 +23,8 @@ pub struct WindowSharedState {
     pub height: u32,
     /// Latest engine frame converted to a GPUI image.
     pub frame: Option<Arc<RenderImage>>,
+    /// Interactive page regions associated with the latest frame.
+    pub hit_test_map: HitTestMap,
 }
 
 /// Backend-wide state shared with every live view.
@@ -60,6 +62,29 @@ impl SoulBackendHandle {
             .get_mut(&window_id)
             .ok_or(SoulError::WindowNotFound(window_id))?;
         window.frame = render_image;
+        Ok(())
+    }
+
+    /// Replaces hit-test regions associated with the current frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SoulError` when target window is missing or state lock is poisoned.
+    #[allow(clippy::significant_drop_tightening)]
+    pub fn update_hit_test_map(
+        &self,
+        window_id: WindowId,
+        hit_test_map: HitTestMap,
+    ) -> Result<(), SoulError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| SoulError::Other("backend state lock poisoned".to_string()))?;
+        let window = state
+            .windows
+            .get_mut(&window_id)
+            .ok_or(SoulError::WindowNotFound(window_id))?;
+        window.hit_test_map = hit_test_map;
         Ok(())
     }
 }
@@ -106,5 +131,6 @@ pub fn window_state(spec: WindowSpec) -> WindowSharedState {
         width: spec.width,
         height: spec.height,
         frame: None,
+        hit_test_map: HitTestMap::default(),
     }
 }

@@ -3,6 +3,7 @@
 pub mod backend;
 pub mod bookmarks_bar;
 pub mod event;
+pub mod hit_test;
 pub mod input;
 pub mod input_router;
 pub mod omnibox;
@@ -13,6 +14,7 @@ pub mod toolbar;
 pub use backend::{SoulBackend, SoulConfig, SoulError, ViewportFrame, WindowId, WindowSpec};
 pub use bookmarks_bar::{BookmarkBarItem, BookmarksBarModel};
 pub use event::SoulEvent;
+pub use hit_test::{HitTestMap, HitTestRegion, HitTestTarget};
 pub use input::{
     InputEvent, KeyModifiers, KeyPhase, KeyboardEvent, LogicalPosition, LogicalSize, MouseButton,
     MouseEvent, MousePhase, PhysicalPosition, PhysicalSize, WheelDeltaMode, WheelEvent,

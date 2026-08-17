@@ -90,6 +90,7 @@ fn main() -> Result<()> {
         tracing::info!(?event, "Soul UI event");
         let command = match event {
             SoulEvent::OmniboxSubmitted { input, .. } => Some(NavigationCommand::Navigate(input)),
+            SoulEvent::LinkActivated { url, .. } => Some(NavigationCommand::Navigate(url)),
             SoulEvent::NavigateBack { .. } => Some(NavigationCommand::Back),
             SoulEvent::NavigateForward { .. } => Some(NavigationCommand::Forward),
             SoulEvent::Reload { .. } => Some(NavigationCommand::Reload),

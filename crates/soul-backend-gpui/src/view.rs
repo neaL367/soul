@@ -1,6 +1,7 @@
 //! Raw GPUI Soul window view: toolbar, omnibox, input routing, and page frame.
 
 use crate::state::{BackendSharedState, SharedEventHandler};
+use crate::toolbar::action_button;
 use gpui::{
     App, Context, FocusHandle, ImageCacheError, ImageSource, InteractiveElement, IntoElement,
     KeyDownEvent, Modifiers, MouseButton as GpuiMouseButton, MouseDownEvent, MouseMoveEvent,
@@ -8,8 +9,8 @@ use gpui::{
     ScrollWheelEvent, StatefulInteractiveElement, Styled, Task, Window, div, img, px, rgb,
 };
 use soul_ui::{
-    InputRouter, KeyModifiers, KeyPhase, MouseButton, MousePhase, PhysicalPosition, SoulEvent,
-    WheelDeltaMode, WindowId,
+    HitTestTarget, InputRouter, KeyModifiers, KeyPhase, MouseButton, MousePhase, PhysicalPosition,
+    SoulEvent, WheelDeltaMode, WindowId,
 };
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -119,16 +120,37 @@ impl PageView {
         }
     }
 
-    /// Routes GPUI mouse-up through `InputRouter`.
+    /// Routes GPUI mouse-up through `InputRouter` and activates page links.
     fn on_mouse_up(&mut self, event: &MouseUpEvent, _window: &mut Window, _cx: &mut Context<Self>) {
+        let x = f32::from(event.position.x);
+        let y = f32::from(event.position.y);
         if let Ok(mut router) = self.input_router.lock() {
             router.handle_mouse_button(
                 self.window_id,
                 Self::mouse_button(event.button),
                 MousePhase::Up,
-                PhysicalPosition::new(f64::from(event.position.x), f64::from(event.position.y)),
+                PhysicalPosition::new(f64::from(x), f64::from(y)),
             );
         }
+        // Toolbar occupies first 44 logical pixels; translate remaining clicks
+        // into page coordinates before hit-testing layout regions.
+        if y > 44.0
+            && let Some(HitTestTarget::Link(url)) = self.hit_test(x, y - 44.0)
+        {
+            self.emit_event(SoulEvent::LinkActivated {
+                window_id: self.window_id.0,
+                url,
+            });
+        }
+    }
+
+    /// Finds a page target at client coordinates.
+    fn hit_test(&self, x: f32, y: f32) -> Option<HitTestTarget> {
+        let guard = self.state.lock().ok()?;
+        guard
+            .windows
+            .get(&self.window_id)
+            .and_then(|window| window.hit_test_map.hit_test(x, y).cloned())
     }
 
     /// Routes GPUI mouse movement through `InputRouter`.
@@ -256,42 +278,6 @@ impl PageView {
             }
         }));
     }
-
-    /// Builds a raw GPUI button for Soul toolbar actions.
-    fn action_button(
-        window_id: u64,
-        event_handler: SharedEventHandler,
-        label: &'static str,
-        event: SoulEvent,
-    ) -> impl IntoElement {
-        div()
-            .px_2()
-            .py_1()
-            .rounded_sm()
-            .bg(rgb(0x0045_475a))
-            .text_color(rgb(0x00cd_d6f4))
-            .cursor_pointer()
-            .id(label)
-            .on_click(move |_, _, _| {
-                if let Ok(handler) = event_handler.lock()
-                    && let Some(handler) = handler.as_deref()
-                {
-                    let event = match event.clone() {
-                        SoulEvent::NavigateBack { .. } => SoulEvent::NavigateBack { window_id },
-                        SoulEvent::NavigateForward { .. } => {
-                            SoulEvent::NavigateForward { window_id }
-                        }
-                        SoulEvent::Reload { bypass_cache, .. } => SoulEvent::Reload {
-                            window_id,
-                            bypass_cache,
-                        },
-                        other => other,
-                    };
-                    handler(event);
-                }
-            })
-            .child(label)
-    }
 }
 
 impl Render for PageView {
@@ -334,19 +320,19 @@ impl Render for PageView {
                     .items_center()
                     .flex()
                     .bg(rgb(0x0018_1825))
-                    .child(Self::action_button(
+                    .child(action_button(
                         window_id,
                         self.event_handler.clone(),
                         "Back",
                         SoulEvent::NavigateBack { window_id },
                     ))
-                    .child(Self::action_button(
+                    .child(action_button(
                         window_id,
                         self.event_handler.clone(),
                         "Forward",
                         SoulEvent::NavigateForward { window_id },
                     ))
-                    .child(Self::action_button(
+                    .child(action_button(
                         window_id,
                         self.event_handler.clone(),
                         "Reload",

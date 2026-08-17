@@ -7,4 +7,5 @@
 
 pub mod diagnostics;
 pub mod engine;
+pub(crate) mod hit_testing;
 pub mod navigation_driver;

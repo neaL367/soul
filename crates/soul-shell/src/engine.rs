@@ -1,6 +1,7 @@
 //! Wired end-to-end pipeline: navigation state machine → HTTP fetch (CORS/mixed
 //! content enforced) → HTML parse → CSS cascade → layout → display list → raster.
 
+use crate::hit_testing::build_hit_test_map;
 use css::{CascadeResolver, Origin, parse_stylesheet};
 use dom::{Document, NodeData, NodeId};
 use html::parse_html_with_styles;
@@ -10,6 +11,7 @@ use networking::{HttpClient, HttpRequest};
 use paint::DisplayListBuilder;
 use raster::{CpuRasterizer, PixelBuffer};
 use soul_core::{NavigationController, NavigationError, NavigationId};
+use soul_ui::HitTestMap;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use url::Url;
@@ -76,6 +78,8 @@ pub struct RenderResult {
     pub pixel_buffer: PixelBuffer,
     /// Accessibility tree extracted from the laid-out page.
     pub a11y_tree: Option<A11yNode>,
+    /// Interactive page regions generated from the laid-out page.
+    pub hit_test_map: HitTestMap,
     /// Per-stage timings.
     pub timings: PipelineTimings,
 }
@@ -211,7 +215,7 @@ pub async fn render_active_navigation(
     }
 
     // Stage 5: layout, paint, raster + accessibility tree.
-    let (pixel_buffer, a11y_tree, stage_timings) =
+    let (pixel_buffer, a11y_tree, hit_test_map, stage_timings) =
         layout_paint_raster(&doc, &styles, &images, options)?;
     timings.layout = stage_timings.layout;
     timings.paint = stage_timings.paint;
@@ -229,6 +233,7 @@ pub async fn render_active_navigation(
         status_code: response.status_code,
         pixel_buffer,
         a11y_tree,
+        hit_test_map,
         timings,
     })
 }
@@ -267,7 +272,7 @@ pub fn render_html_to_buffer(
     timings.style = style_start.elapsed();
 
     let _ = controller.handle_dom_ready(id);
-    let (pixel_buffer, a11y_tree, stage_timings) =
+    let (pixel_buffer, a11y_tree, _hit_test_map, stage_timings) =
         layout_paint_raster(&doc, &styles, &HashMap::new(), options)?;
     timings.layout = stage_timings.layout;
     timings.paint = stage_timings.paint;
@@ -344,7 +349,7 @@ fn layout_paint_raster(
     styles: &HashMap<NodeId, css::ComputedStyle>,
     images: &HashMap<NodeId, DecodedImage>,
     options: RenderOptions,
-) -> Result<(PixelBuffer, Option<A11yNode>, PipelineTimings), NavigationError> {
+) -> Result<(PixelBuffer, Option<A11yNode>, HitTestMap, PipelineTimings), NavigationError> {
     let mut timings = PipelineTimings::default();
 
     let layout_start = Instant::now();
@@ -373,6 +378,7 @@ fn layout_paint_raster(
     timings.raster = raster_start.elapsed();
 
     let a11y_tree = A11yNode::from_layout_box(doc, &layout_box);
+    let hit_test_map = build_hit_test_map(doc, &layout_box);
 
-    Ok((pixel_buffer, a11y_tree, timings))
+    Ok((pixel_buffer, a11y_tree, hit_test_map, timings))
 }

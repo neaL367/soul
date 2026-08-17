@@ -5,6 +5,7 @@ use soul_shell::engine::{
     A11yRole, RenderOptions, a11y_lines, has_visible_pixels, navigate_and_render,
     render_html_to_buffer,
 };
+use soul_ui::HitTestTarget;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -40,6 +41,7 @@ const fn fixture_html() -> &'static str {
         <h1 aria-label="Main Heading">Page Title</h1>
         <p>Introductory paragraph</p>
         <button aria-label="Submit Button">Click</button>
+        <a href="/next" style="display: block;">Next</a>
         <img src="missing.png" aria-label="Hero Image">
     </body>
     </html>"#
@@ -77,6 +79,13 @@ async fn test_end_to_end_navigation_and_render() {
     assert_eq!(result.url, url);
     assert!(result.navigation_id.0 > 0);
     assert!(has_visible_pixels(&result.pixel_buffer));
+    assert!(
+        result
+            .hit_test_map
+            .regions
+            .iter()
+            .any(|region| region.target == HitTestTarget::Link("/next".to_string()))
+    );
     assert_eq!(
         (result.pixel_buffer.width, result.pixel_buffer.height),
         (640, 480)

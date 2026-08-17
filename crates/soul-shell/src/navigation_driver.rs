@@ -53,6 +53,10 @@ impl NavigationDriver {
                         };
                         if let Err(error) = backend.update_viewport(window_id, frame) {
                             log_backend_error(&error);
+                        } else if let Err(error) =
+                            backend.update_hit_test_map(window_id, result.hit_test_map)
+                        {
+                            log_backend_error(&error);
                         } else {
                             tracing::info!(url = %result.url, "Navigation frame updated");
                         }
