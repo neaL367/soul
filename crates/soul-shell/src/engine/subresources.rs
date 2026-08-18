@@ -36,7 +36,7 @@ pub(super) async fn load_subresource_images(
             .await
         {
             Ok(response) => {
-                let decoded = ImageDecoder::decode_auto(&response.body, 0, 0);
+                let decoded = ImageDecoder::decode_auto(&response.body);
                 match decoded {
                     Ok(image) => {
                         tracing::debug!(

@@ -280,7 +280,7 @@ fn draw_image(pixmap: &mut Pixmap, placement: &ImagePlacement, pixels: &[u8]) {
     let scale_x = placement.dest_width / (placement.natural_width as f32);
     let scale_y = placement.dest_height / (placement.natural_height as f32);
     let transform =
-        Transform::from_translate(placement.x, placement.y).post_scale(scale_x, scale_y);
+        Transform::from_scale(scale_x, scale_y).post_translate(placement.x, placement.y);
 
     let paint = PixmapPaint {
         opacity: placement.opacity,

@@ -83,7 +83,7 @@ pub async fn spawn_media_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
             let n = socket.read(&mut buf).await.unwrap_or(0);
             let req_str = String::from_utf8_lossy(&buf[..n]);
 
-            let response = if req_str.contains("GET /logo.png ") {
+            let response = if req_str.contains("/logo.png") {
                 format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                     logo_png.len()
