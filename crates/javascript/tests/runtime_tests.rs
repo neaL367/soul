@@ -49,3 +49,19 @@ fn test_runtime_macrotask_step() {
     assert_eq!(runtime.pending_task_count(), 0);
     assert_eq!(runtime.eval("globalThis.counter").unwrap(), "10");
 }
+
+#[test]
+fn test_runtime_run_until_idle() {
+    let mut runtime = JsRuntime::new();
+    runtime.eval("globalThis.acc = 0;").unwrap();
+    runtime.enqueue_task(|ctx| {
+        let _ = ctx.eval(Source::from_bytes(b"globalThis.acc += 1;"));
+    });
+    runtime.enqueue_task(|ctx| {
+        let _ = ctx.eval(Source::from_bytes(b"globalThis.acc += 2;"));
+    });
+    assert_eq!(runtime.pending_task_count(), 2);
+    runtime.run_until_idle().unwrap();
+    assert_eq!(runtime.pending_task_count(), 0);
+    assert_eq!(runtime.eval("globalThis.acc").unwrap(), "3");
+}
