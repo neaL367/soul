@@ -143,4 +143,116 @@ impl NetworkService {
         }
         Ok(())
     }
+
+    /// Asynchronously runs the network service over a Windows Named Pipe.
+    ///
+    /// # Errors
+    /// Returns `NetworkError` if pipe connection or transport error occurs.
+    pub async fn run_named_pipe(self, pipe_name: &str) -> Result<(), NetworkError> {
+        let mut transport = ipc::accept_named_pipe_server(pipe_name)
+            .await
+            .map_err(|e| NetworkError::TransportError(e.to_string()))?;
+
+        while let Some(msg) = transport
+            .recv()
+            .await
+            .map_err(|e| NetworkError::TransportError(e.to_string()))?
+        {
+            if let MessagePayload::BrowserToNetwork(BrowserToNetworkMsg::FetchRequest {
+                request_id,
+                url,
+                method: _,
+                headers: _,
+            }) = msg.payload
+            {
+                let client = self.client.clone();
+                let parsed_url = match Url::parse(&url) {
+                    Ok(u) => u,
+                    Err(e) => {
+                        let fail_msg = IpcMessage::new(
+                            MessageId(request_id),
+                            MessagePayload::NetworkToBrowser(
+                                NetworkToBrowserMsg::ResponseFailed {
+                                    request_id,
+                                    error: e.to_string(),
+                                },
+                            ),
+                        );
+                        transport
+                            .send(&fail_msg)
+                            .await
+                            .map_err(|e| NetworkError::TransportError(e.to_string()))?;
+                        continue;
+                    }
+                };
+
+                match client.fetch(&parsed_url).await {
+                    Ok(response) => {
+                        let headers = response
+                            .headers
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect();
+
+                        let header_msg = IpcMessage::new(
+                            MessageId(request_id),
+                            MessagePayload::NetworkToBrowser(
+                                NetworkToBrowserMsg::ResponseHeaders {
+                                    request_id,
+                                    status_code: response.status_code,
+                                    headers,
+                                },
+                            ),
+                        );
+                        transport
+                            .send(&header_msg)
+                            .await
+                            .map_err(|e| NetworkError::TransportError(e.to_string()))?;
+
+                        let chunk_msg = IpcMessage::new(
+                            MessageId(request_id),
+                            MessagePayload::NetworkToBrowser(
+                                NetworkToBrowserMsg::ResponseBodyChunk {
+                                    request_id,
+                                    data: response.body.to_vec(),
+                                },
+                            ),
+                        );
+                        transport
+                            .send(&chunk_msg)
+                            .await
+                            .map_err(|e| NetworkError::TransportError(e.to_string()))?;
+
+                        let complete_msg = IpcMessage::new(
+                            MessageId(request_id),
+                            MessagePayload::NetworkToBrowser(
+                                NetworkToBrowserMsg::ResponseComplete { request_id },
+                            ),
+                        );
+                        transport
+                            .send(&complete_msg)
+                            .await
+                            .map_err(|e| NetworkError::TransportError(e.to_string()))?;
+                    }
+                    Err(e) => {
+                        let fail_msg = IpcMessage::new(
+                            MessageId(request_id),
+                            MessagePayload::NetworkToBrowser(
+                                NetworkToBrowserMsg::ResponseFailed {
+                                    request_id,
+                                    error: e.to_string(),
+                                },
+                            ),
+                        );
+                        transport
+                            .send(&fail_msg)
+                            .await
+                            .map_err(|e| NetworkError::TransportError(e.to_string()))?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
