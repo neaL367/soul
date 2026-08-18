@@ -8,3 +8,8 @@ fn test_init_tracing_multiple_invocations() {
     init_tracing();
     init_tracing();
 }
+
+#[test]
+fn test_init_tracing_with_custom_filter() {
+    common::init_tracing_with_filter("debug");
+}
