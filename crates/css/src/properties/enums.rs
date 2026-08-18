@@ -109,3 +109,81 @@ pub enum TextAlign {
     /// Justify text lines.
     Justify,
 }
+
+/// CSS `flex-direction` property (CSS Flexbox §5.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FlexDirection {
+    /// Main axis is horizontal left-to-right.
+    #[default]
+    Row,
+    /// Main axis is horizontal right-to-left.
+    RowReverse,
+    /// Main axis is vertical top-to-bottom.
+    Column,
+    /// Main axis is vertical bottom-to-top.
+    ColumnReverse,
+}
+
+/// CSS `flex-wrap` property (CSS Flexbox §5.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FlexWrap {
+    /// All flex items on one line.
+    #[default]
+    NoWrap,
+    /// Items wrap to the next line.
+    Wrap,
+    /// Items wrap in the reverse direction.
+    WrapReverse,
+}
+
+/// CSS `justify-content` property (CSS Flexbox §8.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum JustifyContent {
+    /// Items packed at the start of the main axis.
+    #[default]
+    FlexStart,
+    /// Items packed at the end of the main axis.
+    FlexEnd,
+    /// Items centered on the main axis.
+    Center,
+    /// Space between items, no space at edges.
+    SpaceBetween,
+    /// Equal space around each item.
+    SpaceAround,
+    /// Equal space between all items and edges.
+    SpaceEvenly,
+}
+
+/// CSS `align-items` property (CSS Flexbox §8.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AlignItems {
+    /// Items stretched to fill the cross-axis height.
+    #[default]
+    Stretch,
+    /// Items aligned at the start of the cross axis.
+    FlexStart,
+    /// Items aligned at the end of the cross axis.
+    FlexEnd,
+    /// Items centered on the cross axis.
+    Center,
+    /// Items aligned to their baselines.
+    Baseline,
+}
+
+/// CSS `align-self` property — overrides `align-items` on individual flex items.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AlignSelf {
+    /// Inherit parent's `align-items`.
+    #[default]
+    Auto,
+    /// Stretch to fill the cross axis.
+    Stretch,
+    /// Align at the start of the cross axis.
+    FlexStart,
+    /// Align at the end of the cross axis.
+    FlexEnd,
+    /// Center on the cross axis.
+    Center,
+    /// Align to baseline.
+    Baseline,
+}

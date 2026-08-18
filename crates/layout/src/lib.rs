@@ -3,11 +3,13 @@
 pub mod a11y;
 pub mod block;
 pub mod box_tree;
+pub mod flex;
 pub mod geometry;
 pub mod inline;
 
 pub use a11y::{A11yNode, A11yRole};
 pub use block::layout_block;
 pub use box_tree::{BoxType, LayoutBox, build_box_tree, build_box_tree_with_intrinsics};
+pub use flex::{FlexResult, layout_flex};
 pub use geometry::{Dimensions, EdgeSizes, IntrinsicSize, Rect};
 pub use inline::{InlineFragment, LineBox, layout_inline_context};

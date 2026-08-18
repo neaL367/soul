@@ -9,8 +9,8 @@ pub mod ua;
 pub use cascade::CascadeResolver;
 pub use parser::parse_stylesheet;
 pub use properties::{
-    BoxSizing, Color, ComputedStyle, Display, FontStyle, FontWeight, Length, Position, TextAlign,
-    TextDecoration,
+    AlignItems, AlignSelf, BoxSizing, Color, ComputedStyle, Display, FlexDirection, FlexWrap,
+    FontStyle, FontWeight, JustifyContent, Length, Position, TextAlign, TextDecoration,
 };
 pub use rule::{
     Combinator, Declaration, Origin, Rule, Selector, SimpleSelector, Specificity, StyleSheet,

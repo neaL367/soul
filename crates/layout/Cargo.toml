@@ -12,6 +12,7 @@ workspace = true
 common = { path = "../common" }
 css = { path = "../css" }
 dom = { path = "../dom" }
+taffy = "0.13"
 text-shaping = { path = "../text-shaping" }
 thiserror.workspace = true
 tracing.workspace = true

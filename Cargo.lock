@@ -3380,6 +3380,7 @@ dependencies = [
  "css",
  "dom",
  "html",
+ "taffy",
  "text-shaping",
  "thiserror 2.0.20",
  "tracing",

@@ -5,7 +5,8 @@ pub mod enums;
 
 pub use color::Color;
 pub use enums::{
-    BoxSizing, Display, FontStyle, FontWeight, Length, Position, TextAlign, TextDecoration,
+    AlignItems, AlignSelf, BoxSizing, Display, FlexDirection, FlexWrap, FontStyle, FontWeight,
+    JustifyContent, Length, Position, TextAlign, TextDecoration,
 };
 
 /// Fully resolved computed styles for a single DOM element.
@@ -83,6 +84,23 @@ pub struct ComputedStyle {
     pub height: Length,
     /// Stacking order z-index.
     pub z_index: Option<i32>,
+    // ── Flex / Grid ──────────────────────────────────────────────────────────
+    /// Main-axis direction for flex containers.
+    pub flex_direction: FlexDirection,
+    /// Wrapping behaviour for flex containers.
+    pub flex_wrap: FlexWrap,
+    /// Main-axis alignment for flex containers.
+    pub justify_content: JustifyContent,
+    /// Cross-axis alignment for flex containers (applies to children).
+    pub align_items: AlignItems,
+    /// Cross-axis self-alignment override for flex items.
+    pub align_self: AlignSelf,
+    /// Flex grow factor for flex items.
+    pub flex_grow: f32,
+    /// Flex shrink factor for flex items.
+    pub flex_shrink: f32,
+    /// Flex basis: the initial main-size before flex adjustment.
+    pub flex_basis: Length,
 }
 
 impl Default for ComputedStyle {
@@ -132,6 +150,14 @@ impl ComputedStyle {
             width: Length::Auto,
             height: Length::Auto,
             z_index: None,
+            flex_direction: FlexDirection::Row,
+            flex_wrap: FlexWrap::NoWrap,
+            justify_content: JustifyContent::FlexStart,
+            align_items: AlignItems::Stretch,
+            align_self: AlignSelf::Auto,
+            flex_grow: 0.0,
+            flex_shrink: 1.0,
+            flex_basis: Length::Auto,
         }
     }
 
