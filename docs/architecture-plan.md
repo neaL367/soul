@@ -964,7 +964,7 @@ Objective: each window's renderer runs in its own, reduced-privilege process. Co
 Objective: Workers, IndexedDB, richer `fetch`. Components: `javascript`, `web-api`, `storage`. Depends on: M16. Tasks: per-Worker `boa` VM instances + `postMessage`, IndexedDB SQLite-backed implementation. Tests: Worker message-passing tests, IndexedDB transaction/versioning tests. DoD: a page can use a Worker and IndexedDB for real work. Risks: IndexedDB spec surface is larger than it looks. NOT yet: SharedArrayBuffer/Atomics, Service Workers.
 
 **M18 — Media**
-**Status: Simulated.** `image-decode` (image crate + resvg/usvg) real; `Canvas2DContext` (tiny-skia) real; `MediaPipeline` is a playback state machine only — no Media Foundation bindings, no audio/video decode.
+**Status: Partial.** `image-decode` (image crate + resvg/usvg: PNG, JPEG, WebP, GIF, ICO, BMP, multi-frame animation sequence decoding, automatic format sniffing, SVG rasterization) real; `Canvas2DContext` (tiny-skia) real; `MediaPipeline` is a playback state machine only — no Media Foundation bindings, no audio/video decode.
 Objective: `<audio>`/`<video>` playback, `<canvas>` 2D. Components: `media`, `image-decode`. Depends on: M17. Tasks: Media Foundation playback pipeline (reuses Aura-project MF experience), Canvas 2D context implementation against compositor primitives. Tests: playback smoke tests, canvas-draw fixture tests. DoD: common video formats play; basic canvas drawing works. Risks: codec/container edge cases are endless — scope to common formats only. NOT yet: MSE, WebGL/WebGPU canvas.
 
 **M19 — Developer Tools**
