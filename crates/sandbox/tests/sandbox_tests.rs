@@ -45,3 +45,17 @@ fn test_job_object_accounting_query() {
     assert_eq!(stats.active_processes, 0);
     assert_eq!(stats.total_processes, 0);
 }
+
+#[test]
+fn test_process_launcher_sandboxed_execution() {
+    let profile = SandboxProfile::for_kind(sandbox::SandboxKind::Utility);
+    let mut child = sandbox::ProcessLauncher::spawn_sandboxed(
+        std::path::Path::new("cmd.exe"),
+        &["/C", "echo sandboxed_run"],
+        &profile,
+    )
+    .expect("spawn sandboxed process");
+
+    let status = child.wait().expect("wait for sandboxed child");
+    assert!(status.success());
+}
