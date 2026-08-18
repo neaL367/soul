@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 common = { path = "../common" }
+platform-windows = { path = "../platform-windows" }
 rusqlite = { version = "0.31", features = ["bundled"] }
 thiserror.workspace = true
 tracing.workspace = true

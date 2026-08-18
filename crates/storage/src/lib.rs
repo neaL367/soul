@@ -3,6 +3,7 @@
 pub mod bookmarks;
 pub mod cookies;
 pub mod db;
+pub mod dpapi_vault;
 pub mod error;
 pub mod history;
 pub mod http_cache;
@@ -12,6 +13,7 @@ pub mod web_storage;
 pub use bookmarks::{BookmarkEntry, BookmarkStore};
 pub use cookies::{Cookie, CookieJar};
 pub use db::StorageDatabase;
+pub use dpapi_vault::DpapiVault;
 pub use error::StorageError;
 pub use history::{HistoryEntry, HistoryStore};
 pub use http_cache::{CacheEntry, HttpCacheStore};

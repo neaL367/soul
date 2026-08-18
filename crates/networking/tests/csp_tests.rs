@@ -33,3 +33,28 @@ fn test_csp_self_origin_and_wildcard() {
     let connect_evil = Url::parse("https://api.evil.com/exfiltrate").unwrap();
     assert!(!policy.allows(CspDirective::ConnectSrc, &connect_evil, &doc_origin));
 }
+
+#[test]
+fn test_csp_nonce_and_violation_reporting() {
+    let raw_policy = "script-src 'self' 'nonce-rAnd0m123'; style-src 'self'";
+    let policy = CspPolicy::parse(raw_policy);
+    let doc_origin = Url::parse("https://example.com/index.html").unwrap();
+
+    // Nonce verification
+    assert!(policy.allows_nonce(CspDirective::ScriptSrc, "rAnd0m123"));
+    assert!(!policy.allows_nonce(CspDirective::ScriptSrc, "wrong_nonce"));
+
+    // Violation report generation
+    let blocked_url = Url::parse("https://evil.com/malicious.js").unwrap();
+    let report = policy.create_violation_report(
+        CspDirective::ScriptSrc,
+        &blocked_url,
+        &doc_origin,
+        raw_policy,
+    );
+
+    assert_eq!(report.violated_directive, "script-src");
+    assert_eq!(report.blocked_uri, "https://evil.com/malicious.js");
+    assert_eq!(report.document_uri, "https://example.com/index.html");
+    assert_eq!(report.original_policy, raw_policy);
+}

@@ -20,4 +20,12 @@ pub enum StorageError {
     /// Mutex lock contention or poisoning.
     #[error("Database lock error: {0}")]
     LockError(String),
+
+    /// I/O storage or file system error.
+    #[error("I/O storage error: {0}")]
+    Io(#[from] std::io::Error),
+
+    /// DPAPI or cryptographic encryption error.
+    #[error("Encryption error: {0}")]
+    Encryption(String),
 }

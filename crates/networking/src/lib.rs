@@ -12,7 +12,7 @@ pub mod types;
 
 pub use client::HttpClient;
 pub use cors::CorsEvaluator;
-pub use csp::{CspDirective, CspPolicy, CspSource};
+pub use csp::{CspDirective, CspPolicy, CspSource, CspViolationReport};
 pub use decompression::decompress_payload;
 pub use dns::DnsResolver;
 pub use error::NetworkError;
