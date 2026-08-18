@@ -6,6 +6,7 @@ use super::publisher::{
 use super::types::{NavigationCommand, NavigationDriver};
 use crate::engine::{RenderOptions, RenderResult, render_active_navigation};
 use crate::local_page::render_new_tab_frame;
+use networking::NetworkClient;
 use soul_backend_gpui::SoulBackendHandle;
 use soul_core::{NavigationController, PageScrollState, TabId, TabManager};
 use soul_ui::{ViewportFrame, WindowId};
@@ -30,6 +31,11 @@ impl NavigationDriver {
                 tracing::error!("Failed to create navigation runtime");
                 return;
             };
+            // The live browser routes all network traffic through the IPC contract
+            // (in-process transport); the named-pipe transport is the proven
+            // cross-process swap, so the M15 network-process split stays a
+            // transport change rather than a rewrite (ADR-2/ADR-5).
+            let network_client = runtime.block_on(NetworkClient::ipc_in_process());
             let mut tabs = TabManager::new();
             tabs.create_tab();
             let mut results: HashMap<TabId, RenderResult> = HashMap::new();
@@ -171,8 +177,11 @@ impl NavigationDriver {
                         let Some(tab) = tabs.get_tab_mut(active_id) else {
                             continue;
                         };
-                        let result = runtime
-                            .block_on(render_active_navigation(&mut tab.controller, options));
+                        let result = runtime.block_on(render_active_navigation(
+                            &mut tab.controller,
+                            &network_client,
+                            options,
+                        ));
                         match result {
                             Ok(result) => {
                                 tab.scroll = PageScrollState::default();

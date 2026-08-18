@@ -7,15 +7,17 @@ pub mod decompression;
 pub mod dns;
 pub mod error;
 pub mod mixed_content;
+pub mod network_client;
 pub mod service;
 pub mod types;
 
-pub use client::HttpClient;
+pub use client::{HttpClient, HttpClientConfig};
 pub use cors::CorsEvaluator;
 pub use csp::{CspDirective, CspPolicy, CspSource, CspViolationReport};
 pub use decompression::decompress_payload;
 pub use dns::DnsResolver;
 pub use error::NetworkError;
 pub use mixed_content::is_insecure_mixed_content;
+pub use network_client::{NetworkClient, NetworkClientConfig};
 pub use service::NetworkService;
 pub use types::{HttpRequest, HttpResponse};

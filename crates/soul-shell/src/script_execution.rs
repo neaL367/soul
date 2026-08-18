@@ -2,7 +2,7 @@
 
 use dom::{Document, NodeId};
 use javascript::JsRuntime;
-use networking::{HttpClient, HttpRequest};
+use networking::{HttpRequest, NetworkClient};
 use soul_core::NavigationError;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -14,7 +14,7 @@ use web_api::{
 };
 
 /// Creates a rich fetch callback handler for script execution in the shell.
-fn create_shell_fetch_handler(client: HttpClient, doc_url: Url) -> RichFetchHandler {
+fn create_shell_fetch_handler(client: NetworkClient, doc_url: Url) -> RichFetchHandler {
     Arc::new(move |req: &FetchRequest| {
         let target_url = doc_url.join(&req.url).map_err(|e| e.to_string())?;
         let method = match req.method.to_ascii_uppercase().as_str() {
@@ -85,7 +85,7 @@ fn create_shell_fetch_handler(client: HttpClient, doc_url: Url) -> RichFetchHand
 pub fn execute_inline_scripts(
     document: Document,
     document_url: Option<&Url>,
-    client: Option<&HttpClient>,
+    client: Option<&NetworkClient>,
 ) -> Result<Document, NavigationError> {
     execute_scripts(document, document_url, client, None)
 }
@@ -98,7 +98,7 @@ pub fn execute_inline_scripts(
 pub fn execute_scripts(
     document: Document,
     document_url: Option<&Url>,
-    client: Option<&HttpClient>,
+    client: Option<&NetworkClient>,
     external_scripts: Option<&HashMap<NodeId, String>>,
 ) -> Result<Document, NavigationError> {
     let mut scripts: Vec<String> = Vec::new();

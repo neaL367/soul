@@ -57,6 +57,18 @@ pub enum NetworkError {
     #[error("Too many redirects while fetching '{0}'")]
     TooManyRedirects(String),
 
+    /// Request exceeded the configured timeout budget.
+    #[error("Request timed out")]
+    Timeout,
+
+    /// The request specified an HTTP method the client does not implement.
+    #[error("Unsupported HTTP method: {0}")]
+    UnsupportedMethod(String),
+
+    /// Error reported by the remote network service over IPC.
+    #[error("Network service error: {0}")]
+    Remote(String),
+
     /// `Location` header could not be resolved against the request URL.
     #[error("Invalid redirect location from '{0}': {1}")]
     InvalidRedirect(String, url::ParseError),

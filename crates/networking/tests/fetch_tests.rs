@@ -239,3 +239,36 @@ async fn test_http1_gzip_decompression_success() {
 
     let _ = server_handle.await;
 }
+
+#[tokio::test]
+async fn test_http_client_timeout_bounds_hung_servers() {
+    // A server that accepts the connection but never responds must be bounded
+    // by the client's configured timeout instead of hanging the fetch forever.
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let server_handle = tokio::spawn(async move {
+        let Ok((mut socket, _)) = listener.accept().await else {
+            return;
+        };
+        let mut buf = [0u8; 2048];
+        let _ = socket.read(&mut buf).await;
+        // Never write a response; hold the connection open.
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    });
+
+    let config = networking::HttpClientConfig {
+        timeout: std::time::Duration::from_millis(200),
+        ..networking::HttpClientConfig::default()
+    };
+    let client = HttpClient::new(config);
+    let url = Url::parse(&format!("http://{addr}/hung")).unwrap();
+
+    let err = client
+        .fetch(&url)
+        .await
+        .expect_err("hung server must trigger the client timeout");
+    assert!(matches!(err, networking::NetworkError::Timeout));
+
+    server_handle.abort();
+}

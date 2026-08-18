@@ -3,7 +3,7 @@
 
 > **Revision note:** this plan was reviewed after its first draft. The review correctly identified the original 12–18 month MVP timeline as optimistic, flagged the GPUI dependency as an under-weighted project-survival risk (not just a rendering-backend choice), argued the JS-engine compatibility spike needed to move earlier, and pushed for an accessibility semantic tree to be carried from early layout work rather than retrofitted. Memory targets were also revised to be more honest about what Rust actually buys (safety, not automatically-low memory).
 
-> **Implementation status note (2026-08-18):** this plan describes the target architecture; §31 carries the authoritative per-milestone **Status** annotation and status table verified against code. In short: M0–M13, M17, M19, and M20 are **Complete**; M14–M16, M18, and M21–M23 are **Partial**. Single-crate GPUI isolation is enforced and green CI passes 142 tests across 25 crates.
+> **Implementation status note (2026-08-18):** this plan describes the target architecture; §31 carries the authoritative per-milestone **Status** annotation and status table verified against code. In short: M0–M13, M15, M17, M19, and M20 are **Complete**; M14, M16, M18, and M21–M23 are **Partial** (M14's IPC groundwork is done; the process split itself is deferred per the §31 decision note). Single-crate GPUI isolation is enforced and green CI passes 179 tests across 25 crates.
 
 ---
 
@@ -236,8 +236,8 @@ browser/
 | M11 Basic JS | boa + event loop + DOM bindings | **Complete** |
 | M12 Web APIs | fetch, timers, Promises | **Complete** |
 | M13 Storage | SQLite persistence | **Complete** |
-| M14 GPU split + IPC | GPU process, real IPC | **Partial** |
-| M15 Network split | networking over IPC | **Partial** |
+| M14 GPU split + IPC | GPU process, real IPC | **Partial** — IPC transport (in-memory + named pipe), framing codec, and message contracts are complete and tested; the GPU-process split itself remains deferred (see note below) |
+| M15 Network split | networking over IPC | **Complete** — the live browser path (`soul-shell` navigation driver) routes all network traffic through `BrowserToNetworkMsg`/`NetworkToBrowserMsg` via a pluggable `NetworkClient` over the in-memory transport, with mixed-content/CORS enforcement in the network service, request cancellation on both transports, per-request timeouts, and the named-pipe transport proven end-to-end; the cross-process flip is now a constructor change |
 | M16 Sandboxing | renderer process, Job Objects | **Partial** |
 | M17 Advanced Web APIs | Workers, IndexedDB, richer fetch | **Complete** — `WebWorker` (thread + mpsc + 2nd VM), SQLite `IndexedDbStore`, Boa `window.indexedDB`, and rich `fetch` (`Headers`, `Request`, `Response`, body readers `text()`/`json()`/`arrayBuffer()`) |
 | M18 Media | MF playback + Canvas 2D | **Partial** |
@@ -253,23 +253,24 @@ browser/
 
 ### Next Steps (as of 2026-08-18)
 
-Seven milestones remain **Partial**: M14, M15, M16, M18, M21, M22, M23.
+Six milestones remain **Partial**: M14, M16, M18, M21, M22, M23.
 
-**Verified Ground Truth Baseline (Completed 2026-08-18):**
+**M14/M15 decision (made 2026-08-18):** keep explicit single-process execution in `soul-shell` while hardening the message-shaped core. Rationale: the engine is still evolving (M18/M21/M22/M23), the named-pipe transport is already proven, and flipping the boundary now would add process-lifecycle failure modes on top of active engine work. The hardening work (M15) is done: the IPC network contract is complete (bodies, security context, final URL, set-cookies), the service enforces mixed content/CORS and honors cancellation on both transports, and `soul-shell`'s live browser path runs through `NetworkClient` over the in-memory transport — the process split is now a transport-swap (ADR-2/ADR-5). The remaining M14 work is the GPU-process split (shared-texture interop), which stays deferred.
+
+**Verified Ground Truth Baseline (Completed 2026-08-18, re-verified after M15):**
 ```
 cargo fmt --all -- --check                       # CLEAN (0 diffs)
 cargo clippy --workspace --all-targets -- -D warnings # CLEAN (0 warnings across all 25 crates)
-cargo test --workspace                           # CLEAN (142 passed, 0 failed)
+cargo test --workspace -j 2                      # CLEAN (179 passed, 0 failed)
 ```
-Single-crate GPUI boundary verified: `soul-backend-gpui` is the only package depending on `gpui`.
+Single-crate GPUI boundary verified: `soul-backend-gpui` is the only workspace crate depending on `gpui` (upstream `gpui_*` subcrates of the zed git dependency excluded).
 
 **Milestone Execution Sequence:**
-1. **M14 / M15** — decide deliberately whether to flip the process boundary on in `soul-shell` or keep explicit single-process execution while hardening the core engine.
-2. **M21** — run the benchmark harness and check results against §28's numeric targets.
-3. **M22** — verify CSP directive enforcement actively blocks non-compliant resource loads in addition to reporting violations.
-4. **M16** — apply `RestrictedToken` to spawned processes and launch a live child into `JobObject`.
-5. **M18** — implement real Media Foundation decode in `crates/media/src/` via COM `IMFSourceReader`.
-6. **M23** — implement update manifest fetching, binary download, signature verification against `DpapiVault`/public keys, and real installer.
+1. **M21** — run the benchmark harness and check results against §28's numeric targets.
+2. **M22** — verify CSP directive enforcement actively blocks non-compliant resource loads in addition to reporting violations.
+3. **M16** — apply `RestrictedToken` to spawned processes and launch a live child into `JobObject`.
+4. **M18** — implement real Media Foundation decode in `crates/media/src/` via COM `IMFSourceReader`.
+5. **M23** — implement update manifest fetching, binary download, signature verification against `DpapiVault`/public keys, and real installer.
 
 ---
 

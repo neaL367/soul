@@ -41,8 +41,10 @@ fn test_length_prefixed_codec_roundtrip() {
         MessagePayload::BrowserToNetwork(BrowserToNetworkMsg::FetchRequest {
             request_id: 101,
             url: "https://crates.io/api/v1/crates".to_string(),
-            method: "GET".to_string(),
+            method: "POST".to_string(),
             headers: vec![("Accept".to_string(), "application/json".to_string())],
+            body: Some(vec![1, 2, 3, 4]),
+            document_origin: Some("https://example.com".to_string()),
         }),
     );
 
@@ -60,6 +62,27 @@ fn test_length_prefixed_codec_roundtrip() {
     let partial = &encoded[..encoded.len() - 5];
     let incomplete = decode_message(partial).unwrap();
     assert!(incomplete.is_none());
+}
+
+#[test]
+fn test_codec_roundtrip_response_headers_extended_fields() {
+    let msg = IpcMessage::new(
+        MessageId(7),
+        MessagePayload::NetworkToBrowser(NetworkToBrowserMsg::ResponseHeaders {
+            request_id: 7,
+            status_code: 302,
+            headers: vec![("location".to_string(), "/final".to_string())],
+            final_url: "https://example.com/final".to_string(),
+            set_cookies: vec!["session=abc; Path=/".to_string()],
+        }),
+    );
+
+    let encoded = encode_message(&msg).expect("encoding failed");
+    let (decoded, consumed) = decode_message(&encoded)
+        .expect("decoding failed")
+        .expect("incomplete frame");
+    assert_eq!(consumed, encoded.len());
+    assert_eq!(decoded, msg);
 }
 
 #[tokio::test]
@@ -88,6 +111,39 @@ async fn test_async_stream_transport_duplex() {
     } else {
         panic!("unexpected payload");
     }
+}
+
+#[tokio::test]
+async fn test_async_stream_transport_split_roundtrip() {
+    let (client_io, server_io) = tokio::io::duplex(4096);
+    let mut client_transport = AsyncStreamTransport::new(client_io);
+    let (mut server_reader, mut server_writer) = AsyncStreamTransport::new(server_io).split();
+
+    let msg = IpcMessage::new(
+        MessageId(123),
+        MessagePayload::BrowserToNetwork(BrowserToNetworkMsg::FetchRequest {
+            request_id: 123,
+            url: "https://example.com/split".to_string(),
+            method: "GET".to_string(),
+            headers: Vec::new(),
+            body: None,
+            document_origin: None,
+        }),
+    );
+
+    client_transport.send(&msg).await.unwrap();
+    let received = server_reader.recv().await.unwrap().unwrap();
+    assert_eq!(received, msg);
+
+    // Responses written through the write half reach the paired transport.
+    let reply = IpcMessage::response_to(
+        MessageId(124),
+        MessageId(123),
+        MessagePayload::NetworkToBrowser(NetworkToBrowserMsg::ResponseComplete { request_id: 123 }),
+    );
+    server_writer.send(&reply).await.unwrap();
+    let reply_received = client_transport.recv().await.unwrap().unwrap();
+    assert_eq!(reply_received, reply);
 }
 
 #[tokio::test]

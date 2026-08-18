@@ -121,6 +121,11 @@ pub enum BrowserToNetworkMsg {
         method: String,
         /// HTTP request headers.
         headers: Vec<(String, String)>,
+        /// Optional request body payload (carried for POST/PUT/DELETE).
+        body: Option<Vec<u8>>,
+        /// Serialized origin URL of the requesting document; enables
+        /// mixed-content and CORS enforcement in the Network process.
+        document_origin: Option<String>,
     },
     /// Cancels an in-flight network request.
     CancelRequest {
@@ -140,6 +145,10 @@ pub enum NetworkToBrowserMsg {
         status_code: u16,
         /// Response headers.
         headers: Vec<(String, String)>,
+        /// Final response URL after following any redirects.
+        final_url: String,
+        /// Raw `Set-Cookie` header values.
+        set_cookies: Vec<String>,
     },
     /// Incremental chunk of response body bytes.
     ResponseBodyChunk {

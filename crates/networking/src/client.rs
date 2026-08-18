@@ -125,10 +125,23 @@ impl HttpClient {
     /// against the current URL; 301/302/303 convert POST to GET per fetch spec;
     /// 307/308 preserve the method. The final response carries the resolved URL.
     ///
+    /// The entire operation (including redirects) is bounded by
+    /// [`HttpClientConfig::timeout`].
+    ///
     /// # Errors
     /// Returns `NetworkError` if connection, TLS handshake, protocol exchange,
-    /// redirect resolution, or the redirect limit fails.
+    /// redirect resolution, the redirect limit, or the timeout budget is exceeded.
     pub async fn fetch_request(&self, request: &HttpRequest) -> Result<HttpResponse, NetworkError> {
+        tokio::time::timeout(self.config.timeout, self.fetch_request_inner(request))
+            .await
+            .map_err(|_| NetworkError::Timeout)?
+    }
+
+    /// Executes an arbitrary `HttpRequest` without a client-level timeout.
+    async fn fetch_request_inner(
+        &self,
+        request: &HttpRequest,
+    ) -> Result<HttpResponse, NetworkError> {
         let mut current = request.clone();
 
         for _hop in 0..=MAX_REDIRECTS {

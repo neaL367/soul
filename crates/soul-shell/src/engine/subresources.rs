@@ -2,14 +2,14 @@
 
 use dom::{Document, NodeData, NodeId};
 use image_decode::{DecodedImage, ImageDecoder};
-use networking::{HttpClient, HttpRequest};
+use networking::{HttpRequest, NetworkClient};
 use std::collections::HashMap;
 use url::Url;
 
 /// Fetches and decodes every `<img>` subresource through the security-checked
 /// client path (mixed content + CORS enforced against the document origin).
 pub(super) async fn load_subresource_images(
-    client: &HttpClient,
+    client: &NetworkClient,
     document_url: &Url,
     doc: &Document,
 ) -> HashMap<NodeId, DecodedImage> {
@@ -63,7 +63,7 @@ pub(super) async fn load_subresource_images(
 
 /// Fetches external `<link rel="stylesheet">` sheets through the security-checked path.
 pub(super) async fn load_subresource_stylesheets(
-    client: &HttpClient,
+    client: &NetworkClient,
     document_url: &Url,
     doc: &Document,
 ) -> Vec<String> {
@@ -121,7 +121,7 @@ pub(super) async fn load_subresource_stylesheets(
 
 /// Fetches external `<script src="...">` scripts through the security-checked path.
 pub(super) async fn load_subresource_scripts(
-    client: &HttpClient,
+    client: &NetworkClient,
     document_url: &Url,
     doc: &Document,
 ) -> HashMap<NodeId, String> {

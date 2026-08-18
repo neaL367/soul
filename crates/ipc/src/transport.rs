@@ -64,6 +64,78 @@ pub struct AsyncStreamTransport<S> {
     read_buffer: BytesMut,
 }
 
+/// Framing-aware read half produced by [`AsyncStreamTransport::split`].
+#[derive(Debug)]
+pub struct AsyncStreamReadHalf<S> {
+    read: tokio::io::ReadHalf<S>,
+    read_buffer: BytesMut,
+}
+
+/// Framing-aware write half produced by [`AsyncStreamTransport::split`].
+#[derive(Debug)]
+pub struct AsyncStreamWriteHalf<S> {
+    write: tokio::io::WriteHalf<S>,
+}
+
+impl<S: AsyncRead + AsyncWrite + Unpin> AsyncStreamTransport<S> {
+    /// Splits the transport into independent framed read and write halves so a
+    /// service can read requests from one task while spawned workers write
+    /// responses concurrently.
+    #[must_use]
+    pub fn split(self) -> (AsyncStreamReadHalf<S>, AsyncStreamWriteHalf<S>) {
+        let (read, write) = tokio::io::split(self.stream);
+        (
+            AsyncStreamReadHalf {
+                read,
+                read_buffer: self.read_buffer,
+            },
+            AsyncStreamWriteHalf { write },
+        )
+    }
+}
+
+impl<S: AsyncRead + Unpin> AsyncStreamReadHalf<S> {
+    /// Asynchronously reads and decodes the next `IpcMessage` from the stream.
+    ///
+    /// Returns `Ok(Some(msg))` when a complete frame is read, or `Ok(None)` on clean EOF.
+    ///
+    /// # Errors
+    ///
+    /// Returns `IpcError` if reading, framing, or decoding fails.
+    pub async fn recv(&mut self) -> Result<Option<IpcMessage>, IpcError> {
+        loop {
+            if let Some((msg, consumed)) = decode_message(&self.read_buffer)? {
+                let _ = self.read_buffer.split_to(consumed);
+                return Ok(Some(msg));
+            }
+
+            let mut chunk = [0u8; 4096];
+            let n = self.read.read(&mut chunk).await?;
+            if n == 0 {
+                if self.read_buffer.is_empty() {
+                    return Ok(None);
+                }
+                return Err(IpcError::ConnectionClosed);
+            }
+            self.read_buffer.extend_from_slice(&chunk[..n]);
+        }
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncStreamWriteHalf<S> {
+    /// Asynchronously writes a length-prefixed encoded `IpcMessage` to the stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns `IpcError` if encoding or network writing fails.
+    pub async fn send(&mut self, message: &IpcMessage) -> Result<(), IpcError> {
+        let frame_bytes = encode_message(message)?;
+        self.write.write_all(&frame_bytes).await?;
+        self.write.flush().await?;
+        Ok(())
+    }
+}
+
 impl<S: AsyncRead + AsyncWrite + Unpin> AsyncStreamTransport<S> {
     /// Creates a new `AsyncStreamTransport` wrapping an I/O stream with an initial 8KB read buffer.
     pub fn new(stream: S) -> Self {

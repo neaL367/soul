@@ -13,7 +13,7 @@ pub use layout::{A11yNode, A11yRole};
 use crate::script_execution::{execute_inline_scripts, execute_scripts};
 use css::{CascadeResolver, Origin, parse_stylesheet};
 use html::parse_html_with_styles;
-use networking::HttpClient;
+use networking::NetworkClient;
 use raster::PixelBuffer;
 use soul_core::{NavigationController, NavigationError};
 use stages::document_title;
@@ -25,6 +25,9 @@ use subresources::{
 use url::Url;
 
 /// Fetches `url` with an isolated navigation controller and renders the document.
+///
+/// Uses a direct HTTP client; the live browser path that shares navigation state
+/// uses [`render_active_navigation`] with an IPC-backed [`NetworkClient`].
 ///
 /// # Errors
 ///
@@ -51,17 +54,21 @@ pub async fn navigate_and_render_with_controller(
     options: RenderOptions,
 ) -> Result<RenderResult, NavigationError> {
     controller.navigate_url(url);
-    render_active_navigation(controller, options).await
+    render_active_navigation(controller, &NetworkClient::direct(), options).await
 }
 
 /// Renders the navigation already active in `controller` without creating a
 /// second navigation id. Used by Back, Forward, and Reload.
+///
+/// `client` supplies the network path; the live browser passes an IPC-backed
+/// client while headless rendering passes a direct one.
 ///
 /// # Errors
 ///
 /// Returns `NavigationError` if no navigation is active or rendering fails.
 pub async fn render_active_navigation(
     controller: &mut NavigationController,
+    client: &NetworkClient,
     options: RenderOptions,
 ) -> Result<RenderResult, NavigationError> {
     let navigation_id = controller
@@ -77,7 +84,6 @@ pub async fn render_active_navigation(
 
     // Stage 1: network fetch (top-level document navigation).
     let fetch_start = Instant::now();
-    let client = HttpClient::default();
     let response = client
         .fetch(&url)
         .await
@@ -115,14 +121,14 @@ pub async fn render_active_navigation(
     timings.parse = parse_start.elapsed();
 
     // Stage 2.5: fetch external scripts and execute all scripts in document order.
-    let external_scripts = load_subresource_scripts(&client, &url, &doc).await;
-    let doc = execute_scripts(doc, Some(&url), Some(&client), Some(&external_scripts))?;
+    let external_scripts = load_subresource_scripts(client, &url, &doc).await;
+    let doc = execute_scripts(doc, Some(&url), Some(client), Some(&external_scripts))?;
     let title = document_title(&doc, &url);
 
     // Stage 3: fetch + decode `<img>` and `<link rel="stylesheet">` subresources.
     let images_start = Instant::now();
-    let images = load_subresource_images(&client, &url, &doc).await;
-    let external_stylesheets = load_subresource_stylesheets(&client, &url, &doc).await;
+    let images = load_subresource_images(client, &url, &doc).await;
+    let external_stylesheets = load_subresource_stylesheets(client, &url, &doc).await;
     style_sources.extend(external_stylesheets);
     timings.images = images_start.elapsed();
 
