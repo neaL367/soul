@@ -21,18 +21,27 @@ struct IdbHolder {
 ///
 /// # Errors
 /// Returns `JsResult` if object initialization fails.
-pub fn register_indexeddb(
-    context: &mut Context,
-    idb_store: Arc<IndexedDbStore>,
-) -> JsResult<()> {
+pub fn register_indexeddb(context: &mut Context, idb_store: Arc<IndexedDbStore>) -> JsResult<()> {
     let holder = IdbHolder { store: idb_store };
 
     let put_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, args, captures, ctx| {
-            let db = args.get_or_undefined(0).to_string(ctx)?.to_std_string_escaped();
-            let store = args.get_or_undefined(1).to_string(ctx)?.to_std_string_escaped();
-            let key = args.get_or_undefined(2).to_string(ctx)?.to_std_string_escaped();
-            let val = args.get_or_undefined(3).to_string(ctx)?.to_std_string_escaped();
+            let db = args
+                .get_or_undefined(0)
+                .to_string(ctx)?
+                .to_std_string_escaped();
+            let store = args
+                .get_or_undefined(1)
+                .to_string(ctx)?
+                .to_std_string_escaped();
+            let key = args
+                .get_or_undefined(2)
+                .to_string(ctx)?
+                .to_std_string_escaped();
+            let val = args
+                .get_or_undefined(3)
+                .to_string(ctx)?
+                .to_std_string_escaped();
 
             let _ = captures.store.put(&db, &store, &key, &val);
             Ok(JsValue::undefined())
@@ -42,9 +51,18 @@ pub fn register_indexeddb(
 
     let get_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, args, captures, ctx| {
-            let db = args.get_or_undefined(0).to_string(ctx)?.to_std_string_escaped();
-            let store = args.get_or_undefined(1).to_string(ctx)?.to_std_string_escaped();
-            let key = args.get_or_undefined(2).to_string(ctx)?.to_std_string_escaped();
+            let db = args
+                .get_or_undefined(0)
+                .to_string(ctx)?
+                .to_std_string_escaped();
+            let store = args
+                .get_or_undefined(1)
+                .to_string(ctx)?
+                .to_std_string_escaped();
+            let key = args
+                .get_or_undefined(2)
+                .to_string(ctx)?
+                .to_std_string_escaped();
 
             match captures.store.get(&db, &store, &key) {
                 Ok(Some(val)) => Ok(JsValue::from(js_string!(val))),
@@ -56,9 +74,18 @@ pub fn register_indexeddb(
 
     let delete_fn = NativeFunction::from_copy_closure_with_captures(
         |_this, args, captures, ctx| {
-            let db = args.get_or_undefined(0).to_string(ctx)?.to_std_string_escaped();
-            let store = args.get_or_undefined(1).to_string(ctx)?.to_std_string_escaped();
-            let key = args.get_or_undefined(2).to_string(ctx)?.to_std_string_escaped();
+            let db = args
+                .get_or_undefined(0)
+                .to_string(ctx)?
+                .to_std_string_escaped();
+            let store = args
+                .get_or_undefined(1)
+                .to_string(ctx)?
+                .to_std_string_escaped();
+            let key = args
+                .get_or_undefined(2)
+                .to_string(ctx)?
+                .to_std_string_escaped();
 
             let _ = captures.store.delete(&db, &store, &key);
             Ok(JsValue::undefined())

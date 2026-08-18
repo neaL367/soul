@@ -38,7 +38,9 @@ fn test_crash_reporter_serialization_and_disk_persistence() {
     assert!(serialized.contains("reason: GPU device lost"));
 
     let temp_dir = std::env::temp_dir().join(format!("soul_crash_tests_{}", std::process::id()));
-    let path = report.persist_to_disk(&temp_dir).expect("persist crash report");
+    let path = report
+        .persist_to_disk(&temp_dir)
+        .expect("persist crash report");
 
     assert!(path.exists());
     let content = std::fs::read_to_string(&path).expect("read persisted crash log");

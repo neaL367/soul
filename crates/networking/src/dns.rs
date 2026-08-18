@@ -23,7 +23,7 @@ pub struct DnsResolver {
 
 impl Default for DnsResolver {
     fn default() -> Self {
-        Self::new(Duration::from_secs(300))
+        Self::new(Duration::from_mins(5))
     }
 }
 
@@ -97,7 +97,7 @@ impl DnsResolver {
             host.to_string(),
             CachedDnsRecord {
                 addresses,
-                expires_at: Instant::now() + Duration::from_secs(86400),
+                expires_at: Instant::now() + Duration::from_hours(24),
             },
         );
     }

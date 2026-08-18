@@ -1,4 +1,4 @@
-//! Integration tests for Boa JS IndexedDB bindings.
+//! Integration tests for Boa JS `IndexedDB` bindings.
 
 use javascript::JsRuntime;
 use std::sync::Arc;
@@ -12,8 +12,7 @@ fn test_indexeddb_js_bindings_roundtrip() {
 
     let mut runtime = JsRuntime::new();
 
-    register_indexeddb(&mut runtime.context, store.clone())
-        .expect("register indexeddb binding");
+    register_indexeddb(&mut runtime.context, store.clone()).expect("register indexeddb binding");
 
     let script = r#"
         var db = indexedDB.open("TestApp", 1);

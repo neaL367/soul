@@ -6,18 +6,21 @@ use std::time::Duration;
 
 #[tokio::test]
 async fn test_dns_resolver_local_resolution_and_caching() {
-    let resolver = DnsResolver::new(Duration::from_secs(60));
+    let resolver = DnsResolver::new(Duration::from_mins(1));
 
     // Direct IP parsing
     let localhost_ips = resolver
         .resolve("127.0.0.1")
         .await
         .expect("127.0.0.1 should parse directly");
-    assert_eq!(localhost_ips, vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))]);
+    assert_eq!(localhost_ips, vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]);
 
     // Static override and cache lookup
     resolver
-        .insert_override("custom.soul.internal", vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 42))])
+        .insert_override(
+            "custom.soul.internal",
+            vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 42))],
+        )
         .await;
 
     let overridden = resolver

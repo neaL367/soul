@@ -35,7 +35,7 @@ impl Default for HttpClientConfig {
         Self {
             user_agent: "Soul/0.1 (Windows NT 10.0; Win64; x64)".to_string(),
             timeout: std::time::Duration::from_secs(30),
-            dns_ttl: std::time::Duration::from_secs(300),
+            dns_ttl: std::time::Duration::from_mins(5),
         }
     }
 }
@@ -213,9 +213,9 @@ impl HttpClient {
 
         let tcp_stream = match tcp_stream {
             Some(stream) => stream,
-            None => TcpStream::connect((host, port))
-                .await
-                .map_err(|e| NetworkError::ConnectionFailed(format!("{host}:{port}"), last_err.unwrap_or(e)))?,
+            None => TcpStream::connect((host, port)).await.map_err(|e| {
+                NetworkError::ConnectionFailed(format!("{host}:{port}"), last_err.unwrap_or(e))
+            })?,
         };
 
         if is_tls {

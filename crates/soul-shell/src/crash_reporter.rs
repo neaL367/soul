@@ -18,7 +18,11 @@ pub struct CrashReport {
 impl CrashReport {
     /// Creates a new `CrashReport`.
     #[must_use]
-    pub fn new(reason: impl Into<String>, subsystem: impl Into<String>, diagnostics: impl Into<String>) -> Self {
+    pub fn new(
+        reason: impl Into<String>,
+        subsystem: impl Into<String>,
+        diagnostics: impl Into<String>,
+    ) -> Self {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()

@@ -53,7 +53,10 @@ pub fn is_newer_version(current_ver: &str, candidate_ver: &str) -> bool {
 
 /// Evaluates whether an update manifest warrants an update notification.
 #[must_use]
-pub fn check_for_update(current_version: &str, manifest: &UpdateManifest) -> Option<UpdateManifest> {
+pub fn check_for_update(
+    current_version: &str,
+    manifest: &UpdateManifest,
+) -> Option<UpdateManifest> {
     if is_newer_version(current_version, &manifest.version) {
         Some(manifest.clone())
     } else {

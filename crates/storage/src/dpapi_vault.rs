@@ -1,11 +1,11 @@
-//! Windows DPAPI-encrypted persistent credential and secret vault backed by SQLite.
+//! Windows DPAPI-encrypted persistent credential and secret vault backed by `SQLite`.
 
 use crate::db::StorageDatabase;
 use crate::error::StorageError;
 use platform_windows::Dpapi;
 use rusqlite::params;
 
-/// SQLite-backed encrypted credential vault utilizing Windows DPAPI encryption.
+/// `SQLite`-backed encrypted credential vault utilizing Windows DPAPI encryption.
 #[derive(Debug, Clone)]
 pub struct DpapiVault {
     db: StorageDatabase,
@@ -40,9 +40,13 @@ impl DpapiVault {
     /// # Errors
     /// Returns `StorageError` if encryption or database insertion fails.
     #[allow(clippy::significant_drop_tightening)]
-    pub fn store_secret(&self, domain: &str, key: &str, plaintext: &str) -> Result<(), StorageError> {
-        let ciphertext = Dpapi::protect(plaintext.as_bytes())
-            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    pub fn store_secret(
+        &self,
+        domain: &str,
+        key: &str,
+        plaintext: &str,
+    ) -> Result<(), StorageError> {
+        let ciphertext = Dpapi::protect(plaintext.as_bytes()).map_err(StorageError::Encryption)?;
 
         let conn = self.db.conn()?;
         conn.execute(
@@ -67,19 +71,17 @@ impl DpapiVault {
             "SELECT ciphertext FROM dpapi_vault WHERE domain = ?1 AND key = ?2 LIMIT 1",
         )?;
 
-        let ciphertext: Option<Vec<u8>> = stmt
-            .query_row(params![domain, key], |row| row.get(0))
-            .ok();
+        let ciphertext: Option<Vec<u8>> =
+            stmt.query_row(params![domain, key], |row| row.get(0)).ok();
 
         let Some(bytes) = ciphertext else {
             return Ok(None);
         };
 
-        let decrypted = Dpapi::unprotect(&bytes)
-            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+        let decrypted = Dpapi::unprotect(&bytes).map_err(StorageError::Encryption)?;
 
-        let text = String::from_utf8(decrypted)
-            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+        let text =
+            String::from_utf8(decrypted).map_err(|e| StorageError::InvalidData(e.to_string()))?;
 
         Ok(Some(text))
     }

@@ -87,7 +87,10 @@ impl CspPolicy {
                     CspSource::None
                 } else if trimmed.starts_with("nonce-") {
                     CspSource::Nonce(trimmed.trim_start_matches("nonce-").to_string())
-                } else if trimmed.starts_with("sha256-") || trimmed.starts_with("sha384-") || trimmed.starts_with("sha512-") {
+                } else if trimmed.starts_with("sha256-")
+                    || trimmed.starts_with("sha384-")
+                    || trimmed.starts_with("sha512-")
+                {
                     CspSource::Hash(trimmed.to_string())
                 } else if src.ends_with(':') {
                     CspSource::Scheme(src.to_ascii_lowercase())

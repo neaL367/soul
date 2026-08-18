@@ -95,7 +95,12 @@ pub fn benchmark_full_pipeline(html_source: &str, css_source: &str) -> PipelineB
 
 /// Runs the pipeline benchmark for `n` iterations and computes aggregated statistical metrics.
 #[must_use]
-pub fn benchmark_pipeline_stats(html_source: &str, css_source: &str, iterations: usize) -> PipelineStats {
+#[allow(clippy::cast_possible_truncation)]
+pub fn benchmark_pipeline_stats(
+    html_source: &str,
+    css_source: &str,
+    iterations: usize,
+) -> PipelineStats {
     let count = iterations.max(1);
     let mut total_duration = Duration::ZERO;
     let mut min_total = Duration::MAX;

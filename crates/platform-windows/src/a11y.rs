@@ -34,7 +34,7 @@ pub struct UiaElement {
     /// Whether the element is directly interactive (e.g. Button or Hyperlink).
     pub is_interactive: bool,
     /// Child accessible elements.
-    pub children: Vec<UiaElement>,
+    pub children: Vec<Self>,
 }
 
 impl UiaElement {
@@ -46,7 +46,10 @@ impl UiaElement {
         name: impl Into<String>,
         bounds: (f32, f32, f32, f32),
     ) -> Self {
-        let is_interactive = matches!(control_type, UiaControlType::Button | UiaControlType::Hyperlink);
+        let is_interactive = matches!(
+            control_type,
+            UiaControlType::Button | UiaControlType::Hyperlink
+        );
         Self {
             id,
             control_type,

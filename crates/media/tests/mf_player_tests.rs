@@ -6,19 +6,31 @@ use media::{MediaContainerFormat, MfPlayer};
 fn test_media_container_sniffing() {
     // MP4 header (ftyp at offset 4)
     let mp4_header = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00";
-    assert_eq!(MfPlayer::sniff_format(mp4_header), MediaContainerFormat::Mp4);
+    assert_eq!(
+        MfPlayer::sniff_format(mp4_header),
+        MediaContainerFormat::Mp4
+    );
 
     // WebM header
     let webm_header = b"\x1a\x45\xdf\xa3\x9f\x42\x86\x81";
-    assert_eq!(MfPlayer::sniff_format(webm_header), MediaContainerFormat::WebM);
+    assert_eq!(
+        MfPlayer::sniff_format(webm_header),
+        MediaContainerFormat::WebM
+    );
 
     // WAV header
     let wav_header = b"RIFF\x24\x08\x00\x00WAVEfmt ";
-    assert_eq!(MfPlayer::sniff_format(wav_header), MediaContainerFormat::Wav);
+    assert_eq!(
+        MfPlayer::sniff_format(wav_header),
+        MediaContainerFormat::Wav
+    );
 
     // MP3 ID3 header
     let mp3_header = b"ID3\x03\x00\x00\x00\x00\x0f\x76";
-    assert_eq!(MfPlayer::sniff_format(mp3_header), MediaContainerFormat::Mp3);
+    assert_eq!(
+        MfPlayer::sniff_format(mp3_header),
+        MediaContainerFormat::Mp3
+    );
 }
 
 #[test]

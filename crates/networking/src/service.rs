@@ -171,12 +171,10 @@ impl NetworkService {
                     Err(e) => {
                         let fail_msg = IpcMessage::new(
                             MessageId(request_id),
-                            MessagePayload::NetworkToBrowser(
-                                NetworkToBrowserMsg::ResponseFailed {
-                                    request_id,
-                                    error: e.to_string(),
-                                },
-                            ),
+                            MessagePayload::NetworkToBrowser(NetworkToBrowserMsg::ResponseFailed {
+                                request_id,
+                                error: e.to_string(),
+                            }),
                         );
                         transport
                             .send(&fail_msg)
@@ -237,12 +235,10 @@ impl NetworkService {
                     Err(e) => {
                         let fail_msg = IpcMessage::new(
                             MessageId(request_id),
-                            MessagePayload::NetworkToBrowser(
-                                NetworkToBrowserMsg::ResponseFailed {
-                                    request_id,
-                                    error: e.to_string(),
-                                },
-                            ),
+                            MessagePayload::NetworkToBrowser(NetworkToBrowserMsg::ResponseFailed {
+                                request_id,
+                                error: e.to_string(),
+                            }),
                         );
                         transport
                             .send(&fail_msg)

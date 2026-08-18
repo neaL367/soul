@@ -101,7 +101,9 @@ async fn test_network_service_named_pipe_roundtrip() {
                 hyper::Response::builder()
                     .status(200)
                     .header("content-type", "text/plain")
-                    .body(Full::new(Bytes::from("hello from named pipe network service")))
+                    .body(Full::new(Bytes::from(
+                        "hello from named pipe network service",
+                    )))
                     .unwrap(),
             )
         });

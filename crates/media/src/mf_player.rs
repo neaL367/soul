@@ -9,7 +9,7 @@ use std::time::Duration;
 pub enum MediaContainerFormat {
     /// MP4 container (H.264/AVC, H.265/HEVC, AAC).
     Mp4,
-    /// WebM container (VP8/VP9, Opus, Vorbis).
+    /// `WebM` container (VP8/VP9, Opus, Vorbis).
     WebM,
     /// MP3 standalone audio format.
     Mp3,
@@ -22,7 +22,7 @@ pub enum MediaContainerFormat {
 }
 
 /// Metadata describing an audio or video stream.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaStreamDescriptor {
     /// Detected container format.
     pub format: MediaContainerFormat,
@@ -93,7 +93,7 @@ impl MfPlayer {
 
         Ok(MediaStreamDescriptor {
             format,
-            duration: Duration::from_secs(60),
+            duration: Duration::from_mins(1),
             video_dimensions: dims,
             has_audio,
             has_video,

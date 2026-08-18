@@ -19,7 +19,9 @@ fn test_dpapi_vault_crud_roundtrip() {
     assert_eq!(retrieved.as_deref(), Some("super_secret_token_12345"));
 
     // Non-existent key
-    let missing = vault.get_secret("example.com", "missing_key").expect("query missing");
+    let missing = vault
+        .get_secret("example.com", "missing_key")
+        .expect("query missing");
     assert_eq!(missing, None);
 
     // Delete secret
