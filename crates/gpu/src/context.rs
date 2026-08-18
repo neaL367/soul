@@ -108,7 +108,18 @@ impl GpuContext {
 
     /// Uploads an RGBA8 pixel byte array into the destination texture.
     pub fn upload_rgba(&self, texture: &Texture, width: u32, height: u32, pixels: &[u8]) {
-        if pixels.is_empty() || width == 0 || height == 0 {
+        let rect = GpuRect {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        };
+        self.upload_rgba_rect(texture, rect, width, pixels);
+    }
+
+    /// Uploads a subregion (damage rect) of an RGBA8 pixel buffer into the destination texture.
+    pub fn upload_rgba_rect(&self, texture: &Texture, rect: GpuRect, stride: u32, pixels: &[u8]) {
+        if pixels.is_empty() || rect.width == 0 || rect.height == 0 {
             return;
         }
 
@@ -116,20 +127,37 @@ impl GpuContext {
             TexelCopyTextureInfo {
                 texture,
                 mip_level: 0,
-                origin: Origin3d::ZERO,
+                origin: Origin3d {
+                    x: rect.x,
+                    y: rect.y,
+                    z: 0,
+                },
                 aspect: TextureAspect::All,
             },
             pixels,
             TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(width * 4),
-                rows_per_image: Some(height),
+                bytes_per_row: Some(stride * 4),
+                rows_per_image: Some(rect.height),
             },
             Extent3d {
-                width,
-                height,
+                width: rect.width,
+                height: rect.height,
                 depth_or_array_layers: 1,
             },
         );
     }
+}
+
+/// 2D rectangular integer coordinates for GPU buffer uploads and damage regions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct GpuRect {
+    /// Horizontal offset in pixels.
+    pub x: u32,
+    /// Vertical offset in pixels.
+    pub y: u32,
+    /// Rectangle width in pixels.
+    pub width: u32,
+    /// Rectangle height in pixels.
+    pub height: u32,
 }
