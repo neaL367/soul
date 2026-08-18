@@ -14,5 +14,5 @@ pub use messages::{
     BrowserToNetworkMsg, BrowserToRendererMsg, IpcMessage, MessageId, MessagePayload,
     NetworkToBrowserMsg, RendererToBrowserMsg,
 };
-pub use named_pipe::{accept_named_pipe_server, connect_named_pipe_client};
+pub use named_pipe::{accept_named_pipe_server, connect_named_pipe_client, generate_pipe_name};
 pub use transport::{AsyncStreamTransport, InMemoryTransport};

@@ -9,7 +9,7 @@ use tokio::time::sleep;
 
 #[tokio::test]
 async fn test_named_pipe_ipc_message_roundtrip() {
-    let pipe_name = format!(r"\\.\pipe\soul-test-pipe-{}", std::process::id());
+    let pipe_name = ipc::generate_pipe_name("test-pipe");
 
     let pipe_name_clone = pipe_name.clone();
     let server_task = tokio::spawn(async move {
