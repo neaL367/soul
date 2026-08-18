@@ -143,3 +143,28 @@ fn test_opacity_alpha_blending() {
     assert_eq!(pixel[2], 0);
     assert_eq!(pixel[3], 128);
 }
+
+#[test]
+fn test_clip_rect_rasterization() {
+    use paint::DisplayItem;
+
+    let mut display_list = paint::DisplayList::default();
+    // Push clip box at (50, 50) 100x100
+    display_list.push(DisplayItem::PushClip {
+        rect: Rect::new(50.0, 50.0, 100.0, 100.0),
+    });
+    // Draw a big rect covering (0, 0) 200x200 with green color
+    display_list.push(DisplayItem::DrawRect {
+        rect: Rect::new(0.0, 0.0, 200.0, 200.0),
+        color: css::Color::rgba(0, 255, 0, 255),
+    });
+    display_list.push(DisplayItem::PopClip);
+
+    let pixel_buffer = CpuRasterizer::rasterize(&display_list, 200, 200).expect("rasterize failed");
+
+    // Inside clip area (75, 75) should be green
+    assert_eq!(pixel_buffer.get_pixel(75, 75).unwrap(), [0, 255, 0, 255]);
+
+    // Outside clip area (10, 10) should be transparent (culled by clip rect)
+    assert_eq!(pixel_buffer.get_pixel(10, 10).unwrap(), [0, 0, 0, 0]);
+}
