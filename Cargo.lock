@@ -5890,6 +5890,7 @@ name = "soul-shell"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "common",
  "css",
  "devtools",
@@ -7206,6 +7207,7 @@ dependencies = [
  "dom",
  "html",
  "javascript",
+ "serde_json",
  "storage",
  "thiserror 2.0.20",
  "tokio",

@@ -9,8 +9,73 @@ use std::sync::{Arc, Mutex};
 use storage::{LocalStorage, SessionStorage, StorageDatabase};
 use url::Url;
 use web_api::{
-    FetchHandler, bind_web_apis, register_fetch, register_local_storage, register_session_storage,
+    FetchRequest, FetchResponse, RichFetchHandler, bind_web_apis, register_local_storage,
+    register_rich_fetch, register_session_storage,
 };
+
+/// Creates a rich fetch callback handler for script execution in the shell.
+fn create_shell_fetch_handler(client: HttpClient, doc_url: Url) -> RichFetchHandler {
+    Arc::new(move |req: &FetchRequest| {
+        let target_url = doc_url.join(&req.url).map_err(|e| e.to_string())?;
+        let method = match req.method.to_ascii_uppercase().as_str() {
+            "POST" => networking::types::HttpMethod::Post,
+            "HEAD" => networking::types::HttpMethod::Head,
+            "PUT" => networking::types::HttpMethod::Put,
+            "DELETE" => networking::types::HttpMethod::Delete,
+            _ => networking::types::HttpMethod::Get,
+        };
+        let request = HttpRequest {
+            url: target_url,
+            method,
+            headers: req.headers.clone(),
+            body: req.body.clone().map(bytes::Bytes::from),
+        };
+        let client = client.clone();
+        let doc_url = doc_url.clone();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<networking::HttpResponse, String> {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .map_err(|e| e.to_string())?;
+                let fetch_res = rt.block_on(async move {
+                    client
+                        .fetch_with_security_context(&request, Some(&doc_url))
+                        .await
+                        .map_err(|e| e.to_string())
+                });
+                rt.shutdown_background();
+                fetch_res
+            })();
+            let _ = tx.send(result);
+        });
+
+        let response = rx
+            .recv()
+            .map_err(|_| "fetch worker thread disconnected".to_string())??;
+
+        let is_success = response.is_success();
+        let status_code = response.status_code;
+        let response_url = response.url.to_string();
+        let body_bytes = response.body.to_vec();
+        let headers_vec: Vec<(String, String)> = response.headers.into_iter().collect();
+
+        Ok(FetchResponse {
+            status: status_code,
+            status_text: if is_success {
+                "OK".to_string()
+            } else {
+                "Error".to_string()
+            },
+            headers: headers_vec,
+            body: body_bytes,
+            url: response_url,
+        })
+    })
+}
 
 /// Executes inline scripts against a parsed document before style and layout.
 ///
@@ -72,41 +137,8 @@ pub fn execute_scripts(
     let _ = register_session_storage(&mut runtime.context, session_storage, &origin);
 
     if let (Some(client), Some(doc_url)) = (client, document_url) {
-        let client_clone = client.clone();
-        let doc_url_clone = doc_url.clone();
-        let fetch_handler: FetchHandler = Arc::new(move |req_url_str: &str| {
-            let target_url = doc_url_clone.join(req_url_str).map_err(|e| e.to_string())?;
-            let request = HttpRequest::get(target_url);
-            let client = client_clone.clone();
-            let doc_url = doc_url_clone.clone();
-
-            let (tx, rx) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
-                let result = (|| -> Result<networking::HttpResponse, String> {
-                    let rt = tokio::runtime::Builder::new_multi_thread()
-                        .worker_threads(2)
-                        .enable_all()
-                        .build()
-                        .map_err(|e| e.to_string())?;
-                    let fetch_res = rt.block_on(async move {
-                        client
-                            .fetch_with_security_context(&request, Some(&doc_url))
-                            .await
-                            .map_err(|e| e.to_string())
-                    });
-                    rt.shutdown_background();
-                    fetch_res
-                })();
-                let _ = tx.send(result);
-            });
-
-            let response = rx
-                .recv()
-                .map_err(|_| "fetch worker thread disconnected".to_string())??;
-
-            String::from_utf8(response.body.to_vec()).map_err(|e| e.to_string())
-        });
-        let _ = register_fetch(&mut runtime.context, fetch_handler);
+        let fetch_handler = create_shell_fetch_handler(client.clone(), doc_url.clone());
+        let _ = register_rich_fetch(&mut runtime.context, fetch_handler);
     }
 
     for (script_index, source) in scripts.iter().enumerate() {

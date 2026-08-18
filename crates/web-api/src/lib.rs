@@ -11,7 +11,10 @@ pub mod worker;
 
 pub use console::register_console;
 pub use dom_bindings::register_dom;
-pub use fetch_binding::{FetchHandler, register_fetch};
+pub use fetch_binding::{
+    FetchHandler, FetchRequest, FetchResponse, RichFetchHandler, register_fetch,
+    register_rich_fetch,
+};
 pub use indexeddb_binding::register_indexeddb;
 pub use storage_binding::{register_local_storage, register_session_storage};
 pub use timers::{TimerQueue, register_timers};

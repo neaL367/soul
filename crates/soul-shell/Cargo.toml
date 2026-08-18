@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+bytes = "1"
 soul-core = { path = "../soul-core" }
 soul-ui = { path = "../soul-ui" }
 soul-backend-gpui = { path = "../soul-backend-gpui" }
