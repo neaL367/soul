@@ -71,5 +71,10 @@ async fn test_gpu_compositor_layer_upload() {
         // Test partial damage upload
         let damage = Rect::from_xywh(10.0, 10.0, 30.0, 30.0);
         compositor.composite_layers_with_damage(&[], damage);
+
+        // Test dynamic resize
+        compositor.resize(200, 150);
+        assert_eq!(compositor.output_target().width, 200);
+        assert_eq!(compositor.output_target().height, 150);
     }
 }

@@ -1,4 +1,4 @@
-﻿//! Hardware-accelerated layer compositor backed by WGPU textures and damage tracking.
+//! Hardware-accelerated layer compositor backed by WGPU textures and damage tracking.
 
 use crate::layer::CompositorLayer;
 use gpu::{GpuContext, GpuRect, GpuTexture};
@@ -30,6 +30,14 @@ impl GpuCompositor {
     #[must_use]
     pub const fn output_target(&self) -> &GpuTexture {
         &self.output_target
+    }
+
+    /// Resizes the compositor output texture and internal staging buffer.
+    pub fn resize(&mut self, width: u32, height: u32) {
+        let w = width.max(1);
+        let h = height.max(1);
+        self.output_target = GpuTexture::new_render_target(&self.gpu_context, w, h);
+        self.staging_pixmap = Pixmap::new(w, h).unwrap_or_else(|| Pixmap::new(1, 1).unwrap());
     }
 
     /// Composites an ordered slice of `CompositorLayer` objects and uploads the full frame to the GPU texture.
