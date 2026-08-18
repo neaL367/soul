@@ -1,8 +1,8 @@
-//! Hardware-accelerated layer compositor backed by WGPU textures and damage tracking.
+﻿//! Hardware-accelerated layer compositor backed by WGPU textures and damage tracking.
 
 use crate::layer::CompositorLayer;
-use gpu::{GpuContext, GpuTexture};
-use tiny_skia::Pixmap;
+use gpu::{GpuContext, GpuRect, GpuTexture};
+use tiny_skia::{Pixmap, Rect};
 
 /// Hardware-accelerated compositor orchestrating layer textures and partial damage uploads.
 pub struct GpuCompositor {
@@ -32,15 +32,55 @@ impl GpuCompositor {
         &self.output_target
     }
 
-    /// Composites an ordered slice of `CompositorLayer` objects and uploads damaged rects to the GPU texture.
+    /// Composites an ordered slice of `CompositorLayer` objects and uploads the full frame to the GPU texture.
     pub fn composite_layers(&mut self, layers: &[CompositorLayer]) {
+        self.composite_layers_with_damage(layers, None);
+    }
+
+    /// Composites layers and uploads only the damaged subregion if present, or the full frame.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn composite_layers_with_damage(
+        &mut self,
+        layers: &[CompositorLayer],
+        damage_rect: Option<Rect>,
+    ) {
         self.staging_pixmap.fill(tiny_skia::Color::TRANSPARENT);
 
         for layer in layers {
             layer.composite_to(&mut self.staging_pixmap.as_mut(), 0.0, 0.0);
         }
 
-        // Upload composite frame to GPU texture
+        if let Some(r) = damage_rect {
+            let x = (r.left().max(0.0).floor() as u32).min(self.output_target.width);
+            let y = (r.top().max(0.0).floor() as u32).min(self.output_target.height);
+            let right = (r.right().ceil() as u32).min(self.output_target.width);
+            let bottom = (r.bottom().ceil() as u32).min(self.output_target.height);
+            let w = right.saturating_sub(x);
+            let h = bottom.saturating_sub(y);
+
+            if w > 0 && h > 0 {
+                let rect = GpuRect {
+                    x,
+                    y,
+                    width: w,
+                    height: h,
+                };
+                let stride = self.output_target.width;
+                let offset = ((y as usize) * (stride as usize) + (x as usize)) * 4;
+                if offset < self.staging_pixmap.data().len() {
+                    let pixel_slice = &self.staging_pixmap.data()[offset..];
+                    self.gpu_context.upload_rgba_rect(
+                        &self.output_target.texture,
+                        rect,
+                        stride,
+                        pixel_slice,
+                    );
+                    return;
+                }
+            }
+        }
+
+        // Full upload fallback
         self.gpu_context.upload_rgba(
             &self.output_target.texture,
             self.output_target.width,

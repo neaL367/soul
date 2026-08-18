@@ -67,5 +67,9 @@ async fn test_gpu_compositor_layer_upload() {
         compositor.composite_layers(&[layer]);
         assert_eq!(compositor.output_target().width, 100);
         assert_eq!(compositor.output_target().height, 100);
+
+        // Test partial damage upload
+        let damage = Rect::from_xywh(10.0, 10.0, 30.0, 30.0);
+        compositor.composite_layers_with_damage(&[], damage);
     }
 }
