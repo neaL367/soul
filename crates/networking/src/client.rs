@@ -14,6 +14,8 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use url::Url;
 
+use crate::dns::DnsResolver;
+
 /// Maximum redirect hops followed before failing with `NetworkError::TooManyRedirects`.
 pub const MAX_REDIRECTS: usize = 5;
 
@@ -24,6 +26,8 @@ pub struct HttpClientConfig {
     pub user_agent: String,
     /// Request timeout duration.
     pub timeout: std::time::Duration,
+    /// DNS cache TTL duration.
+    pub dns_ttl: std::time::Duration,
 }
 
 impl Default for HttpClientConfig {
@@ -31,15 +35,17 @@ impl Default for HttpClientConfig {
         Self {
             user_agent: "Soul/0.1 (Windows NT 10.0; Win64; x64)".to_string(),
             timeout: std::time::Duration::from_secs(30),
+            dns_ttl: std::time::Duration::from_secs(300),
         }
     }
 }
 
-/// Asynchronous HTTP/1.1 client supporting plain TCP and TLS 1.2/1.3.
+/// Asynchronous HTTP/1.1 client supporting plain TCP, asynchronous DNS caching, and TLS 1.2/1.3.
 #[derive(Clone)]
 pub struct HttpClient {
     config: HttpClientConfig,
     tls_config: Arc<rustls::ClientConfig>,
+    dns_resolver: DnsResolver,
 }
 
 impl Default for HttpClient {
@@ -55,14 +61,24 @@ impl HttpClient {
         let mut root_store = rustls::RootCertStore::empty();
         root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
-        let tls_config = rustls::ClientConfig::builder()
+        let mut tls_config = rustls::ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
+        tls_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+
+        let dns_resolver = DnsResolver::new(config.dns_ttl);
 
         Self {
             config,
             tls_config: Arc::new(tls_config),
+            dns_resolver,
         }
+    }
+
+    /// Returns a reference to the DNS resolver used by this client.
+    #[must_use]
+    pub const fn dns_resolver(&self) -> &DnsResolver {
+        &self.dns_resolver
     }
 
     /// Fetches a URL with a standard HTTP GET request.
@@ -177,11 +193,30 @@ impl HttpClient {
             .port_or_known_default()
             .unwrap_or(if is_tls { 443 } else { 80 });
 
-        tracing::info!(host, port, is_tls, url = %request.url, "Connecting to host");
+        tracing::info!(host, port, is_tls, url = %request.url, "Resolving and connecting to host");
 
-        let tcp_stream = TcpStream::connect((host, port))
-            .await
-            .map_err(|e| NetworkError::ConnectionFailed(format!("{host}:{port}"), e))?;
+        let ips = self.dns_resolver.resolve(host).await.unwrap_or_default();
+        let mut tcp_stream = None;
+        let mut last_err = None;
+
+        for ip in ips {
+            match TcpStream::connect((ip, port)).await {
+                Ok(stream) => {
+                    tcp_stream = Some(stream);
+                    break;
+                }
+                Err(err) => {
+                    last_err = Some(err);
+                }
+            }
+        }
+
+        let tcp_stream = match tcp_stream {
+            Some(stream) => stream,
+            None => TcpStream::connect((host, port))
+                .await
+                .map_err(|e| NetworkError::ConnectionFailed(format!("{host}:{port}"), last_err.unwrap_or(e)))?,
+        };
 
         if is_tls {
             let server_name = ServerName::try_from(host.to_string())
