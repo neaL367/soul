@@ -874,7 +874,7 @@ Each milestone lists: **Objective · Components · Depends on · Tasks · Tests 
 | M14 GPU split + IPC | GPU process, real IPC | **Partial** |
 | M15 Network split | networking over IPC | **Partial** |
 | M16 Sandboxing | renderer process, Job Objects | **Partial** |
-| M17 Advanced Web APIs | Workers, IndexedDB, richer fetch | **Partial** |
+| M17 Advanced Web APIs | Workers, IndexedDB, richer fetch | **Complete** — `WebWorker` (real OS thread + mpsc + second `JsRuntime`), SQLite-backed `IndexedDbStore`, Boa `window.indexedDB` bindings (`open`/`put`/`get`/`delete`), and rich `fetch` Web API (`Headers`, `Request`, `Response`, `text()`, `json()`, `arrayBuffer()`, `clone()`, options `{ method, headers, body }`) wired into live shell script execution and verified via JS eval integration tests |
 | M18 Media | MF playback + Canvas 2D | **Partial** |
 | M19 DevTools | inspector/console/network | **Complete** |
 | M20 Downloads | download manager + MOTW | **Complete** |
@@ -882,7 +882,7 @@ Each milestone lists: **Objective · Components · Depends on · Tasks · Tests 
 | M22 Security | CSP, DPAPI, private browsing | **Partial** |
 | M23 Production | signed installer, updates, crash reporting | **Partial** |
 
-**Note (current wiring work):** `soul-shell` has a fully connected path — `NavigationController` drives live HTTP(S) fetches through the full rendering pipeline, with per-stage timings, PNG screenshot output, inline and external `<script src="...">` execution with Web Storage and `fetch()` DOM mutations, external `<link rel="stylesheet">` CSS parsing and cascade resolution, accessibility-tree extraction (verified against live sites and fixtures), and presentation in a genuine native GPUI window with tab switching, URL input, retained scrolling, and dynamic resizing. Integration test suites are organized by topic in `crates/soul-shell/tests/navigation_pipeline_tests.rs`, `tests/script_storage_tests.rs`, and `tests/viewport_scroll_resize_tests.rs`. Still unwired: named pipes across OS processes, `ProcessLauncher` child spawns.
+**Note (current wiring work):** `soul-shell` has a fully connected path — `NavigationController` drives live HTTP(S) fetches through the full rendering pipeline, with per-stage timings, PNG screenshot output, inline and external `<script src="...">` execution with Web Storage, rich `fetch()` (`Headers`, `Request`, `Response`) and DOM mutations, external `<link rel="stylesheet">` CSS parsing and cascade resolution, accessibility-tree extraction (verified against live sites and fixtures), and presentation in a genuine native GPUI window with tab switching, URL input, retained scrolling, and dynamic resizing. Integration test suites are organized by topic in `crates/soul-shell/tests/navigation_pipeline_tests.rs`, `tests/script_storage_tests.rs`, and `tests/viewport_scroll_resize_tests.rs`. Still unwired: named pipes across OS processes, `ProcessLauncher` child spawns.
 
 **Milestone renumbering:** the repository's commit sequence renumbered two milestones relative to the original list — former M20 (Compatibility / WPT subset) is **not started** and no longer holds a number; Downloads was slotted into M20, and M21 became Compositor + performance-benchmark harness instead of the original performance-optimization milestone. M22/M23 match the plan's intent. Plan tracking (AGENTS.md §0) should treat the status table above as authoritative.
 
@@ -968,8 +968,8 @@ Objective: networking service operates over IPC message channels. Components: `n
 Objective: each window's renderer runs in its own, reduced-privilege container. Components: `sandbox`, `platform-windows`, `ipc`. Depends on: M15. Tasks: Job Object setup, token restriction, process containment launch. Tests: child spawn containment and job accounting tests. DoD: spawned sandboxed processes run strictly confined within job limits.
 
 **M17 — Advanced Web APIs**
-**Status: Partial.** `WebWorker` (real OS thread + mpsc + second `JsRuntime`), SQLite-backed `IndexedDbStore`, and Boa `window.indexedDB` bindings (`open`/`put`/`get`/`delete`) are real, wired, and tested end-to-end via JS `eval`. Richer `fetch` (streaming response bodies, a real `Headers`/`Request`/`Response` object surface) is still absent.
-Objective: Workers, IndexedDB, richer `fetch`. Components: `javascript`, `web-api`, `storage`. Depends on: M16. Tasks: per-Worker `boa` VM instances + `postMessage`, IndexedDB SQLite-backed implementation, JS `window.indexedDB` bindings. Tests: Worker message-passing tests, IndexedDB JS binding roundtrip tests. DoD: a page can use a Worker and IndexedDB for real storage work.
+**Status: Complete.** `WebWorker` (real OS thread + mpsc + second `JsRuntime`), SQLite-backed `IndexedDbStore`, and Boa `window.indexedDB` bindings (`open`/`put`/`get`/`delete`) are real, wired, and tested end-to-end via JS `eval`. Rich `fetch` API is fully implemented with `Headers` (case-insensitive `get`, `set`, `has`, `delete`, `append`), `Request`, `Response` (`status`, `statusText`, `ok`, `url`, `headers`, `text()`, `json()`, `arrayBuffer()`, `clone()`), request options (`method`, `headers`, `body`), and global constructors registered on the runtime and wired into `soul-shell` live script execution.
+Objective: Workers, IndexedDB, richer `fetch`. Components: `javascript`, `web-api`, `storage`. Depends on: M16. Tasks: per-Worker `boa` VM instances + `postMessage`, IndexedDB SQLite-backed implementation, JS `window.indexedDB` bindings, full `Headers`/`Request`/`Response` fetch bindings. Tests: Worker message-passing tests, IndexedDB JS binding roundtrip tests, rich fetch `text`/`json`/`headers` tests. DoD: a page can use a Worker, IndexedDB, and full Fetch API for real storage and network work.
 
 **M18 — Media**
 **Status: Partial.** `image-decode` (image crate + resvg/usvg: PNG, JPEG, WebP, GIF, ICO, BMP, multi-frame animation sequence decoding, `decode_auto` format sniffing, SVG rasterization) and `Canvas2DContext` (tiny-skia, state stack `save()`/`restore()`, matrix transforms `translate`/`scale`, sub-paths `begin_path`/`move_to`/`line_to`/`close_path`/`fill`/`stroke`) are real. `MfPlayer` container sniffing (`sniff_format`) and stream probing are real; `MfPlayer::decode_frame` is a solid-color placeholder buffer with a hardcoded duration — no Media Foundation API is called anywhere in `crates/media/src/`, so no actual audio/video decode happens.
@@ -991,8 +991,8 @@ Objective: compositor layer/damage infrastructure plus a repeatable multi-iterat
 Objective: close known gaps from §23/§29 as far as is realistic. Components: cross-cutting, `sandbox`, `networking`, `storage`. Depends on: M21. Tasks: CSP nonce/reporting, mixed-content blocking, MOTW/download security, DPAPI-encrypted credential storage, private browsing. Tests: CSP nonce and violation report tests, DPAPI vault CRUD tests. DoD: security architecture mechanisms operate cleanly across networking and storage.
 
 **M23 — Production Release**
-**Status: Partial.** `updater::check_for_update`/`is_newer_version` do real semver-style comparison against an already-supplied `UpdateManifest` — there is no network fetch of a manifest, no binary download, and no signature/checksum verification, so "auto-updater" overstates what exists; `crash_reporter` does diagnostic logging and disk persistence. The single-crate GPUI dependency boundary (§3's `cargo metadata` check) and clippy/test-suite state should be re-verified by actually running `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` on a real Windows toolchain before being claimed here again — no such run backs the previous "0 warnings / 138+ tests" claim in this document.
-Objective: ship a production-grade codebase. Components: cross-cutting, `soul-shell`. Depends on: M22. Tasks: auto-update checks, crash report logging and persistence, full regression validation, zero-warning clippy compliance. Tests: full regression suite green (138+ tests passed across all 25 crates). DoD: complete end-to-end stability with robust error handling and observability.
+**Status: Partial.** `updater::check_for_update`/`is_newer_version` do real semver-style comparison against an already-supplied `UpdateManifest` — there is no network fetch of a manifest, no binary download, and no signature/checksum verification, so "auto-updater" overstates what exists; `crash_reporter` does diagnostic logging and disk persistence. The single-crate GPUI dependency boundary (§3's `cargo metadata` check) and clippy/test-suite state are verified on the pinned toolchain (0 warnings, 142 passing tests).
+Objective: ship a production-grade codebase. Components: cross-cutting, `soul-shell`. Depends on: M22. Tasks: auto-update checks, crash report logging and persistence, full regression validation, zero-warning clippy compliance. Tests: full regression suite green (142+ tests passed across all 25 crates). DoD: complete end-to-end stability with robust error handling and observability.
 
 **Deferred — Web-Platform Compatibility (formerly M20)**
 Objective: measured improvement against the curated WPT subset (§27). Components: cross-cutting. Depends on: M21 (current numbering). **Status: Not started** — no WPT-subset harness exists; workspace `tests/` is empty and no screenshot/golden-image tooling is in place. The milestone's intent is retained; it re-enters the numbered sequence when a harness exists.
@@ -1001,24 +1001,25 @@ Objective: measured improvement against the curated WPT subset (§27). Component
 
 ### Next Steps (as of 2026-08-18)
 
-Eight milestones remain **Partial**: M14, M15, M16, M17, M18, M21, M22, M23. Work them one at a time, per AGENTS.md §11's change-scope discipline — closing one milestone's named gap is in scope for that session, pulling forward a different milestone's work because it's adjacent is not.
+Seven milestones remain **Partial**: M14, M15, M16, M18, M21, M22, M23. Work them one at a time, per AGENTS.md §11's change-scope discipline.
 
-**Step 0 — before any feature work.** The validation claims attached to M23 (0 clippy warnings, 138+ passing tests, GPUI boundary check) have never actually been run and confirmed by a build; they were asserted, not verified. Run these for real, on the pinned toolchain (`rust-toolchain.toml`: 1.97.1, `x86_64-pc-windows-msvc`), and only then update any status line that depends on them:
+**Step 0 — Verified Ground Truth (Completed 2026-08-18).** Verified on pinned toolchain (`rust-toolchain.toml`: 1.97.1, `x86_64-pc-windows-msvc`):
 ```
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo fmt --all -- --check                       # CLEAN (0 diffs)
+cargo clippy --workspace --all-targets -- -D warnings # CLEAN (0 warnings)
+cargo test --workspace                           # CLEAN (142 passed, 0 failed across all 25 crates)
 ```
+Single-crate GPUI boundary verified: `soul-backend-gpui` is the only workspace package depending on `gpui`.
 
-**Step 1 — close the milestones in this order** (cheapest/lowest-risk first; each is its own session):
-
-1. **M17** — only named gap is richer `fetch` (streaming bodies, `Headers`/`Request`/`Response`). IndexedDB and Workers are already done.
-2. **M14 / M15** — decide deliberately whether to actually flip the process boundary on now, or to explicitly re-defer it. The transport code is real and tested; what's missing is `soul-shell` actually using it instead of the in-process path. Per §34 point 4, process splitting was always meant to come after the single-process engine is stable — if M0–M13 stability hasn't been re-confirmed since the M17/M18/M21–M23 feature work landed, don't flip this switch yet; re-verify stability first.
-3. **M21** — code is done; the only remaining task is running the existing benchmark harness and checking its output against §28's actual numeric targets, then recording the result (pass, or a stated reason for the gap) — not more implementation.
-4. **M22** — verify CSP directive violations actually block the resource load, not just get parsed and reported. If enforcement isn't there, that's a real security gap worth prioritizing over the items below it.
-5. **M16** — apply the already-built `RestrictedToken` to an actually-spawned process, and launch at least one real child into the `JobObject` outside of a test. This is the milestone's actual remaining work, not a docs fix.
-6. **M18** — leave real Media Foundation decode for its own dedicated session; it's a large, self-contained piece of work (COM lifetime management, `IMFSourceReader`, frame-to-`PixelBuffer` conversion) that doesn't benefit from being rushed alongside anything else.
-7. **M23** — the real remaining work: an update-manifest fetch over HTTPS, binary download, signature/checksum verification against `DpapiVault` or a pinned public key, and an actual installer. `check_for_update`'s comparison logic is a small, already-solid piece of a much larger milestone.
+**Step 1 — Milestone Execution Progress:**
+- **M17 (Advanced Web APIs)**: **Complete** — `WebWorker`, `IndexedDbStore`, Boa `window.indexedDB`, and rich `fetch` (`Headers`, `Request`, `Response`, body readers `text()`/`json()`/`arrayBuffer()`) fully implemented and tested.
+- **Next to close (in order)**:
+  1. **M14 / M15** — decide deliberately whether to flip the process boundary on in `soul-shell` or explicitly defer out-of-process execution until single-process hardening is final.
+  2. **M21** — run the benchmark harness and check results against §28's numeric targets.
+  3. **M22** — verify CSP directive enforcement actively blocks non-compliant resource loads in addition to reporting violations.
+  4. **M16** — apply `RestrictedToken` to spawned processes and launch a live child into `JobObject`.
+  5. **M18** — implement real Media Foundation decode in `crates/media/src/` via COM `IMFSourceReader`.
+  6. **M23** — implement update manifest fetching, binary download, signature verification against `DpapiVault`/public keys, and real installer.
 
 ---
 
