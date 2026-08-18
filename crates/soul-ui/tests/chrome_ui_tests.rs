@@ -141,6 +141,6 @@ fn test_chrome_model_aggregation() {
     chrome.omnibox.set_text("rust async patterns".to_string());
     assert_eq!(
         chrome.resolve_omnibox_submission(),
-        "https://duckduckgo.com/?q=rust async patterns"
+        "https://duckduckgo.com/?q=rust+async+patterns"
     );
 }

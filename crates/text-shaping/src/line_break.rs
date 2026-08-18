@@ -36,9 +36,11 @@ where
         let is_mandatory = opportunity == unicode_linebreak::BreakOpportunity::Mandatory;
 
         if !current_line.is_empty() && current_width + seg_width > max_width {
+            let trimmed = current_line.trim_end().to_string();
+            let trimmed_width = measure_fn(&trimmed);
             lines.push(TextLineSpan {
-                text: current_line.trim_end().to_string(),
-                width: current_width,
+                text: trimmed,
+                width: trimmed_width,
                 is_hard_break: false,
             });
             current_line = segment.trim_start().to_string();
@@ -49,9 +51,11 @@ where
         }
 
         if is_mandatory {
+            let trimmed = current_line.trim_end().to_string();
+            let trimmed_width = measure_fn(&trimmed);
             lines.push(TextLineSpan {
-                text: current_line.trim_end().to_string(),
-                width: current_width,
+                text: trimmed,
+                width: trimmed_width,
                 is_hard_break: true,
             });
             current_line.clear();

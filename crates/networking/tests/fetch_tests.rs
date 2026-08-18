@@ -168,6 +168,45 @@ async fn test_http_client_follows_redirects() {
     let _ = server_handle.await;
 }
 
+/// Cross-origin redirect bypass test: same-origin request redirects to a second
+/// local origin that responds WITHOUT CORS headers. The final response URL must
+/// be the one checked, so the request must be rejected with `CorsViolation`.
+#[tokio::test]
+async fn test_cors_enforced_on_final_url_after_cross_origin_redirect() {
+    let (addr_final, server_handle_final) = spawn_mock_http_server(|_req| {
+        let body = "redirected content";
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+    })
+    .await;
+
+    let final_port = addr_final.port();
+    let (addr_origin, server_handle_origin) = spawn_mock_http_server(move |_req| {
+        let target = format!("http://127.0.0.1:{final_port}/final");
+        format!(
+            "HTTP/1.1 302 Found\r\nLocation: {target}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        )
+    })
+    .await;
+
+    let client = HttpClient::default();
+    let request_url =
+        Url::parse(&format!("http://127.0.0.1:{}/start", addr_origin.port())).unwrap();
+    let doc_origin = Url::parse(&format!("http://127.0.0.1:{}", addr_origin.port())).unwrap();
+
+    let err = client
+        .fetch_with_security_context(&HttpRequest::get(request_url), Some(&doc_origin))
+        .await
+        .expect_err("cross-origin redirect without CORS headers must be rejected");
+    assert!(matches!(err, networking::NetworkError::CorsViolation(_)));
+
+    let _ = server_handle_origin.await;
+    let _ = server_handle_final.await;
+}
+
 #[tokio::test]
 async fn test_http_client_redirect_loop_fails() {
     // Self-referencing Location header: /loop -> /loop forever.

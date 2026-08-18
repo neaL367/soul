@@ -25,6 +25,21 @@ fn test_decode_svg_vector() {
 }
 
 #[test]
+fn test_decode_svg_zero_dimensions_rejected() {
+    let svg = r#"
+    <svg width="0" height="0" xmlns="http://www.w3.org/2000/svg">
+        <rect width="100" height="100" fill="red" />
+    </svg>
+    "#;
+
+    let result = ImageDecoder::decode_svg(svg.as_bytes(), 50, 50);
+    assert!(
+        result.is_err(),
+        "zero-dimension SVG must not produce NaN scaling"
+    );
+}
+
+#[test]
 fn test_png_encode_and_decode_roundtrip() {
     // 2x2 blue image with alpha
     let pixels: Vec<u8> = vec![

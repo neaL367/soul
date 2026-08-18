@@ -152,7 +152,8 @@ fn test_box_sizing_and_shorthand_expansions() {
 
     assert!((card_style.border_top_width - 2.0).abs() < f32::EPSILON);
     assert_eq!(card_style.border_top_color, Color::rgb(255, 0, 0));
-    assert!(card_style.line_height.is_some());
+    // Unitless line-height factor: 16px inherited font-size * 1.5 = 24px
+    assert!((card_style.line_height.unwrap() - 24.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -180,4 +181,69 @@ fn test_hsl_color_and_border_radius() {
     assert!((badge_style.border_radius_top_left - 8.0).abs() < f32::EPSILON);
     assert_eq!(badge_style.font_style, css::FontStyle::Italic);
     assert_eq!(badge_style.text_decoration, css::TextDecoration::Underline);
+}
+
+#[test]
+fn test_font_family_and_flex_properties_apply() {
+    let html = r#"<html><body><div id="nav">Nav</div></body></html>"#;
+    let doc = parse_html(html);
+
+    let css = r"
+        #nav {
+            font-family: 'Open Sans', Helvetica, sans-serif;
+            letter-spacing: 1px;
+            word-spacing: 2px;
+            flex-direction: column;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            align-self: flex-end;
+            flex-grow: 2;
+            flex-shrink: 0.5;
+            flex-basis: 50%;
+        }
+    ";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let nav_id = doc.get_element_by_id("nav").unwrap();
+    let nav = styles.get(&nav_id).unwrap();
+
+    assert_eq!(nav.font_family, "Open Sans");
+    assert!((nav.letter_spacing - 1.0).abs() < f32::EPSILON);
+    assert!((nav.word_spacing - 2.0).abs() < f32::EPSILON);
+    assert_eq!(nav.flex_direction, css::FlexDirection::Column);
+    assert_eq!(nav.flex_wrap, css::FlexWrap::Wrap);
+    assert_eq!(nav.justify_content, css::JustifyContent::SpaceBetween);
+    assert_eq!(nav.align_items, css::AlignItems::Center);
+    assert_eq!(nav.align_self, css::AlignSelf::FlexEnd);
+    assert!((nav.flex_grow - 2.0).abs() < f32::EPSILON);
+    assert!((nav.flex_shrink - 0.5).abs() < f32::EPSILON);
+    assert_eq!(nav.flex_basis, css::Length::Percent(50.0));
+}
+
+#[test]
+fn test_unitless_lengths_only_zero_is_valid() {
+    let html = r#"<html><body><div id="w">W</div><div id="z">Z</div></body></html>"#;
+    let doc = parse_html(html);
+
+    let css = r"
+        #w { width: 10; margin: 5; }
+        #z { width: 0; margin: 0; line-height: 0; }
+    ";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let w_id = doc.get_element_by_id("w").unwrap();
+    let z_id = doc.get_element_by_id("z").unwrap();
+
+    // Unitless non-zero lengths are invalid per CSS 2.1 §4.3.2 and must be ignored.
+    assert_eq!(styles.get(&w_id).unwrap().width, css::Length::Auto);
+    assert!((styles.get(&w_id).unwrap().margin_top - 0.0).abs() < f32::EPSILON);
+    // Unitless zero is always valid.
+    assert_eq!(styles.get(&z_id).unwrap().width, css::Length::Px(0.0));
+    assert!((styles.get(&z_id).unwrap().margin_left - 0.0).abs() < f32::EPSILON);
+    assert_eq!(styles.get(&z_id).unwrap().line_height, Some(0.0));
 }

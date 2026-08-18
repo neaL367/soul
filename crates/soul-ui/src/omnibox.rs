@@ -185,7 +185,9 @@ impl OmniboxEngine {
         }
 
         // 4. Web search suggestion
-        let search_url = self.search_template.replace("{}", trimmed);
+        let search_url = self
+            .search_template
+            .replace("{}", &encode_query_value(trimmed));
         suggestions.push(OmniboxSuggestion {
             title: format!("Search: {trimmed}"),
             url: search_url,
@@ -221,4 +223,9 @@ impl OmniboxEngine {
         }
         None
     }
+}
+
+/// Percent-encodes a raw user query so it cannot alter the search URL structure.
+fn encode_query_value(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }

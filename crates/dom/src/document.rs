@@ -1,6 +1,6 @@
 //! Flat arena-based DOM document containing node storage, pointer updates, and tree traversal.
 
-use crate::node::{Node, NodeData, NodeId};
+use crate::node::{InvalidationFlags, Node, NodeData, NodeId};
 
 /// Arena-based DOM document holding all nodes in a flat contiguous vector.
 #[derive(Debug, Clone)]
@@ -92,6 +92,7 @@ impl Document {
         }
 
         self.nodes[parent_id.0].last_child = Some(child_id);
+        self.nodes[parent_id.0].dirty_flags = InvalidationFlags::all();
     }
 
     /// Inserts a child node before a designated sibling node under a parent.
@@ -127,6 +128,7 @@ impl Document {
         } else {
             self.nodes[parent_id.0].first_child = Some(child_id);
         }
+        self.nodes[parent_id.0].dirty_flags = InvalidationFlags::all();
     }
 
     /// Removes a child node from its parent, repairing sibling and parent pointers.
@@ -149,6 +151,7 @@ impl Document {
         self.nodes[child_id.0].parent = None;
         self.nodes[child_id.0].prev_sibling = None;
         self.nodes[child_id.0].next_sibling = None;
+        self.nodes[parent_id.0].dirty_flags = InvalidationFlags::all();
     }
 
     /// Moves all children of `old_parent` to the end of `new_parent`'s children list.

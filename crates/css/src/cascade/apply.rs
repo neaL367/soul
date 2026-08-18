@@ -1,8 +1,8 @@
 //! CSS property declaration parsing and application to `ComputedStyle`.
 
 use crate::properties::{
-    BoxSizing, Color, ComputedStyle, Display, FontStyle, FontWeight, Length, Position, TextAlign,
-    TextDecoration,
+    AlignItems, AlignSelf, BoxSizing, Color, ComputedStyle, Display, FlexDirection, FlexWrap,
+    FontStyle, FontWeight, JustifyContent, Length, Position, TextAlign, TextDecoration,
 };
 use crate::rule::Declaration;
 
@@ -51,6 +51,21 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
                 style.font_size = px;
             }
         }
+        "font-family" => {
+            if let Some(family) = parse_font_family(&decl.value) {
+                style.font_family = family;
+            }
+        }
+        "letter-spacing" => {
+            if let Some(px) = parse_px(&decl.value) {
+                style.letter_spacing = px;
+            }
+        }
+        "word-spacing" => {
+            if let Some(px) = parse_px(&decl.value) {
+                style.word_spacing = px;
+            }
+        }
         "font-weight" => match decl.value.as_str() {
             "bold" | "700" => style.font_weight = FontWeight::Bold,
             "normal" | "400" => style.font_weight = FontWeight::Normal,
@@ -82,7 +97,9 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
         "line-height" => {
             if let Some(px) = parse_px(&decl.value) {
                 style.line_height = Some(px);
-            } else if let Ok(factor) = decl.value.parse::<f32>() {
+            } else if let Ok(factor) = decl.value.trim().parse::<f32>()
+                && factor > 0.0
+            {
                 style.line_height = Some(style.font_size * factor);
             }
         }
@@ -208,7 +225,77 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
                 style.height = Length::Percent(pct);
             }
         }
+        "flex-direction" => match decl.value.as_str() {
+            "row" => style.flex_direction = FlexDirection::Row,
+            "row-reverse" => style.flex_direction = FlexDirection::RowReverse,
+            "column" => style.flex_direction = FlexDirection::Column,
+            "column-reverse" => style.flex_direction = FlexDirection::ColumnReverse,
+            _ => {}
+        },
+        "flex-wrap" => match decl.value.as_str() {
+            "nowrap" => style.flex_wrap = FlexWrap::NoWrap,
+            "wrap" => style.flex_wrap = FlexWrap::Wrap,
+            "wrap-reverse" => style.flex_wrap = FlexWrap::WrapReverse,
+            _ => {}
+        },
+        "justify-content" => match decl.value.as_str() {
+            "flex-start" => style.justify_content = JustifyContent::FlexStart,
+            "flex-end" => style.justify_content = JustifyContent::FlexEnd,
+            "center" => style.justify_content = JustifyContent::Center,
+            "space-between" => style.justify_content = JustifyContent::SpaceBetween,
+            "space-around" => style.justify_content = JustifyContent::SpaceAround,
+            "space-evenly" => style.justify_content = JustifyContent::SpaceEvenly,
+            _ => {}
+        },
+        "align-items" => match decl.value.as_str() {
+            "stretch" => style.align_items = AlignItems::Stretch,
+            "flex-start" => style.align_items = AlignItems::FlexStart,
+            "flex-end" => style.align_items = AlignItems::FlexEnd,
+            "center" => style.align_items = AlignItems::Center,
+            "baseline" => style.align_items = AlignItems::Baseline,
+            _ => {}
+        },
+        "align-self" => match decl.value.as_str() {
+            "auto" => style.align_self = AlignSelf::Auto,
+            "stretch" => style.align_self = AlignSelf::Stretch,
+            "flex-start" => style.align_self = AlignSelf::FlexStart,
+            "flex-end" => style.align_self = AlignSelf::FlexEnd,
+            "center" => style.align_self = AlignSelf::Center,
+            "baseline" => style.align_self = AlignSelf::Baseline,
+            _ => {}
+        },
+        "flex-grow" => {
+            if let Ok(v) = decl.value.trim().parse::<f32>() {
+                style.flex_grow = v.max(0.0);
+            }
+        }
+        "flex-shrink" => {
+            if let Ok(v) = decl.value.trim().parse::<f32>() {
+                style.flex_shrink = v.max(0.0);
+            }
+        }
+        "flex-basis" => {
+            if let Some(px) = parse_px(&decl.value) {
+                style.flex_basis = Length::Px(px);
+            } else if let Some(pct) = parse_percent(&decl.value) {
+                style.flex_basis = Length::Percent(pct);
+            }
+        }
         _ => {}
+    }
+}
+
+fn parse_font_family(value: &str) -> Option<String> {
+    let first = value.split(',').next()?.trim();
+    let unquoted = first
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .or_else(|| first.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+        .unwrap_or(first);
+    if unquoted.is_empty() {
+        None
+    } else {
+        Some(unquoted.to_string())
     }
 }
 
@@ -238,7 +325,13 @@ fn parse_percent(value: &str) -> Option<f32> {
 fn parse_px(value: &str) -> Option<f32> {
     let trimmed = value.trim();
     trimmed.strip_suffix("px").map_or_else(
-        || trimmed.parse::<f32>().ok(),
+        || {
+            if trimmed == "0" || trimmed == "0.0" {
+                Some(0.0)
+            } else {
+                None
+            }
+        },
         |num| num.trim().parse::<f32>().ok(),
     )
 }

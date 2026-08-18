@@ -301,3 +301,75 @@ fn test_http_cache_no_store_is_never_cached() {
 
     let _ = std::fs::remove_file(&dir);
 }
+
+#[test]
+fn test_http_cache_set_cookie_and_authorization_are_never_cached() {
+    use std::collections::HashMap;
+    use storage::HttpCacheStore;
+
+    let dir = std::env::temp_dir().join("soul_cache_test_sensitive.db");
+    let _ = std::fs::remove_file(&dir);
+    let store = HttpCacheStore::new(&dir).unwrap();
+
+    let mut set_cookie = HashMap::new();
+    set_cookie.insert("cache-control".to_string(), "max-age=3600".to_string());
+    set_cookie.insert("Set-Cookie".to_string(), "session=abc123".to_string());
+    store
+        .store(
+            "https://example.com/page",
+            200,
+            "text/html",
+            &set_cookie,
+            b"<html>",
+        )
+        .unwrap();
+    assert!(
+        store.lookup("https://example.com/page").unwrap().is_none(),
+        "Set-Cookie responses must not be cached without explicit permission"
+    );
+
+    let mut authorized = HashMap::new();
+    authorized.insert("cache-control".to_string(), "max-age=3600".to_string());
+    authorized.insert("authorization".to_string(), "Bearer secret".to_string());
+    store
+        .store(
+            "https://example.com/account",
+            200,
+            "application/json",
+            &authorized,
+            b"{\"balance\":123}",
+        )
+        .unwrap();
+    assert!(
+        store
+            .lookup("https://example.com/account")
+            .unwrap()
+            .is_none(),
+        "Authorization responses must not be cached without explicit permission"
+    );
+
+    let mut permitted = HashMap::new();
+    permitted.insert(
+        "cache-control".to_string(),
+        "public, max-age=3600".to_string(),
+    );
+    permitted.insert("set-cookie".to_string(), "session=abc123".to_string());
+    store
+        .store(
+            "https://example.com/public",
+            200,
+            "text/html",
+            &permitted,
+            b"<html>",
+        )
+        .unwrap();
+    assert!(
+        store
+            .lookup("https://example.com/public")
+            .unwrap()
+            .is_some(),
+        "Cache-Control: public explicitly permits caching Set-Cookie responses"
+    );
+
+    let _ = std::fs::remove_file(&dir);
+}

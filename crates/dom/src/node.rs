@@ -80,21 +80,26 @@ impl ElementData {
     }
 
     /// Sets the value of an attribute and syncs `id` or `class` if modified.
+    ///
+    /// HTML attribute names are case-insensitive and are normalized to lowercase,
+    /// matching the DOM specification's treatment of HTML documents.
     pub fn set_attribute(&mut self, name: &str, value: &str) {
-        self.attributes.insert(name.to_string(), value.to_string());
-        if name.eq_ignore_ascii_case("id") {
+        let name = name.to_ascii_lowercase();
+        self.attributes.insert(name.clone(), value.to_string());
+        if name == "id" {
             self.id = Some(value.to_string());
-        } else if name.eq_ignore_ascii_case("class") {
+        } else if name == "class" {
             self.classes = value.split_whitespace().map(String::from).collect();
         }
     }
 
     /// Removes an attribute from the element.
     pub fn remove_attribute(&mut self, name: &str) {
-        self.attributes.remove(name);
-        if name.eq_ignore_ascii_case("id") {
+        let name = name.to_ascii_lowercase();
+        self.attributes.remove(&name);
+        if name == "id" {
             self.id = None;
-        } else if name.eq_ignore_ascii_case("class") {
+        } else if name == "class" {
             self.classes.clear();
         }
     }

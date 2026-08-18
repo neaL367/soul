@@ -91,6 +91,9 @@ impl HttpClient {
 
     /// Executes an HTTP request with document origin security checks (Mixed Content and CORS).
     ///
+    /// Mixed-content enforcement runs at every redirect hop; CORS is evaluated
+    /// against the final response URL so cross-origin redirects cannot bypass it.
+    ///
     /// # Errors
     /// Returns `NetworkError` if mixed content or CORS validation fails.
     pub async fn fetch_with_security_context(
@@ -98,19 +101,10 @@ impl HttpClient {
         request: &HttpRequest,
         document_origin: Option<&Url>,
     ) -> Result<HttpResponse, NetworkError> {
-        if let Some(doc_origin) = document_origin
-            && is_insecure_mixed_content(doc_origin, &request.url)
-        {
-            return Err(NetworkError::MixedContentBlocked(
-                request.url.to_string(),
-                doc_origin.to_string(),
-            ));
-        }
-
-        let response = self.fetch_request(request).await?;
+        let response = self.fetch_request_inner(request, document_origin).await?;
 
         if let Some(doc_origin) = document_origin
-            && request.url.origin() != doc_origin.origin()
+            && response.url.origin() != doc_origin.origin()
             && !CorsEvaluator::is_allowed(doc_origin, &response.headers)
         {
             return Err(NetworkError::CorsViolation(doc_origin.to_string()));
@@ -132,19 +126,30 @@ impl HttpClient {
     /// Returns `NetworkError` if connection, TLS handshake, protocol exchange,
     /// redirect resolution, the redirect limit, or the timeout budget is exceeded.
     pub async fn fetch_request(&self, request: &HttpRequest) -> Result<HttpResponse, NetworkError> {
-        tokio::time::timeout(self.config.timeout, self.fetch_request_inner(request))
+        tokio::time::timeout(self.config.timeout, self.fetch_request_inner(request, None))
             .await
             .map_err(|_| NetworkError::Timeout)?
     }
 
-    /// Executes an arbitrary `HttpRequest` without a client-level timeout.
+    /// Executes an arbitrary `HttpRequest` without a client-level timeout,
+    /// enforcing mixed-content rules against `document_origin` at every hop.
     async fn fetch_request_inner(
         &self,
         request: &HttpRequest,
+        document_origin: Option<&Url>,
     ) -> Result<HttpResponse, NetworkError> {
         let mut current = request.clone();
 
         for _hop in 0..=MAX_REDIRECTS {
+            if let Some(doc_origin) = document_origin
+                && is_insecure_mixed_content(doc_origin, &current.url)
+            {
+                return Err(NetworkError::MixedContentBlocked(
+                    current.url.to_string(),
+                    doc_origin.to_string(),
+                ));
+            }
+
             let response = self.execute_request(&current).await?;
             let status = response.status_code;
             let location = response.header("location").map(str::to_owned);

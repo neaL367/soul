@@ -131,7 +131,11 @@ impl ImageDecoder {
     ///
     /// # Errors
     /// Returns `ImageError::SvgDecode` if SVG parsing or rendering fails.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     pub fn decode_svg(
         svg_data: &[u8],
         target_width: u32,
@@ -153,8 +157,13 @@ impl ImageDecoder {
 
         let svg_w = tree.size().width();
         let svg_h = tree.size().height();
-        let scale_x = f32::from(w as u16) / svg_w;
-        let scale_y = f32::from(h as u16) / svg_h;
+        if svg_w <= 0.0 || svg_h <= 0.0 {
+            return Err(ImageError::SvgDecode(format!(
+                "SVG has zero dimensions: {svg_w}x{svg_h}"
+            )));
+        }
+        let scale_x = w as f32 / svg_w;
+        let scale_y = h as f32 / svg_h;
         let transform = tiny_skia::Transform::from_scale(scale_x, scale_y);
 
         resvg::render(&tree, transform, &mut pixmap.as_mut());

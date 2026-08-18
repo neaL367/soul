@@ -103,7 +103,8 @@ impl SoulModel {
         {
             format!("https://{target}")
         } else {
-            let encoded = target.trim();
+            let encoded: String =
+                url::form_urlencoded::byte_serialize(target.trim().as_bytes()).collect();
             format!("https://duckduckgo.com/?q={encoded}")
         }
     }

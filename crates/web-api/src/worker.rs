@@ -24,10 +24,12 @@ impl WebWorker {
 
             while let Ok(msg) = to_worker_rx.recv() {
                 // Execute received message handler
+                let msg_literal =
+                    serde_json::to_string(&msg).unwrap_or_else(|_| "null".to_string());
                 let js_eval = format!(
                     r"
                     if (typeof onmessage === 'function') {{
-                        onmessage({{ data: {msg:?} }});
+                        onmessage({{ data: {msg_literal} }});
                     }}
                     "
                 );

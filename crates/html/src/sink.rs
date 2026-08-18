@@ -172,6 +172,13 @@ impl TreeSink for HtmlTreeSink {
                     .entry(attr.name.local.to_string())
                     .or_insert_with(|| attr.value.to_string());
             }
+            // `id`/`class` caches must track attributes inserted outside `set_attribute`.
+            elem.id = elem.attributes.get("id").cloned();
+            elem.classes = elem
+                .attributes
+                .get("class")
+                .map(|c| c.split_whitespace().map(String::from).collect())
+                .unwrap_or_default();
         }
     }
 

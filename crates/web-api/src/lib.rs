@@ -17,7 +17,7 @@ pub use fetch_binding::{
 };
 pub use indexeddb_binding::register_indexeddb;
 pub use storage_binding::{register_local_storage, register_session_storage};
-pub use timers::{TimerQueue, register_timers};
+pub use timers::{TimerQueue, TimerState, register_timers};
 pub use window_bindings::register_window;
 pub use worker::WebWorker;
 

@@ -179,13 +179,29 @@ fn unix_now() -> u64 {
 }
 
 /// Returns `false` when the response MUST NOT be stored per RFC 9111 s5.2.
+///
+/// Responses carrying `Set-Cookie` (s5.2.2.4) or responding to requests with
+/// `Authorization` (s5.2.2.3) are not stored unless explicitly permitted.
 pub fn should_cache_response<S: ::std::hash::BuildHasher>(
     headers: &HashMap<String, String, S>,
 ) -> bool {
     let cc = headers.get("cache-control").map_or("", String::as_str);
+    let mut has_public = false;
+    let mut has_must_revalidate = false;
     for directive in cc.split(',') {
         let d = directive.trim().to_ascii_lowercase();
-        if d == "no-store" || d == "private" {
+        match d.as_str() {
+            "no-store" | "private" => return false,
+            "public" => has_public = true,
+            "must-revalidate" => has_must_revalidate = true,
+            _ => {}
+        }
+    }
+    for key in headers.keys() {
+        if key.eq_ignore_ascii_case("set-cookie") && !has_public {
+            return false;
+        }
+        if key.eq_ignore_ascii_case("authorization") && !(has_public || has_must_revalidate) {
             return false;
         }
     }

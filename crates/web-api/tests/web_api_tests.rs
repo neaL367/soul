@@ -61,7 +61,7 @@ fn test_dom_get_element_by_id_and_mutate_text() {
 #[test]
 fn test_set_timeout_callback_queued() {
     let mut runtime = JsRuntime::new();
-    let timer_queue: TimerQueue = Rc::new(RefCell::new(Vec::new()));
+    let timer_queue: TimerQueue = Rc::new(RefCell::new(web_api::TimerState::default()));
 
     bind_web_apis(&mut runtime.context, None, None, Some(timer_queue.clone()))
         .expect("bind_web_apis failed");
@@ -69,6 +69,37 @@ fn test_set_timeout_callback_queued() {
     runtime
         .eval("setTimeout(() => { return 42; }, 50);")
         .expect("eval failed");
+
+    let count = timer_queue.borrow().len();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn test_set_timeout_ids_unique_and_clear_timeout_removes() {
+    let mut runtime = JsRuntime::new();
+    let timer_queue: TimerQueue = Rc::new(RefCell::new(web_api::TimerState::default()));
+
+    bind_web_apis(&mut runtime.context, None, None, Some(timer_queue.clone()))
+        .expect("bind_web_apis failed");
+
+    runtime
+        .eval("const id1 = setTimeout(() => 1, 10); const id2 = setTimeout(() => 2, 20);")
+        .expect("eval failed");
+
+    let (id1, id2) = {
+        let js_id1 = runtime.eval("id1").expect("eval id1");
+        let js_id2 = runtime.eval("id2").expect("eval id2");
+        (
+            js_id1.trim_matches('"').parse::<u64>().unwrap(),
+            js_id2.trim_matches('"').parse::<u64>().unwrap(),
+        )
+    };
+    assert_eq!(id1, 0);
+    assert_eq!(id2, 1);
+
+    runtime
+        .eval("clearTimeout(id1);")
+        .expect("eval clearTimeout failed");
 
     let count = timer_queue.borrow().len();
     assert_eq!(count, 1);
