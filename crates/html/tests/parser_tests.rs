@@ -103,3 +103,28 @@ fn test_parse_html_with_styles_ignores_empty_styles() {
     let (_, styles) = html::parse_html_with_styles(html);
     assert!(styles.is_empty());
 }
+
+#[test]
+fn test_parse_html_resources() {
+    let html = r#"<!DOCTYPE html>
+    <html>
+    <head>
+        <link rel="stylesheet" href="/styles/main.css">
+        <link rel="icon" href="/favicon.ico">
+        <style>h1 { font-size: 20px; }</style>
+        <script src="/js/bundle.js"></script>
+    </head>
+    <body>
+        <h1>Hello</h1>
+        <script>console.log("inline script");</script>
+    </body>
+    </html>"#;
+
+    let res = html::parse_html_resources(html);
+    assert_eq!(res.stylesheet_links, vec!["/styles/main.css"]);
+    assert_eq!(res.inline_styles.len(), 1);
+    assert!(res.inline_styles[0].contains("font-size: 20px;"));
+    assert_eq!(res.external_scripts, vec!["/js/bundle.js"]);
+    assert_eq!(res.inline_scripts.len(), 1);
+    assert!(res.inline_scripts[0].contains("console.log"));
+}
