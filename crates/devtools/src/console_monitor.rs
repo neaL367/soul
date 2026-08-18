@@ -1,4 +1,4 @@
-//! Console log capture and streaming for Developer Tools.
+﻿//! Console log capture and streaming for Developer Tools.
 
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +32,11 @@ impl ConsoleMonitor {
             level: level.to_string(),
             message: message.to_string(),
         });
+    }
+
+    /// Clears all recorded console messages.
+    pub fn clear(&mut self) {
+        self.messages.clear();
     }
 
     /// Returns all collected console messages.

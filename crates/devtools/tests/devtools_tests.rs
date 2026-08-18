@@ -72,3 +72,39 @@ fn test_cdp_network_and_console_queries() {
     let con_str = con_resp.result.unwrap().to_string();
     assert!(con_str.contains("Application loaded successfully"));
 }
+
+#[test]
+fn test_cdp_query_selector_and_clearing() {
+    let mut server = CdpServer::new();
+    let mut doc = Document::new();
+    let root = doc.root_id();
+    let mut attrs = HashMap::new();
+    attrs.insert("class".to_string(), "target".to_string());
+    let p = doc.alloc_node(NodeData::Element(ElementData::new("p", attrs)));
+    doc.append_child(root, p);
+
+    let query_req = CdpRequest {
+        id: 10,
+        method: "DOM.querySelector".to_string(),
+        params: Some(serde_json::json!({ "selector": ".target" })),
+    };
+
+    let query_resp = server.handle_request(&query_req, Some(&doc));
+    assert_eq!(query_resp.id, 10);
+    assert!(query_resp.error.is_none());
+    let res = query_resp.result.unwrap();
+    assert_ne!(res.get("nodeId").unwrap().as_u64().unwrap(), 0);
+
+    // Test clear
+    server.console.log("warn", "Test warning");
+    assert_eq!(server.console.get_messages().len(), 1);
+
+    let clear_req = CdpRequest {
+        id: 11,
+        method: "Console.clearMessages".to_string(),
+        params: None,
+    };
+    let clear_resp = server.handle_request(&clear_req, None);
+    assert_eq!(clear_resp.id, 11);
+    assert_eq!(server.console.get_messages().len(), 0);
+}

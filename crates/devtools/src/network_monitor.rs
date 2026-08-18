@@ -1,4 +1,4 @@
-//! Network traffic recording and monitoring for Developer Tools.
+﻿//! Network traffic recording and monitoring for Developer Tools.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -55,10 +55,15 @@ impl NetworkMonitor {
         }
     }
 
+    /// Clears all recorded network transactions.
+    pub fn clear(&mut self) {
+        self.events.clear();
+    }
+
     /// Returns a list of all recorded network transactions.
     #[must_use]
     pub fn get_events(&self) -> Vec<NetworkEventLog> {
-        let mut list: Vec<NetworkEventLog> = self.events.values().cloned().collect();
+        let mut list: Vec<_> = self.events.values().cloned().collect();
         list.sort_by_key(|e| e.request_id);
         list
     }
