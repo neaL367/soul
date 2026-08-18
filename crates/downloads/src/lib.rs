@@ -1,10 +1,12 @@
 //! Download manager subsystem providing resumable HTTP file transfers and MOTW file security.
 
+pub mod disposition;
 pub mod error;
 pub mod item;
 pub mod manager;
 pub mod motw;
 
+pub use disposition::{find_available_path, parse_content_disposition_filename, sanitize_filename};
 pub use error::DownloadError;
 pub use item::{DownloadItem, DownloadState};
 pub use manager::DownloadManager;
