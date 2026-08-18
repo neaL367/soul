@@ -7,7 +7,7 @@ use paint::DisplayListBuilder;
 use raster::CpuRasterizer;
 use std::time::{Duration, Instant};
 
-/// Benchmark performance summary results.
+/// Benchmark performance summary results for a single run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PipelineBenchmarkResult {
     /// HTML parsing duration.
@@ -20,6 +20,33 @@ pub struct PipelineBenchmarkResult {
     pub paint_duration: Duration,
     /// CPU pixel rasterization duration.
     pub raster_duration: Duration,
+}
+
+impl PipelineBenchmarkResult {
+    /// Returns the total duration across all 5 engine pipeline stages.
+    #[must_use]
+    pub fn total_duration(&self) -> Duration {
+        self.html_parse_duration
+            + self.css_cascade_duration
+            + self.layout_duration
+            + self.paint_duration
+            + self.raster_duration
+    }
+}
+
+/// Aggregated multi-iteration benchmark statistics.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PipelineStats {
+    /// Total number of iterations executed.
+    pub iterations: usize,
+    /// Mean total duration per frame.
+    pub mean_total: Duration,
+    /// Minimum recorded frame duration.
+    pub min_total: Duration,
+    /// Maximum recorded frame duration.
+    pub max_total: Duration,
+    /// Calculated frames per second throughput.
+    pub throughput_fps: f64,
 }
 
 /// Runs a full synthetic HTML-to-pixels pipeline benchmark.
@@ -63,5 +90,42 @@ pub fn benchmark_full_pipeline(html_source: &str, css_source: &str) -> PipelineB
         layout_duration,
         paint_duration,
         raster_duration,
+    }
+}
+
+/// Runs the pipeline benchmark for `n` iterations and computes aggregated statistical metrics.
+#[must_use]
+pub fn benchmark_pipeline_stats(html_source: &str, css_source: &str, iterations: usize) -> PipelineStats {
+    let count = iterations.max(1);
+    let mut total_duration = Duration::ZERO;
+    let mut min_total = Duration::MAX;
+    let mut max_total = Duration::ZERO;
+
+    for _ in 0..count {
+        let res = benchmark_full_pipeline(html_source, css_source);
+        let tot = res.total_duration();
+        total_duration += tot;
+        if tot < min_total {
+            min_total = tot;
+        }
+        if tot > max_total {
+            max_total = tot;
+        }
+    }
+
+    let mean_total = total_duration / count as u32;
+    let mean_secs = mean_total.as_secs_f64();
+    let throughput_fps = if mean_secs > 0.0 {
+        1.0 / mean_secs
+    } else {
+        0.0
+    };
+
+    PipelineStats {
+        iterations: count,
+        mean_total,
+        min_total,
+        max_total,
+        throughput_fps,
     }
 }

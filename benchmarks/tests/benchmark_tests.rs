@@ -27,3 +27,15 @@ fn test_full_pipeline_benchmark_execution() {
     assert!(result.paint_duration.as_nanos() > 0);
     assert!(result.raster_duration.as_nanos() > 0);
 }
+
+#[test]
+fn test_pipeline_multi_iteration_stats() {
+    let html = "<html><body><h1>Multi Run</h1><p>Performance stats testing.</p></body></html>";
+    let css = "h1 { color: red; }";
+
+    let stats = benchmarks::benchmark_pipeline_stats(html, css, 3);
+    assert_eq!(stats.iterations, 3);
+    assert!(stats.mean_total > std::time::Duration::ZERO);
+    assert!(stats.min_total <= stats.max_total);
+    assert!(stats.throughput_fps > 0.0);
+}
