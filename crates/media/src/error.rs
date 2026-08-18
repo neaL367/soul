@@ -16,4 +16,8 @@ pub enum MediaError {
     /// Canvas 2D drawing error.
     #[error("Canvas 2D error: {0}")]
     CanvasError(String),
+
+    /// Unsupported media container format.
+    #[error("Unsupported media format: {0}")]
+    UnsupportedFormat(String),
 }
