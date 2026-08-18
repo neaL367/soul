@@ -8,6 +8,7 @@ use url::Url;
 /// # Errors
 ///
 /// Returns a `JsResult` error if property registration fails.
+#[allow(clippy::too_many_lines)]
 pub fn register_window(context: &mut Context, current_url: &str) -> JsResult<()> {
     let parsed = Url::parse(current_url).ok();
     let href = current_url.to_string();
@@ -15,6 +16,27 @@ pub fn register_window(context: &mut Context, current_url: &str) -> JsResult<()>
         || "null".to_string(),
         |u| u.origin().unicode_serialization(),
     );
+    let protocol = parsed
+        .as_ref()
+        .map_or_else(|| "about:".to_string(), |u| format!("{}:", u.scheme()));
+    let host = parsed
+        .as_ref()
+        .and_then(|u| u.host_str())
+        .map_or_else(String::new, |h| {
+            parsed
+                .as_ref()
+                .and_then(Url::port)
+                .map_or_else(|| h.to_string(), |port| format!("{h}:{port}"))
+        });
+    let hostname = parsed
+        .as_ref()
+        .and_then(|u| u.host_str())
+        .unwrap_or_default()
+        .to_string();
+    let port = parsed
+        .as_ref()
+        .and_then(Url::port)
+        .map_or_else(String::new, |p| p.to_string());
     let pathname = parsed.as_ref().map_or("/", Url::path).to_string();
     let search = parsed
         .as_ref()
@@ -34,6 +56,26 @@ pub fn register_window(context: &mut Context, current_url: &str) -> JsResult<()>
         .property(
             js_string!("origin"),
             js_string!(origin),
+            Attribute::READONLY | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("protocol"),
+            js_string!(protocol),
+            Attribute::READONLY | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("host"),
+            js_string!(host),
+            Attribute::READONLY | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("hostname"),
+            js_string!(hostname),
+            Attribute::READONLY | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("port"),
+            js_string!(port),
             Attribute::READONLY | Attribute::ENUMERABLE,
         )
         .property(
@@ -62,6 +104,21 @@ pub fn register_window(context: &mut Context, current_url: &str) -> JsResult<()>
         .property(
             js_string!("platform"),
             js_string!("Win32"),
+            Attribute::READONLY | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("language"),
+            js_string!("en-US"),
+            Attribute::READONLY | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("onLine"),
+            true,
+            Attribute::READONLY | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("cookieEnabled"),
+            true,
             Attribute::READONLY | Attribute::ENUMERABLE,
         )
         .build();

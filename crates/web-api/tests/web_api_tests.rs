@@ -154,16 +154,26 @@ fn test_window_location_and_navigator_bindings() {
 
     let href = runtime.eval("location.href").expect("eval href");
     let origin = runtime.eval("location.origin").expect("eval origin");
+    let protocol = runtime.eval("location.protocol").expect("eval protocol");
+    let host = runtime.eval("location.host").expect("eval host");
+    let hostname = runtime.eval("location.hostname").expect("eval hostname");
     let pathname = runtime.eval("location.pathname").expect("eval pathname");
     let search = runtime.eval("location.search").expect("eval search");
     let user_agent = runtime.eval("navigator.userAgent").expect("eval userAgent");
+    let language = runtime.eval("navigator.language").expect("eval language");
+    let on_line = runtime.eval("navigator.onLine").expect("eval onLine");
 
     assert_eq!(
         href.trim_matches('"'),
         "https://docs.rs/hyper/1.0.0/hyper/index.html?search=client#top"
     );
     assert_eq!(origin.trim_matches('"'), "https://docs.rs");
+    assert_eq!(protocol.trim_matches('"'), "https:");
+    assert_eq!(host.trim_matches('"'), "docs.rs");
+    assert_eq!(hostname.trim_matches('"'), "docs.rs");
     assert_eq!(pathname.trim_matches('"'), "/hyper/1.0.0/hyper/index.html");
     assert_eq!(search.trim_matches('"'), "?search=client");
     assert!(user_agent.contains("Soul/"));
+    assert_eq!(language.trim_matches('"'), "en-US");
+    assert_eq!(on_line, "true");
 }
