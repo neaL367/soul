@@ -104,3 +104,33 @@ fn test_dom_queries_by_id_tag_class() {
     let articles = doc.get_elements_by_class_name("article");
     assert_eq!(articles, vec![div_id]);
 }
+
+#[test]
+fn test_dom_element_traversal_helpers() {
+    let mut doc = Document::new();
+    let parent = doc.alloc_node(NodeData::Element(ElementData::new("div", HashMap::new())));
+    doc.append_child(doc.root_id(), parent);
+
+    // Text node before elements
+    let text1 = doc.alloc_node(NodeData::Text("Intro".to_string()));
+    doc.append_child(parent, text1);
+
+    let elem1 = doc.alloc_node(NodeData::Element(ElementData::new("p", HashMap::new())));
+    doc.append_child(parent, elem1);
+
+    // Comment node between elements
+    let comment = doc.alloc_node(NodeData::Comment("note".to_string()));
+    doc.append_child(parent, comment);
+
+    let elem2 = doc.alloc_node(NodeData::Element(ElementData::new("span", HashMap::new())));
+    doc.append_child(parent, elem2);
+
+    assert_eq!(doc.first_element_child(parent), Some(elem1));
+    assert_eq!(doc.last_element_child(parent), Some(elem2));
+    assert_eq!(doc.next_element_sibling(elem1), Some(elem2));
+    assert_eq!(doc.previous_element_sibling(elem2), Some(elem1));
+    assert_eq!(doc.child_element_count(parent), 2);
+    assert!(doc.contains(parent, elem2));
+    assert!(doc.contains(parent, text1));
+    assert!(!doc.contains(elem1, elem2));
+}

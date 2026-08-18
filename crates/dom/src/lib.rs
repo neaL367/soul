@@ -2,6 +2,7 @@
 
 pub mod document;
 pub mod node;
+pub mod traversal;
 
 pub use document::Document;
 pub use node::{DocumentTypeData, ElementData, InvalidationFlags, Node, NodeData, NodeId};
