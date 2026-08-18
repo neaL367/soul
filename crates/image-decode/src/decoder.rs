@@ -1,6 +1,10 @@
-//! Image decoding pipeline for raster bitmaps and SVG vector graphics.
+//! Image decoding pipeline for raster bitmaps, animated sequences, and SVG vector graphics.
 
 use crate::error::ImageError;
+use image::AnimationDecoder;
+use image::codecs::gif::GifDecoder;
+use image::codecs::webp::WebPDecoder;
+use std::io::Cursor;
 
 /// Decoded image buffer containing raw 32-bit RGBA pixel bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,14 +17,37 @@ pub struct DecodedImage {
     pub rgba_pixels: Vec<u8>,
 }
 
-/// High-performance image decoder supporting PNG, JPEG, WebP, GIF, and SVG.
+/// A single frame in an animated image sequence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimationFrame {
+    /// Width of this frame in pixels.
+    pub width: u32,
+    /// Height of this frame in pixels.
+    pub height: u32,
+    /// RGBA 8-bit pixel byte array for this frame.
+    pub rgba_pixels: Vec<u8>,
+    /// Display duration for this frame in milliseconds.
+    pub duration_ms: u32,
+}
+
+/// An animated image containing an ordered sequence of frames.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimatedImage {
+    /// Canvas width in pixels.
+    pub width: u32,
+    /// Canvas height in pixels.
+    pub height: u32,
+    /// Ordered frames comprising the animation.
+    pub frames: Vec<AnimationFrame>,
+}
+
+/// High-performance image decoder supporting PNG, JPEG, WebP, GIF, ICO, BMP, and SVG.
 pub struct ImageDecoder;
 
 impl ImageDecoder {
-    /// Decodes raw raster image bytes (PNG, JPEG, WebP, GIF) into raw RGBA pixels.
+    /// Decodes raw raster image bytes into raw RGBA pixels.
     ///
     /// # Errors
-    ///
     /// Returns `ImageError::RasterDecode` if format parsing fails.
     pub fn decode_raster(bytes: &[u8]) -> Result<DecodedImage, ImageError> {
         let img = image::load_from_memory(bytes)?;
@@ -34,10 +61,75 @@ impl ImageDecoder {
         })
     }
 
+    /// Automatically detects format (SVG vs raster) and decodes to RGBA pixels.
+    ///
+    /// # Errors
+    /// Returns `ImageError` if neither SVG nor raster decoding succeeds.
+    pub fn decode_auto(bytes: &[u8]) -> Result<DecodedImage, ImageError> {
+        if is_svg(bytes) {
+            Self::decode_svg(bytes, 0, 0)
+        } else {
+            Self::decode_raster(bytes)
+        }
+    }
+
+    /// Decodes an animated image (GIF or animated WebP) into an `AnimatedImage`.
+    ///
+    /// # Errors
+    /// Returns `ImageError` if animation decoding fails or format is unsupported.
+    pub fn decode_animation(bytes: &[u8]) -> Result<AnimatedImage, ImageError> {
+        let cursor = Cursor::new(bytes);
+
+        let frames_result = if let Ok(decoder) = GifDecoder::new(cursor) {
+            decoder.into_frames().collect_frames()
+        } else {
+            let cursor = Cursor::new(bytes);
+            let decoder = WebPDecoder::new(cursor)
+                .map_err(|e| ImageError::UnsupportedFormat(e.to_string()))?;
+            decoder.into_frames().collect_frames()
+        };
+
+        let raw_frames = frames_result.map_err(ImageError::RasterDecode)?;
+        if raw_frames.is_empty() {
+            return Err(ImageError::UnsupportedFormat(
+                "image contains no animation frames".to_string(),
+            ));
+        }
+
+        let mut frames = Vec::with_capacity(raw_frames.len());
+        let mut max_w = 0u32;
+        let mut max_h = 0u32;
+
+        for frame in raw_frames {
+            let (numer, denom) = frame.delay().numer_denom_ms();
+            let duration_ms = numer
+                .saturating_add(denom / 2)
+                .checked_div(denom)
+                .unwrap_or(numer);
+
+            let buffer = frame.into_buffer();
+            let (w, h) = buffer.dimensions();
+            max_w = max_w.max(w);
+            max_h = max_h.max(h);
+
+            frames.push(AnimationFrame {
+                width: w,
+                height: h,
+                rgba_pixels: buffer.into_raw(),
+                duration_ms,
+            });
+        }
+
+        Ok(AnimatedImage {
+            width: max_w,
+            height: max_h,
+            frames,
+        })
+    }
+
     /// Parses and rasterizes vector SVG graphics into RGBA pixels at specified dimensions.
     ///
     /// # Errors
-    ///
     /// Returns `ImageError::SvgDecode` if SVG parsing or rendering fails.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn decode_svg(
@@ -73,4 +165,13 @@ impl ImageDecoder {
             rgba_pixels: pixmap.take(),
         })
     }
+}
+
+/// Sniffs whether the byte stream looks like SVG vector XML.
+fn is_svg(bytes: &[u8]) -> bool {
+    let prefix = std::str::from_utf8(&bytes[..bytes.len().min(512)]).unwrap_or("");
+    let trimmed = prefix.trim_start();
+    trimmed.starts_with("<svg")
+        || (trimmed.starts_with("<?xml") && trimmed.contains("<svg"))
+        || trimmed.starts_with("<!DOCTYPE svg")
 }
