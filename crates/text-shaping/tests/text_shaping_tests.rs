@@ -62,3 +62,19 @@ fn test_unicode_line_breaking_hard_newline() {
     assert_eq!(lines[1].text, "Second Line");
     assert_eq!(lines[2].text, "Third Line");
 }
+
+#[test]
+fn test_text_shaper_letter_and_word_spacing() {
+    let shaper = TextShaper::new();
+    let base_run = shaper.shape_text("Hello World", "sans-serif", 16.0, false);
+    let spaced_run =
+        shaper.shape_text_with_spacing("Hello World", "sans-serif", 16.0, false, 2.0, 5.0);
+
+    // 11 characters * 2px letter spacing + 1 space * 5px word spacing = 27px added
+    let expected_diff = 27.0;
+    let actual_diff = spaced_run.advance_width - base_run.advance_width;
+    assert!(
+        (actual_diff - expected_diff).abs() < 0.1,
+        "expected diff {expected_diff}, got {actual_diff}"
+    );
+}

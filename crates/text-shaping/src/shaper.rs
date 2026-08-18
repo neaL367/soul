@@ -64,6 +64,20 @@ impl TextShaper {
         font_size: f32,
         is_bold: bool,
     ) -> ShapedRun {
+        self.shape_text_with_spacing(text, font_family, font_size, is_bold, 0.0, 0.0)
+    }
+
+    /// Shapes a text string into a `ShapedRun` applying CSS letter-spacing and word-spacing.
+    #[must_use]
+    pub fn shape_text_with_spacing(
+        &self,
+        text: &str,
+        font_family: &str,
+        font_size: f32,
+        is_bold: bool,
+        letter_spacing: f32,
+        word_spacing: f32,
+    ) -> ShapedRun {
         let metrics = FontMetrics::for_size(font_size);
         let _font_id = self.font_db.query_font(font_family);
 
@@ -72,11 +86,19 @@ impl TextShaper {
 
         for (idx, ch) in text.char_indices() {
             let base_advance = character_advance_width(ch, font_size, font_family);
-            let char_advance = if is_bold {
+            let bold_adjusted = if is_bold {
                 base_advance * 1.05
             } else {
                 base_advance
             };
+
+            let spacing = if ch == ' ' || ch == '\u{00A0}' {
+                letter_spacing + word_spacing
+            } else {
+                letter_spacing
+            };
+
+            let char_advance = (bold_adjusted + spacing).max(0.0);
 
             #[allow(clippy::cast_possible_truncation)]
             glyphs.push(GlyphPosition {

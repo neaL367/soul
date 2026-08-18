@@ -38,6 +38,10 @@ pub struct ComputedStyle {
     pub text_align: TextAlign,
     /// Line height in resolved pixels or relative multiplier (inherited).
     pub line_height: Option<f32>,
+    /// Letter spacing in resolved pixels (inherited).
+    pub letter_spacing: f32,
+    /// Word spacing in resolved pixels (inherited).
+    pub word_spacing: f32,
     /// Margin top in resolved pixels.
     pub margin_top: f32,
     /// Margin right in resolved pixels.
@@ -127,6 +131,8 @@ impl ComputedStyle {
             text_decoration: TextDecoration::None,
             text_align: TextAlign::Left,
             line_height: None,
+            letter_spacing: 0.0,
+            word_spacing: 0.0,
             margin_top: 0.0,
             margin_right: 0.0,
             margin_bottom: 0.0,
@@ -171,5 +177,7 @@ impl ComputedStyle {
         self.text_decoration = parent.text_decoration;
         self.text_align = parent.text_align;
         self.line_height = parent.line_height;
+        self.letter_spacing = parent.letter_spacing;
+        self.word_spacing = parent.word_spacing;
     }
 }
