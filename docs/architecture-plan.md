@@ -227,8 +227,8 @@ browser/
 | M4 Networking | HTTP(S), DNS, redirects, cookies | **Complete** |
 | M5 HTML parser | html5ever → DOM | **Complete** |
 | M6 DOM API | NodeId arena, mutation, query | **Complete** |
-| M7 CSS + style | cascade, computed style | **Complete** |
-| M8 Layout | block/inline/flex + text shaping | **Complete** |
+| M7 CSS + style | cascade, computed style | **Complete** — note: tokenizer/selector matching is hand-rolled rather than `cssparser`/`selectors` (ADR-17) |
+| M8 Layout | block/inline/flex + text shaping | **Partial** — block/inline layout is wired and tested; `layout_flex` exists but has no pipeline caller (flex containers lay out as blocks); text renders as placeholder rectangles because shaping is a synthetic-advance stub with no glyph rasterization (ADR-18); em/rem widths fall back to auto; inline-block is treated as inline; absolute/fixed/sticky positions compute but are not laid out |
 | M9 Paint | display list | **Complete** |
 | M9.5 A11y skeleton | semantic data in fragment tree | **Complete** |
 | M10a Software raster | CPU pixels on screen | **Complete** |
@@ -247,13 +247,21 @@ browser/
 | M22 Security | CSP, DPAPI, private browsing | **Partial** |
 | M23 Production | signed installer, updates, crash reporting | **Partial** |
 
+**Known deviations from plan intent (audit 2026-08-18, tracked in ADR-17..19):**
+- Text is drawn as placeholder solid rectangles — no glyph shaping or rasterization yet (M8 Partial).
+- CSS tokenizer/selector matching is hand-rolled; `cssparser`/`selectors` reuse deferred (ADR-17).
+- Text shaping is a synthetic-advance stub; `cosmic-text`/`rustybuzz` integration outstanding (ADR-18).
+- DNS uses the platform resolver via `tokio`, not `hickory-resolver`; cookie parsing is hand-rolled rather than the `cookie` crate (ADR-19).
+- CSP module exists but is not yet enforced on any response path (M22 Partial).
+- Cookie jar: SameSite not enforced on send, no public-suffix enforcement, `Expires` attribute ignored (ADR-19).
+
 **Note (current wiring work):** `soul-shell` has a fully connected path — `NavigationController` drives live HTTP(S) fetches through the full rendering pipeline, with per-stage timings, PNG screenshot output, inline and external `<script src="...">` execution with Web Storage, rich `fetch()` (`Headers`, `Request`, `Response`) and DOM mutations, external `<link rel="stylesheet">` CSS parsing and cascade resolution, accessibility-tree extraction (verified against live sites and fixtures), and presentation in a genuine native GPUI window with tab switching, URL input, retained scrolling, and dynamic resizing.
 
 ---
 
 ### Next Steps (as of 2026-08-18)
 
-Six milestones remain **Partial**: M14, M16, M18, M21, M22, M23.
+Seven milestones remain Partial or re-flagged: **M8** (Layout), **M14**, **M16**, **M18**, **M21**, **M22**, **M23**.
 
 **M14/M15 decision (made 2026-08-18):** keep explicit single-process execution in `soul-shell` while hardening the message-shaped core. Rationale: the engine is still evolving (M18/M21/M22/M23), the named-pipe transport is already proven, and flipping the boundary now would add process-lifecycle failure modes on top of active engine work. The hardening work (M15) is done: the IPC network contract is complete (bodies, security context, final URL, set-cookies), the service enforces mixed content/CORS and honors cancellation on both transports, and `soul-shell`'s live browser path runs through `NetworkClient` over the in-memory transport — the process split is now a transport-swap (ADR-2/ADR-5). The remaining M14 work is the GPU-process split (shared-texture interop), which stays deferred.
 
@@ -282,7 +290,7 @@ The MVP is reached at the end of **M13**. It can:
 - Parse HTML into a DOM (via `html5ever`).
 - Parse CSS for MVP properties and compute styles via cascade.
 - Render CSS box model, block/inline flow, positioning, colors, fonts, backgrounds, borders.
-- Display text (shaped via `cosmic-text`) and images (via `image`).
+- Display text (glyph rendering outstanding — currently placeholder rectangles; `cosmic-text` integration is the remaining M8 work, ADR-18) and images (via `image`).
 - Scroll smoothly, decoupled from layout.
 - Follow links and navigate with a back/forward stack.
 - Run multiple tabs in GPUI browser UI.

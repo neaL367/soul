@@ -41,6 +41,8 @@ A from-scratch DOM crate, because layout, style, and JS bindings all need to wal
 
 **Decision: reuse `cssparser` + `selectors`** (both Servo-maintained, both genuinely low-level and reusable independent of Stylo) for tokenizing and selector matching. **Write the cascade, computed-value resolution, and layout tree from scratch**, tuned to this engine's DOM and to `taffy` (see §15) as the box-layout solver.
 
+> *Implementation status (2026-08-18):* the current `css` crate hand-rolls tokenizing/selector matching for the MVP property subset; `cssparser`/`selectors` reuse is deferred — see ADR-17.
+
 ```text
 CSS bytes → cssparser Tokenizer → this project's rule/declaration parser → CSSOM (Stylesheet/Rule/Declaration)
 DOM + CSSOM → selector matching (`selectors` crate against this project's DOM `Element` trait)
@@ -85,6 +87,8 @@ Style tree → Box generation (which boxes exist: block/inline/flex/grid/none �
 ### Text shaping (own subsystem, reused libraries)
 
 `cosmic-text` (which bundles `rustybuzz` for shaping — a Rust port of HarfBuzz — plus `swash` for glyph rasterization and `fontdb` for font matching/fallback) is the recommended reuse target: writing a correct Unicode line-breaker + bidi + shaping engine from scratch is an "extremely difficult" bucket item on its own and has essentially zero differentiation value for a browser project. System font enumeration on Windows goes through **DirectWrite** (`windows` crate bindings) feeding `fontdb`.
+
+> *Implementation status (2026-08-18):* `text-shaping` currently ships a synthetic-advance stub and text renders as placeholder rectangles — see ADR-18; `cosmic-text` integration is the remaining M8 work.
 
 **MVP:** left-to-right Latin text, single font per run, basic line breaking (UAX#14 via a reused crate — do not hand-write UAX#14), no ligature/kerning correctness guarantees beyond what `rustybuzz` gives for free.
 

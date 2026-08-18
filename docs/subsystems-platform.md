@@ -10,7 +10,7 @@ For the main architecture index and milestone status, see [`docs/architecture-pl
 ```text
 URL → url crate (parsing, per WHATWG URL spec)
     → Proxy resolution (system proxy settings via WinHTTP/registry, or manual config)
-    → DNS (hickory-resolver, with its own cache)
+    → DNS (hickory-resolver, with its own cache; *implementation note 2026-08-18: currently the platform resolver via `tokio::net::lookup_host` — see ADR-19*)
     → Connection: TCP (std/tokio) for HTTP/1.1 & HTTP/2, or QUIC (quinn) for HTTP/3
     → TLS (rustls, with rustls-native-certs or webpki-roots for the trust store)
     → HTTP/1.1 (hyper) / HTTP/2 (hyper + h2) / HTTP/3 (h3 + quinn)
