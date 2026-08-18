@@ -36,11 +36,7 @@ pub(super) async fn load_subresource_images(
             .await
         {
             Ok(response) => {
-                let decoded = if response.mime_type.contains("svg") {
-                    ImageDecoder::decode_svg(&response.body, 0, 0)
-                } else {
-                    ImageDecoder::decode_raster(&response.body)
-                };
+                let decoded = ImageDecoder::decode_auto(&response.body, 0, 0);
                 match decoded {
                     Ok(image) => {
                         tracing::debug!(
