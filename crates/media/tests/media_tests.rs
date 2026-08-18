@@ -40,3 +40,27 @@ fn test_media_pipeline_lifecycle() {
     pipeline.pause();
     assert_eq!(pipeline.state(), MediaPlaybackState::Paused);
 }
+
+#[test]
+fn test_canvas_2d_state_stack_and_paths() {
+    let mut ctx = Canvas2DContext::new(100, 100).expect("create canvas");
+
+    // Save initial state (black fill)
+    ctx.save();
+
+    // Change fill to red
+    ctx.set_fill_style(1.0, 0.0, 0.0, 1.0);
+    ctx.begin_path();
+    ctx.move_to(10.0, 10.0);
+    ctx.line_to(40.0, 10.0);
+    ctx.line_to(40.0, 40.0);
+    ctx.close_path();
+    ctx.fill();
+
+    // Restore back to black
+    ctx.restore();
+
+    let buf = ctx.to_pixel_buffer();
+    assert_eq!(buf.width, 100);
+    assert_eq!(buf.height, 100);
+}
