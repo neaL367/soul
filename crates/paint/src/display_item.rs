@@ -64,6 +64,21 @@ pub enum DisplayItem {
     PopOpacity,
 }
 
+impl DisplayItem {
+    /// Returns the spatial bounding rectangle of this display item if it is a visual drawing item.
+    #[must_use]
+    pub const fn bounds(&self) -> Option<Rect> {
+        match self {
+            Self::DrawRect { rect, .. }
+            | Self::DrawBorder { rect, .. }
+            | Self::DrawText { rect, .. }
+            | Self::DrawImage { rect, .. }
+            | Self::PushClip { rect } => Some(*rect),
+            Self::PopClip | Self::PushOpacity { .. } | Self::PopOpacity => None,
+        }
+    }
+}
+
 /// Ordered list of display items ready for CPU/GPU rasterization.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DisplayList {
@@ -83,9 +98,39 @@ impl DisplayList {
         }
     }
 
-    /// Appends a `DisplayItem` to the display list.
+    /// Appends a `DisplayItem` to the display list and expands the total bounds.
     pub fn push(&mut self, item: DisplayItem) {
+        if let Some(item_bounds) = item.bounds() {
+            if self.items.is_empty() {
+                self.bounds = item_bounds;
+            } else {
+                self.bounds = self.bounds.union(&item_bounds);
+            }
+        }
         self.items.push(item);
+    }
+
+    /// Returns a new `DisplayList` containing only items that intersect the given viewport.
+    #[must_use]
+    pub fn cull_to_viewport(&self, viewport: Rect) -> Self {
+        let mut culled = Self::new();
+        culled.bounds = self.bounds;
+
+        for item in &self.items {
+            match item.bounds() {
+                Some(item_bounds) if !item_bounds.intersects(&viewport) => {
+                    // Item is outside viewport - cull visual items
+                    if matches!(item, DisplayItem::PushClip { .. }) {
+                        culled.items.push(item.clone());
+                    }
+                }
+                _ => {
+                    culled.items.push(item.clone());
+                }
+            }
+        }
+
+        culled
     }
 
     /// Returns the number of items in the display list.

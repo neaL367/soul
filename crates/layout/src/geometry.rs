@@ -30,6 +30,30 @@ impl Rect {
     pub fn contains(&self, px: f32, py: f32) -> bool {
         px >= self.x && px <= self.x + self.width && py >= self.y && py <= self.y + self.height
     }
+
+    /// Returns `true` if this rectangle intersects with another rectangle.
+    #[must_use]
+    pub fn intersects(&self, other: &Self) -> bool {
+        self.x < other.x + other.width
+            && self.x + self.width > other.x
+            && self.y < other.y + other.height
+            && self.y + self.height > other.y
+    }
+
+    /// Computes the minimal bounding rectangle enclosing both rectangles.
+    #[must_use]
+    pub fn union(&self, other: &Self) -> Self {
+        let min_x = self.x.min(other.x);
+        let min_y = self.y.min(other.y);
+        let max_right = (self.x + self.width).max(other.x + other.width);
+        let max_bottom = (self.y + self.height).max(other.y + other.height);
+        Self {
+            x: min_x,
+            y: min_y,
+            width: (max_right - min_x).max(0.0),
+            height: (max_bottom - min_y).max(0.0),
+        }
+    }
 }
 
 /// Sizing applied to the four edges of a box (e.g., margins, paddings, borders).

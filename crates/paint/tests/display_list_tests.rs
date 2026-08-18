@@ -177,3 +177,25 @@ fn test_opacity_push_pop_wrapping() {
     );
     assert_eq!(display_list.items.last(), Some(&DisplayItem::PopOpacity));
 }
+
+#[test]
+fn test_display_list_bounds_and_culling() {
+    let mut list = paint::DisplayList::new();
+    // Item 1: at (10, 10) 100x100
+    list.push(DisplayItem::DrawRect {
+        rect: Rect::new(10.0, 10.0, 100.0, 100.0),
+        color: Color::rgb(255, 0, 0),
+    });
+    // Item 2: at (500, 500) 100x100
+    list.push(DisplayItem::DrawRect {
+        rect: Rect::new(500.0, 500.0, 100.0, 100.0),
+        color: Color::rgb(0, 0, 255),
+    });
+
+    assert_eq!(list.len(), 2);
+    assert!(list.bounds.width >= 590.0);
+
+    // Cull against top-left viewport (0, 0, 200, 200)
+    let culled = list.cull_to_viewport(Rect::new(0.0, 0.0, 200.0, 200.0));
+    assert_eq!(culled.len(), 1);
+}
