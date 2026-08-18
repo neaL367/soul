@@ -171,3 +171,133 @@ fn test_session_storage_in_memory_isolation() {
     assert_eq!(session.len("https://app.local"), 0);
     assert!(session.is_empty("https://app.local"));
 }
+
+// ── RFC 9111 HTTP Cache Tests ─────────────────────────────────────────────
+
+#[test]
+fn test_http_cache_store_and_fresh_lookup() {
+    use std::collections::HashMap;
+    use storage::HttpCacheStore;
+
+    let dir = std::env::temp_dir().join("soul_cache_test_fresh.db");
+    let _ = std::fs::remove_file(&dir);
+    let store = HttpCacheStore::new(&dir).unwrap();
+
+    let mut headers = HashMap::new();
+    headers.insert("cache-control".to_string(), "max-age=3600".to_string());
+    headers.insert("etag".to_string(), "\"abc123\"".to_string());
+
+    store
+        .store(
+            "https://example.com/style.css",
+            200,
+            "text/css",
+            &headers,
+            b"body { color: red; }",
+        )
+        .unwrap();
+
+    let entry = store
+        .lookup("https://example.com/style.css")
+        .unwrap()
+        .expect("entry must exist");
+
+    assert_eq!(entry.url, "https://example.com/style.css");
+    assert_eq!(entry.status_code, 200);
+    assert_eq!(entry.mime_type, "text/css");
+    assert_eq!(entry.etag.as_deref(), Some("\"abc123\""));
+    assert_eq!(entry.max_age_secs, 3600);
+    assert_eq!(entry.body, b"body { color: red; }");
+    assert!(
+        HttpCacheStore::is_fresh(&entry),
+        "entry with 1-hour max-age must be fresh"
+    );
+
+    let _ = std::fs::remove_file(&dir);
+}
+
+#[test]
+fn test_http_cache_staleness_and_metadata_update() {
+    use std::collections::HashMap;
+    use storage::HttpCacheStore;
+
+    let dir = std::env::temp_dir().join("soul_cache_test_stale.db");
+    let _ = std::fs::remove_file(&dir);
+    let store = HttpCacheStore::new(&dir).unwrap();
+
+    let mut headers = HashMap::new();
+    headers.insert("cache-control".to_string(), "max-age=0".to_string());
+    headers.insert("etag".to_string(), "\"v1\"".to_string());
+
+    store
+        .store(
+            "https://example.com/data.json",
+            200,
+            "application/json",
+            &headers,
+            b"{}",
+        )
+        .unwrap();
+
+    let entry = store
+        .lookup("https://example.com/data.json")
+        .unwrap()
+        .expect("entry must exist");
+
+    // max-age=0 means always stale
+    assert!(
+        !HttpCacheStore::is_fresh(&entry),
+        "max-age=0 entry must be stale"
+    );
+
+    // Simulate 304 response refreshing metadata with new max-age
+    store
+        .update_metadata("https://example.com/data.json", Some("\"v2\""), 600)
+        .unwrap();
+
+    let refreshed = store
+        .lookup("https://example.com/data.json")
+        .unwrap()
+        .expect("entry must still exist");
+
+    assert_eq!(refreshed.etag.as_deref(), Some("\"v2\""));
+    assert_eq!(refreshed.max_age_secs, 600);
+    assert_eq!(
+        refreshed.body, b"{}",
+        "body unchanged after metadata update"
+    );
+    assert!(
+        HttpCacheStore::is_fresh(&refreshed),
+        "refreshed entry must be fresh"
+    );
+
+    let _ = std::fs::remove_file(&dir);
+}
+
+#[test]
+fn test_http_cache_no_store_is_never_cached() {
+    use std::collections::HashMap;
+    use storage::HttpCacheStore;
+
+    let dir = std::env::temp_dir().join("soul_cache_test_nostore.db");
+    let _ = std::fs::remove_file(&dir);
+    let store = HttpCacheStore::new(&dir).unwrap();
+
+    let mut headers = HashMap::new();
+    headers.insert("cache-control".to_string(), "no-store".to_string());
+
+    store
+        .store(
+            "https://example.com/private",
+            200,
+            "text/html",
+            &headers,
+            b"<secret>",
+        )
+        .unwrap();
+
+    let entry = store.lookup("https://example.com/private").unwrap();
+    assert!(entry.is_none(), "no-store response must never be persisted");
+
+    let _ = std::fs::remove_file(&dir);
+}
