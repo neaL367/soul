@@ -37,3 +37,11 @@ fn test_restricted_token_creation() {
         assert!(!tok.raw_handle().is_invalid());
     }
 }
+
+#[test]
+fn test_job_object_accounting_query() {
+    let job = JobObject::create().expect("failed to create JobObject");
+    let stats = job.query_accounting().expect("query accounting");
+    assert_eq!(stats.active_processes, 0);
+    assert_eq!(stats.total_processes, 0);
+}
