@@ -2,8 +2,6 @@
 
 use html::parse_html;
 use javascript::JsRuntime;
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use web_api::{TimerQueue, bind_web_apis};
 
@@ -61,7 +59,9 @@ fn test_dom_get_element_by_id_and_mutate_text() {
 #[test]
 fn test_set_timeout_callback_queued() {
     let mut runtime = JsRuntime::new();
-    let timer_queue: TimerQueue = Rc::new(RefCell::new(web_api::TimerState::default()));
+    let timer_queue: TimerQueue = boa_engine::gc::Gc::new(boa_engine::gc::GcRefCell::new(
+        web_api::TimerState::default(),
+    ));
 
     bind_web_apis(&mut runtime.context, None, None, Some(timer_queue.clone()))
         .expect("bind_web_apis failed");
@@ -77,7 +77,9 @@ fn test_set_timeout_callback_queued() {
 #[test]
 fn test_set_timeout_ids_unique_and_clear_timeout_removes() {
     let mut runtime = JsRuntime::new();
-    let timer_queue: TimerQueue = Rc::new(RefCell::new(web_api::TimerState::default()));
+    let timer_queue: TimerQueue = boa_engine::gc::Gc::new(boa_engine::gc::GcRefCell::new(
+        web_api::TimerState::default(),
+    ));
 
     bind_web_apis(&mut runtime.context, None, None, Some(timer_queue.clone()))
         .expect("bind_web_apis failed");

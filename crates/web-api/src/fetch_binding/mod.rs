@@ -11,8 +11,9 @@ pub use response::{create_response_object, register_response_constructor};
 pub use types::{FetchHandler, FetchRequest, FetchResponse, RichFetchHandler};
 
 use boa_engine::{
-    Context, JsArgs, JsNativeError, JsResult, JsValue,
+    Context, JsArgs, JsError, JsNativeError, JsResult, JsValue,
     gc::{Finalize, Trace},
+    job::{Job, NativeAsyncJob},
     js_string,
     native_function::NativeFunction,
     object::builtins::JsPromise,
@@ -81,23 +82,48 @@ pub fn register_rich_fetch(context: &mut Context, fetch_handler: RichFetchHandle
                 }
             }
 
-            match (captures.0)(&req) {
-                Ok(response_data) => match create_response_object(ctx, response_data) {
-                    Ok(resp_obj) => {
-                        let promise = JsPromise::resolve(JsValue::from(resp_obj), ctx);
-                        Ok(JsValue::from(promise))
+            // Run the (potentially blocking) handler on a worker thread and
+            // settle the returned promise from an async job once it completes,
+            // so a slow network response never blocks the JavaScript thread.
+            let (promise, resolvers) = JsPromise::new_pending(ctx);
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let handler = captures.0.clone();
+            std::thread::spawn(move || {
+                let result = (handler)(&req);
+                let _ = tx.send(result);
+            });
+
+            let job = NativeAsyncJob::new(async move |job_ctx| {
+                let outcome = rx.await;
+                let mut ctx = job_ctx.borrow_mut();
+                let settled = match outcome {
+                    Ok(Ok(response_data)) => {
+                        let resp_obj = create_response_object(&mut ctx, response_data)?;
+                        resolvers
+                            .resolve
+                            .call(&JsValue::undefined(), &[resp_obj.into()], &mut ctx)
                     }
-                    Err(err) => {
-                        let promise = JsPromise::reject(err, ctx);
-                        Ok(JsValue::from(promise))
+                    Ok(Err(err_msg)) => {
+                        let native_err = JsNativeError::error().with_message(err_msg);
+                        let opaque = JsError::from_native(native_err).to_opaque(&mut ctx);
+                        resolvers
+                            .reject
+                            .call(&JsValue::undefined(), &[opaque], &mut ctx)
                     }
-                },
-                Err(err_msg) => {
-                    let native_err = JsNativeError::error().with_message(err_msg);
-                    let promise = JsPromise::reject(native_err, ctx);
-                    Ok(JsValue::from(promise))
-                }
-            }
+                    Err(_) => {
+                        let native_err =
+                            JsNativeError::error().with_message("fetch worker thread failed");
+                        let opaque = JsError::from_native(native_err).to_opaque(&mut ctx);
+                        resolvers
+                            .reject
+                            .call(&JsValue::undefined(), &[opaque], &mut ctx)
+                    }
+                };
+                settled.map(|_| JsValue::undefined())
+            });
+            ctx.enqueue_job(Job::from(job));
+
+            Ok(JsValue::from(promise))
         },
         holder,
     );

@@ -117,10 +117,68 @@ fn test_js_rich_fetch_json_and_headers() {
 }
 
 #[test]
+fn test_fetch_handler_runs_off_the_js_thread() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let mut runtime = JsRuntime::new();
+    let (started_tx, started_rx) = mpsc::channel();
+    let handler = Arc::new(move |req: &FetchRequest| {
+        let _ = started_tx.send((req.url.clone(), std::thread::current().id()));
+        std::thread::sleep(Duration::from_millis(200));
+        Ok(FetchResponse::ok_text(&req.url, "slow-but-fine"))
+    });
+    register_rich_fetch(&mut runtime.context, handler).expect("Register fetch failed");
+
+    let result_cell = Arc::new(Mutex::new(String::new()));
+    let result_holder = CallbackHolder(result_cell.clone());
+    let cb = NativeFunction::from_copy_closure_with_captures(
+        |_this, args, captures, ctx| {
+            let val = args.get_or_undefined(0).to_string(ctx)?;
+            if let Ok(mut lock) = captures.0.lock() {
+                *lock = val.to_std_string_escaped();
+            }
+            Ok(JsValue::undefined())
+        },
+        result_holder,
+    );
+    runtime
+        .context
+        .register_global_callable(js_string!("onSlowFetch"), 1, cb)
+        .unwrap();
+
+    runtime
+        .eval(
+            r#"
+            fetch("https://slow.example.com/data")
+                .then(res => res.text())
+                .then(text => onSlowFetch(text));
+        "#,
+        )
+        .expect("eval failed");
+
+    // The handler must have been invoked on a worker thread, never on the
+    // JavaScript thread itself.
+    let (url, handler_thread) = started_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("fetch handler never started");
+    assert_eq!(url, "https://slow.example.com/data");
+    assert_ne!(
+        handler_thread,
+        std::thread::current().id(),
+        "blocking fetch handler must not run on the JS thread"
+    );
+
+    // Draining settles the promise with the worker thread's result.
+    let captured = result_cell.lock().unwrap().clone();
+    assert_eq!(captured, "slow-but-fine");
+}
+
+#[test]
 fn test_js_headers_object_crud() {
     let mut runtime = JsRuntime::new();
     let handler = Arc::new(|req: &FetchRequest| Ok(FetchResponse::ok_text(&req.url, "ok")));
-    register_rich_fetch(&mut runtime.context, handler).expect("Register rich fetch failed");
+    register_rich_fetch(&mut runtime.context, handler).expect("Register fetch failed");
 
     let result_cell = Arc::new(Mutex::new(String::new()));
     let result_holder = CallbackHolder(result_cell.clone());

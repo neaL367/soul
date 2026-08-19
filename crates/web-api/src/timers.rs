@@ -2,15 +2,18 @@
 
 use boa_engine::{
     Context, JsArgs, JsObject, JsResult, JsValue,
-    gc::{Finalize, Trace},
+    gc::{Finalize, Gc, GcRefCell, Trace},
     js_string,
     native_function::NativeFunction,
 };
-use std::cell::RefCell;
-use std::rc::Rc;
 
 /// Pending timer callback storage with monotonically increasing timer ids.
-#[derive(Clone, Default)]
+///
+/// The stored callbacks are `JsObject`s and must remain visible to Boa's
+/// garbage collector; the type therefore implements [`Trace`] and is stored
+/// behind a [`GcRefCell`] so an unswept timer callback can never be collected
+/// while still scheduled.
+#[derive(Clone, Default, Trace, Finalize)]
 pub struct TimerState {
     next_id: u64,
     pending: Vec<(u64, JsObject)>,
@@ -44,10 +47,13 @@ impl TimerState {
 }
 
 /// Global timer queue storing pending callbacks for the JavaScript execution context.
-pub type TimerQueue = Rc<RefCell<TimerState>>;
+///
+/// `Gc` keeps the queue reachable from Boa's GC roots, and the `GcRefCell`
+/// makes the stored callbacks traceable.
+pub type TimerQueue = Gc<GcRefCell<TimerState>>;
 
 #[derive(Clone, Trace, Finalize)]
-struct TimerHolder(#[unsafe_ignore_trace] TimerQueue);
+struct TimerHolder(TimerQueue);
 
 /// Registers `setTimeout` and `clearTimeout` global functions.
 ///
