@@ -140,7 +140,11 @@ impl JobObject {
         })
     }
 
-    /// Returns the raw Win32 `HANDLE`.
+    /// Returns the raw Win32 `HANDLE` for use with Win32 APIs.
+    ///
+    /// The handle is **borrowed** from this `JobObject`: callers must not
+    /// close it (it is closed by `Drop`), and must not use it after the
+    /// `JobObject` is dropped.
     #[must_use]
     pub const fn raw_handle(&self) -> HANDLE {
         self.handle

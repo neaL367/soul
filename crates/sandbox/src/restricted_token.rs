@@ -56,7 +56,11 @@ impl RestrictedToken {
         })
     }
 
-    /// Returns the raw Win32 token `HANDLE`.
+    /// Returns the raw Win32 token `HANDLE` for use with Win32 APIs.
+    ///
+    /// The handle is **borrowed** from this `RestrictedToken`: callers must
+    /// not close it (it is closed by `Drop`), and must not use it after the
+    /// `RestrictedToken` is dropped.
     #[must_use]
     pub const fn raw_handle(&self) -> HANDLE {
         self.handle
