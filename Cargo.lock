@@ -1627,7 +1627,9 @@ dependencies = [
 name = "downloads"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "common",
+ "http-body-util",
  "networking",
  "platform-windows",
  "storage",
@@ -3278,6 +3280,8 @@ version = "0.1.0"
 dependencies = [
  "boa_engine",
  "common",
+ "futures-concurrency",
+ "futures-lite",
  "thiserror 2.0.20",
  "tracing",
 ]

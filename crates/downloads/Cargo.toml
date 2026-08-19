@@ -9,7 +9,9 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
+bytes = "1"
 common = { path = "../common" }
+http-body-util = "0.1"
 networking = { path = "../networking" }
 platform-windows = { path = "../platform-windows" }
 storage = { path = "../storage" }

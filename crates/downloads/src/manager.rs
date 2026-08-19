@@ -1,17 +1,25 @@
-//! Asynchronous file download manager coordinating disk writes and progress updates.
+//! Asynchronous file download manager coordinating disk streaming and progress updates.
 
 use crate::error::DownloadError;
 use crate::item::{DownloadItem, DownloadState};
 use crate::motw::attach_zone_identifier;
+use bytes::Bytes;
+use http_body_util::BodyExt;
+use http_body_util::combinators::BoxBody;
 use networking::HttpClient;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use url::Url;
+
+/// Persist a progress snapshot to the item map at most every 64 KiB received,
+/// so a large download does not contend on the lock for every frame.
+const PROGRESS_UPDATE_INTERVAL_BYTES: u64 = 64 * 1024;
 
 /// Download manager orchestrating file streaming, MOTW tagging, and transfer lifecycle.
 #[derive(Clone)]
@@ -40,6 +48,11 @@ impl DownloadManager {
 
     /// Registers and begins an asynchronous file download.
     ///
+    /// The response body is streamed to disk incrementally (never buffered
+    /// whole in memory) and the download is only considered complete for a
+    /// successful 2xx status. The Mark of the Web zone identifier is attached
+    /// from the final, post-redirect URL.
+    ///
     /// # Errors
     ///
     /// Returns `DownloadError` if URL parsing fails.
@@ -64,40 +77,126 @@ impl DownloadManager {
         let url_copy = url_str.to_string();
 
         tokio::spawn(async move {
-            match client_clone.fetch(&parsed_url).await {
-                Ok(response) => {
-                    let total_bytes = response.body.len() as u64;
-
-                    if let Ok(mut file) = File::create(&destination).await
-                        && file.write_all(&response.body).await.is_ok()
-                        && file.flush().await.is_ok()
-                    {
-                        // Attach Mark of the Web zone identifier
-                        let _ = attach_zone_identifier(&destination, &url_copy);
-
-                        let mut lock = downloads_clone.lock().await;
-                        if let Some(d) = lock.get_mut(&id) {
-                            d.state = DownloadState::Completed;
-                            d.speed_bps = total_bytes;
-                        }
+            let started = Instant::now();
+            match client_clone.fetch_streaming(&parsed_url).await {
+                Ok(stream) => {
+                    if !(200..300).contains(&stream.status_code) {
+                        tracing::warn!(
+                            status = stream.status_code,
+                            url = %url_copy,
+                            "Download rejected on non-success HTTP status"
+                        );
+                        Self::mark_failed(
+                            &downloads_clone,
+                            id,
+                            format!("HTTP {}", stream.status_code),
+                        )
+                        .await;
                         return;
                     }
 
-                    let mut lock = downloads_clone.lock().await;
-                    if let Some(d) = lock.get_mut(&id) {
-                        d.state = DownloadState::Failed("Disk write error occurred".to_string());
+                    let total_bytes = stream.content_length();
+                    let final_url = stream.url.to_string();
+                    Self::mark_downloading(&downloads_clone, id, 0, total_bytes).await;
+
+                    match Self::write_stream_to_disk(
+                        stream.into_body(),
+                        &destination,
+                        &downloads_clone,
+                        id,
+                        total_bytes,
+                    )
+                    .await
+                    {
+                        Ok(received) => {
+                            let elapsed_ms = u64::try_from(started.elapsed().as_millis())
+                                .unwrap_or(1)
+                                .max(1);
+                            let speed_bps = received.saturating_mul(1000) / elapsed_ms;
+
+                            // MOTW must reflect the final, post-redirect URL.
+                            let _ = attach_zone_identifier(&destination, &final_url);
+
+                            let mut lock = downloads_clone.lock().await;
+                            if let Some(d) = lock.get_mut(&id) {
+                                d.speed_bps = speed_bps;
+                                d.state = DownloadState::Completed;
+                            }
+                        }
+                        Err(err) => {
+                            let _ = tokio::fs::remove_file(&destination).await;
+                            Self::mark_failed(&downloads_clone, id, err).await;
+                        }
                     }
                 }
                 Err(e) => {
-                    let mut lock = downloads_clone.lock().await;
-                    if let Some(d) = lock.get_mut(&id) {
-                        d.state = DownloadState::Failed(e.to_string());
-                    }
+                    Self::mark_failed(&downloads_clone, id, e.to_string()).await;
                 }
             }
         });
 
         Ok(id)
+    }
+
+    /// Streams a response body to `destination` in bounded-memory frames,
+    /// updating the item's progress every `PROGRESS_UPDATE_INTERVAL_BYTES`.
+    async fn write_stream_to_disk(
+        mut body: BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>>,
+        destination: &PathBuf,
+        downloads: &Arc<Mutex<HashMap<u64, DownloadItem>>>,
+        id: u64,
+        total_bytes: Option<u64>,
+    ) -> Result<u64, String> {
+        let mut file = File::create(destination)
+            .await
+            .map_err(|e| format!("Failed to create download file: {e}"))?;
+        let mut received: u64 = 0;
+        let mut next_update = PROGRESS_UPDATE_INTERVAL_BYTES;
+
+        while let Some(frame) = body
+            .frame()
+            .await
+            .transpose()
+            .map_err(|e| format!("Failed to read download body: {e}"))?
+        {
+            if let Ok(data) = frame.into_data() {
+                file.write_all(&data)
+                    .await
+                    .map_err(|e| format!("Failed to write download data: {e}"))?;
+                received += data.len() as u64;
+                if received >= next_update {
+                    Self::mark_downloading(downloads, id, received, total_bytes).await;
+                    next_update += PROGRESS_UPDATE_INTERVAL_BYTES;
+                }
+            }
+        }
+
+        file.flush()
+            .await
+            .map_err(|e| format!("Failed to flush download file: {e}"))?;
+        Ok(received)
+    }
+
+    async fn mark_downloading(
+        downloads: &Arc<Mutex<HashMap<u64, DownloadItem>>>,
+        id: u64,
+        received: u64,
+        total: Option<u64>,
+    ) {
+        let mut lock = downloads.lock().await;
+        if let Some(d) = lock.get_mut(&id) {
+            d.state = DownloadState::Downloading {
+                received_bytes: received,
+                total_bytes: total,
+            };
+        }
+    }
+
+    async fn mark_failed(downloads: &Arc<Mutex<HashMap<u64, DownloadItem>>>, id: u64, err: String) {
+        let mut lock = downloads.lock().await;
+        if let Some(d) = lock.get_mut(&id) {
+            d.state = DownloadState::Failed(err);
+        }
     }
 
     /// Retrieves a cloned snapshot of a download item by ID.

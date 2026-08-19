@@ -17,8 +17,9 @@ use std::path::Path;
 ///
 /// Returns `std::io::Error` if NTFS Alternate Data Stream writing fails.
 pub fn attach_zone_identifier(file_path: &Path, source_url: &str) -> std::io::Result<()> {
-    let ads_path_str = format!("{}:Zone.Identifier", file_path.to_string_lossy());
-    let ads_path = Path::new(&ads_path_str);
+    let mut ads_os = file_path.as_os_str().to_os_string();
+    ads_os.push(":Zone.Identifier");
+    let ads_path = Path::new(&ads_os);
 
     let content = format!("[ZoneTransfer]\r\nZoneId=3\r\nHostUrl={source_url}\r\n");
 

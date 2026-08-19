@@ -2,6 +2,14 @@
 
 use std::path::{Path, PathBuf};
 
+/// Windows reserved device names: writing to `NUL` silently discards data,
+/// `CON` reads from the console, etc. A sanitized name must never be one of
+/// these (with or without an extension).
+const WINDOWS_RESERVED_NAMES: [&str; 22] = [
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
 /// Parses a safe filename from an RFC 6266 `Content-Disposition` header value.
 ///
 /// Supports both standard `filename="name.ext"` and extended `filename*=UTF-8''''name.ext`.
@@ -64,10 +72,24 @@ pub fn sanitize_filename(name: &str) -> String {
 
     let trimmed = sanitized.trim().trim_end_matches('.');
     if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
-        "download".to_string()
-    } else {
-        trimmed.to_string()
+        return "download".to_string();
     }
+
+    // A reserved device name must be neutralized even though it passes the
+    // character filter (e.g. "NUL.txt" would otherwise silently drop data).
+    if is_windows_reserved_name(trimmed) {
+        return format!("_{trimmed}");
+    }
+
+    trimmed.to_string()
+}
+
+/// True if `name` (stem before the first `.`) is a Windows reserved device name.
+fn is_windows_reserved_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name);
+    WINDOWS_RESERVED_NAMES
+        .iter()
+        .any(|reserved| stem.eq_ignore_ascii_case(reserved))
 }
 
 /// Finds an available (non-colliding) file path in `dir` by appending `(1)`, `(2)`, etc.
@@ -83,7 +105,7 @@ pub fn find_available_path(dir: &Path, file_name: &str) -> PathBuf {
     let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("download");
     let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-    for count in 1..10000 {
+    for count in 1.. {
         let new_name = if ext.is_empty() {
             format!("{stem} ({count})")
         } else {
@@ -95,7 +117,7 @@ pub fn find_available_path(dir: &Path, file_name: &str) -> PathBuf {
         }
     }
 
-    target
+    unreachable!("collision loop always returns")
 }
 
 /// Minimal percent-decoding helper for RFC 5987 / RFC 6266 `filename*`.
