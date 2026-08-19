@@ -134,3 +134,116 @@ fn test_dom_element_traversal_helpers() {
     assert!(doc.contains(parent, text1));
     assert!(!doc.contains(elem1, elem2));
 }
+
+#[test]
+fn test_invalid_node_ids_are_noops_not_panics() {
+    let mut doc = Document::new();
+    let parent = doc.alloc_node(NodeData::Element(ElementData::new("div", HashMap::new())));
+    doc.append_child(doc.root_id(), parent);
+
+    // Out-of-range ids must be silently rejected, never panic or corrupt.
+    let ghost = NodeId(9999);
+    doc.append_child(ghost, parent);
+    doc.append_child(parent, ghost);
+    doc.append_child(ghost, ghost);
+    doc.insert_before(parent, ghost, Some(parent));
+    doc.remove_child(parent, ghost);
+    doc.reparent_children(ghost, parent);
+    doc.reparent_children(parent, ghost);
+    doc.append_text(ghost, "x");
+    assert_eq!(doc.children(parent), vec![]);
+    assert_eq!(doc.children(ghost), vec![]);
+
+    // Valid appends still work afterwards.
+    doc.append_text(parent, "x");
+    assert_eq!(doc.children(parent), vec![NodeId(2)]);
+    assert_eq!(doc.node_count(), 3);
+}
+
+#[test]
+fn test_ancestor_cycle_is_rejected() {
+    let mut doc = Document::new();
+    let a = doc.alloc_node(NodeData::Element(ElementData::new("div", HashMap::new())));
+    let b = doc.alloc_node(NodeData::Element(ElementData::new("div", HashMap::new())));
+    let c = doc.alloc_node(NodeData::Element(ElementData::new("div", HashMap::new())));
+    doc.append_child(doc.root_id(), a);
+    doc.append_child(a, b);
+    doc.append_child(b, c);
+
+    // Appending an ancestor under its own descendant would create a cycle.
+    doc.append_child(c, a);
+    assert_eq!(doc.get_node(a).unwrap().parent, Some(doc.root_id()));
+    assert_eq!(doc.children(c), vec![]);
+
+    doc.insert_before(c, a, None);
+    assert_eq!(doc.get_node(a).unwrap().parent, Some(doc.root_id()));
+
+    // The tree is still fully traversable and uncorrupted.
+    assert_eq!(doc.descendants(doc.root_id()).len(), 3);
+}
+
+#[test]
+fn test_insert_before_rejects_non_child_sibling() {
+    let mut doc = Document::new();
+    let p1 = doc.alloc_node(NodeData::Element(ElementData::new("div", HashMap::new())));
+    let p2 = doc.alloc_node(NodeData::Element(ElementData::new("div", HashMap::new())));
+    let child = doc.alloc_node(NodeData::Element(ElementData::new("p", HashMap::new())));
+    doc.append_child(doc.root_id(), p1);
+    doc.append_child(doc.root_id(), p2);
+    doc.append_child(p2, child);
+
+    // `before` must be a direct child of the given parent.
+    doc.insert_before(p1, child, Some(p2));
+    assert_eq!(doc.children(p1), vec![]);
+    assert_eq!(doc.children(p2), vec![child]);
+}
+
+#[test]
+fn test_remove_child_requires_real_parent() {
+    let mut doc = Document::new();
+    let p1 = doc.alloc_node(NodeData::Element(ElementData::new("div", HashMap::new())));
+    let p2 = doc.alloc_node(NodeData::Element(ElementData::new("div", HashMap::new())));
+    let child = doc.alloc_node(NodeData::Element(ElementData::new("p", HashMap::new())));
+    doc.append_child(doc.root_id(), p1);
+    doc.append_child(doc.root_id(), p2);
+    doc.append_child(p1, child);
+
+    // Removing with the wrong parent must not corrupt either chain.
+    doc.remove_child(p2, child);
+    assert_eq!(doc.children(p1), vec![child]);
+    assert_eq!(doc.children(p2), vec![]);
+    assert_eq!(doc.get_node(child).unwrap().parent, Some(p1));
+}
+
+#[test]
+fn test_append_text_marks_dirty_and_merges() {
+    let mut doc = Document::new();
+    let parent = doc.alloc_node(NodeData::Element(ElementData::new("div", HashMap::new())));
+    doc.append_child(doc.root_id(), parent);
+
+    doc.append_text(parent, "Hello ");
+    doc.append_text(parent, "world");
+    assert_eq!(doc.text_content(parent), "Hello world");
+    assert_eq!(doc.children(parent).len(), 1);
+
+    let text_node = doc.children(parent)[0];
+    assert!(doc.get_node(text_node).unwrap().dirty_flags.paint);
+
+    // Text must not be appended to element parents.
+    doc.append_child(parent, parent);
+    assert_eq!(doc.get_node(parent).unwrap().parent, Some(doc.root_id()));
+}
+
+#[test]
+fn test_depth_limit_refuses_deep_appends() {
+    let mut doc = Document::new();
+    let mut cur = doc.root_id();
+    for _ in 0..dom::MAX_DOM_DEPTH + 100 {
+        let next = doc.alloc_node(NodeData::Element(ElementData::new("div", HashMap::new())));
+        doc.append_child(cur, next);
+        cur = next;
+    }
+    // Tree stops growing at the depth ceiling.
+    assert_eq!(doc.descendants(doc.root_id()).len(), dom::MAX_DOM_DEPTH);
+    assert!(doc.get_node(cur).is_some());
+}

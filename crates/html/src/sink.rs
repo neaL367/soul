@@ -1,9 +1,9 @@
 //! `TreeSink` implementation translating `html5ever` parser events into an arena `Document`.
 
-use dom::{Document, DocumentTypeData, ElementData, NodeData, NodeId};
+use dom::{Document, DocumentTypeData, ElementData, MAX_NODES, NodeData, NodeId};
 use html5ever::tendril::StrTendril;
 use html5ever::tree_builder::{ElementFlags, NodeOrText, QuirksMode, TreeSink};
-use html5ever::{Attribute, ExpandedName, QualName};
+use html5ever::{Attribute, ExpandedName, QualName, local_name, namespace_url, ns};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
@@ -15,6 +15,8 @@ pub struct HtmlTreeSink {
     pub quirks_mode: QuirksMode,
     /// Qualified names stored per element handle.
     pub qual_names: HashMap<NodeId, QualName>,
+    /// Name returned for sentinel handles whose allocation was refused.
+    fallback_name: QualName,
 }
 
 impl Default for HtmlTreeSink {
@@ -31,7 +33,16 @@ impl HtmlTreeSink {
             document: Document::new(),
             quirks_mode: QuirksMode::NoQuirks,
             qual_names: HashMap::new(),
+            fallback_name: QualName::new(None, ns!(html), local_name!("")),
         }
+    }
+
+    /// True once the DOM arena is at its `MAX_NODES` ceiling.
+    ///
+    /// Beyond this point element creation is refused and subsequent tree
+    /// mutations are no-ops so that a hostile page cannot exhaust memory.
+    const fn at_node_limit(&self) -> bool {
+        self.document.node_count() >= MAX_NODES
     }
 }
 
@@ -62,8 +73,7 @@ impl TreeSink for HtmlTreeSink {
     fn elem_name<'a>(&'a self, target: &'a Self::Handle) -> ExpandedName<'a> {
         self.qual_names
             .get(target)
-            .expect("elem_name called on unknown element")
-            .expanded()
+            .map_or_else(|| self.fallback_name.expanded(), QualName::expanded)
     }
 
     fn create_element(
@@ -72,6 +82,10 @@ impl TreeSink for HtmlTreeSink {
         attrs: Vec<Attribute>,
         _flags: ElementFlags,
     ) -> Self::Handle {
+        if self.at_node_limit() {
+            self.parse_error(Cow::Borrowed("DOM node limit exceeded; element dropped"));
+            return self.document.root_id();
+        }
         let mut attributes = HashMap::new();
         for attr in attrs {
             attributes.insert(attr.name.local.to_string(), attr.value.to_string());
@@ -85,11 +99,17 @@ impl TreeSink for HtmlTreeSink {
     }
 
     fn create_comment(&mut self, text: StrTendril) -> Self::Handle {
+        if self.at_node_limit() {
+            return self.document.root_id();
+        }
         self.document
             .alloc_node(NodeData::Comment(text.to_string()))
     }
 
     fn create_pi(&mut self, target: StrTendril, data: StrTendril) -> Self::Handle {
+        if self.at_node_limit() {
+            return self.document.root_id();
+        }
         let content = format!("?{target} {data}?");
         self.document.alloc_node(NodeData::Comment(content))
     }
@@ -97,10 +117,16 @@ impl TreeSink for HtmlTreeSink {
     fn append(&mut self, parent: &Self::Handle, child: NodeOrText<Self::Handle>) {
         match child {
             NodeOrText::AppendNode(node_id) => {
-                self.document.append_child(*parent, node_id);
+                // The root sentinel can never be a real child; appending it
+                // would be rejected as a cycle anyway, but skip it explicitly.
+                if node_id != self.document.root_id() {
+                    self.document.append_child(*parent, node_id);
+                }
             }
             NodeOrText::AppendText(text) => {
-                self.document.append_text(*parent, &text);
+                if !self.at_node_limit() {
+                    self.document.append_text(*parent, &text);
+                }
             }
         }
     }
@@ -118,11 +144,15 @@ impl TreeSink for HtmlTreeSink {
 
         match new_node {
             NodeOrText::AppendNode(node_id) => {
-                self.document.insert_before(parent, node_id, Some(*sibling));
+                if node_id != self.document.root_id() {
+                    self.document.insert_before(parent, node_id, Some(*sibling));
+                }
             }
             NodeOrText::AppendText(text) => {
-                let text_id = self.document.alloc_node(NodeData::Text(text.to_string()));
-                self.document.insert_before(parent, text_id, Some(*sibling));
+                if !self.at_node_limit() {
+                    let text_id = self.document.alloc_node(NodeData::Text(text.to_string()));
+                    self.document.insert_before(parent, text_id, Some(*sibling));
+                }
             }
         }
     }
@@ -151,6 +181,9 @@ impl TreeSink for HtmlTreeSink {
         public_id: StrTendril,
         system_id: StrTendril,
     ) {
+        if self.at_node_limit() {
+            return;
+        }
         let doctype_data = DocumentTypeData {
             name: name.to_string(),
             public_id: public_id.to_string(),
