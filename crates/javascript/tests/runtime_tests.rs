@@ -1,7 +1,7 @@
 //! Integration tests for `JsRuntime`, event loop, and microtask scheduling.
 
 use boa_engine::Source;
-use javascript::JsRuntime;
+use javascript::{JsRuntime, MAX_SCRIPT_BYTES};
 
 #[test]
 fn test_runtime_eval_expression() {
@@ -64,4 +64,48 @@ fn test_runtime_run_until_idle() {
     runtime.run_until_idle().unwrap();
     assert_eq!(runtime.pending_task_count(), 0);
     assert_eq!(runtime.eval("globalThis.acc").unwrap(), "3");
+}
+
+#[test]
+fn test_microtask_budget_bounds_runaway_promise_chains() {
+    // A promise reaction that enqueues itself would never terminate under
+    // Boa's default unbounded executor; the bounded executor must fail the
+    // drain (here reached through `eval`'s internal microtask drain) once the
+    // per-drain budget is consumed.
+    let mut runtime = JsRuntime::new();
+    let err = runtime
+        .eval(
+            "
+            globalThis.ticks = 0;
+            function loop() { globalThis.ticks += 1; Promise.resolve().then(loop); }
+            loop();
+        ",
+        )
+        .expect_err("runaway microtask chain must be stopped by the budget");
+    assert!(
+        err.to_string().contains("microtask budget exceeded"),
+        "unexpected error: {err}"
+    );
+
+    // The runtimes is still usable after the interrupted drain.
+    assert_eq!(runtime.eval("1 + 1").unwrap(), "2");
+}
+
+#[test]
+fn test_oversized_scripts_are_rejected_before_parsing() {
+    let mut runtime = JsRuntime::new();
+
+    let oversized = "var padding = 1;".repeat((MAX_SCRIPT_BYTES / 15) + 1);
+    assert!(oversized.len() > MAX_SCRIPT_BYTES);
+
+    let err = runtime
+        .eval(&oversized)
+        .expect_err("oversized script must be rejected");
+    assert!(
+        err.to_string().contains("exceeds the maximum"),
+        "unexpected error: {err}"
+    );
+
+    // The runtime remains usable afterwards.
+    assert_eq!(runtime.eval("1 + 1").unwrap(), "2");
 }

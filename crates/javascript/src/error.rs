@@ -11,4 +11,8 @@ pub enum JsError {
     /// Event loop or job queue execution error.
     #[error("JavaScript event loop error: {0}")]
     EventLoopError(String),
+    /// The script exceeded the maximum accepted size and was rejected before
+    /// parsing, so a hostile page cannot force unbounded parser/memory work.
+    #[error("script of {0} bytes exceeds the maximum of {1} bytes")]
+    ScriptTooLarge(usize, usize),
 }

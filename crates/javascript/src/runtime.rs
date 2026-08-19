@@ -1,11 +1,19 @@
 //! JavaScript runtime wrapper around Boa with microtask and macrotask scheduling.
 
 use crate::error::JsError;
+use crate::job_executor::BoundedJobExecutor;
 use boa_engine::{Context, Source};
 use std::collections::VecDeque;
+use std::rc::Rc;
 
 /// Type alias for an asynchronous or scheduled JavaScript macrotask callback.
 pub type JsTask = Box<dyn FnOnce(&mut Context) + Send + 'static>;
+
+/// Maximum accepted size for a script evaluated through [`JsRuntime::eval`].
+///
+/// Scripts larger than this are rejected before parsing so a hostile page
+/// cannot force unbounded parser and memory work.
+pub const MAX_SCRIPT_BYTES: usize = 4 * 1024 * 1024;
 
 /// JavaScript execution environment managing ECMAScript context, microtasks, and macrotasks.
 pub struct JsRuntime {
@@ -17,10 +25,17 @@ pub struct JsRuntime {
 
 impl JsRuntime {
     /// Creates a new `JsRuntime` instance with a default ECMAScript context.
+    ///
+    /// The context uses a [`BoundedJobExecutor`] so that runaway microtask
+    /// chains cannot starve the event loop forever.
     #[must_use]
     pub fn new() -> Self {
+        let context = boa_engine::context::ContextBuilder::new()
+            .job_executor(Rc::new(BoundedJobExecutor::new()))
+            .build()
+            .expect("a default Boa context cannot fail to construct");
         Self {
-            context: Context::default(),
+            context,
             task_queue: VecDeque::new(),
         }
     }
@@ -29,8 +44,13 @@ impl JsRuntime {
     ///
     /// # Errors
     ///
-    /// Returns a `JsError` if evaluation fails or microtasks produce an unhandled rejection.
+    /// Returns a `JsError` if the script exceeds [`MAX_SCRIPT_BYTES`], if
+    /// evaluation fails, or if microtasks produce an unhandled rejection.
     pub fn eval(&mut self, source: &str) -> Result<String, JsError> {
+        if source.len() > MAX_SCRIPT_BYTES {
+            return Err(JsError::ScriptTooLarge(source.len(), MAX_SCRIPT_BYTES));
+        }
+
         let result = self
             .context
             .eval(Source::from_bytes(source.as_bytes()))
