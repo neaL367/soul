@@ -24,6 +24,9 @@ pub struct Cookie {
     pub is_http_only: bool,
     /// `SameSite` attribute (`Lax`, `Strict`, `None`).
     pub same_site: String,
+    /// True when the cookie was set without a `Domain` attribute; such cookies
+    /// are only ever sent to the exact host that set them.
+    pub host_only: bool,
 }
 
 impl Cookie {
@@ -38,7 +41,7 @@ impl Cookie {
         }
 
         let default_domain = request_url.host_str().unwrap_or("").to_ascii_lowercase();
-        let mut domain = default_domain;
+        let mut domain_attr: Option<String> = None;
         let mut path = "/".to_string();
         let mut expires_at = None;
         let mut is_secure = false;
@@ -55,7 +58,7 @@ impl Cookie {
                 let attr_name = attr_name.trim();
                 let attr_val = attr_val.trim();
                 if attr_name.eq_ignore_ascii_case("domain") && !attr_val.is_empty() {
-                    domain = attr_val.trim_start_matches('.').to_ascii_lowercase();
+                    domain_attr = Some(attr_val.trim_start_matches('.').to_ascii_lowercase());
                 } else if attr_name.eq_ignore_ascii_case("path") && !attr_val.is_empty() {
                     path = attr_val.to_string();
                 } else if attr_name.eq_ignore_ascii_case("samesite") && !attr_val.is_empty() {
@@ -73,6 +76,30 @@ impl Cookie {
             }
         }
 
+        // RFC 6265bis §5.3 steps 3-4: a `Domain` attribute is only honored when
+        // it is a suffix of the request host, is not itself an IP address, and
+        // is not a bare single-label name (a public-suffix-adjacent form such
+        // as `Domain=com` would otherwise let every `.com` site read the
+        // cookie). Any other value means the whole cookie must be ignored,
+        // never silently downgraded to host-only.
+        let (domain, host_only) = match domain_attr {
+            Some(attr_domain) => {
+                let host_is_ip = request_url
+                    .host_str()
+                    .is_some_and(|h| h.parse::<std::net::IpAddr>().is_ok());
+                let domain_is_ip = attr_domain.parse::<std::net::IpAddr>().is_ok();
+                if host_is_ip
+                    || domain_is_ip
+                    || !attr_domain.contains('.')
+                    || !Self::is_domain_suffix_of(&default_domain, &attr_domain)
+                {
+                    return None;
+                }
+                (attr_domain, false)
+            }
+            None => (default_domain, true),
+        };
+
         Some(Self {
             name: name.trim().to_string(),
             domain,
@@ -82,7 +109,13 @@ impl Cookie {
             is_secure,
             is_http_only,
             same_site,
+            host_only,
         })
+    }
+
+    /// Returns true when `host` is `domain` itself or a subdomain of it.
+    fn is_domain_suffix_of(host: &str, domain: &str) -> bool {
+        host == domain || host.ends_with(&format!(".{domain}"))
     }
 }
 
@@ -109,14 +142,15 @@ impl CookieJar {
         let conn = self.db.conn()?;
         conn.execute(
             r"
-            INSERT INTO cookies (name, domain, path, value, expires_at, is_secure, is_http_only, same_site)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            INSERT INTO cookies (name, domain, path, value, expires_at, is_secure, is_http_only, same_site, host_only)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             ON CONFLICT(name, domain, path) DO UPDATE SET
                 value = excluded.value,
                 expires_at = excluded.expires_at,
                 is_secure = excluded.is_secure,
                 is_http_only = excluded.is_http_only,
-                same_site = excluded.same_site
+                same_site = excluded.same_site,
+                host_only = excluded.host_only
             ",
             params![
                 cookie.name,
@@ -127,6 +161,7 @@ impl CookieJar {
                 i32::from(cookie.is_secure),
                 i32::from(cookie.is_http_only),
                 cookie.same_site,
+                i32::from(cookie.host_only),
             ],
         )?;
         Ok(())
@@ -157,7 +192,7 @@ impl CookieJar {
         let conn = self.db.conn()?;
         let mut stmt = conn.prepare_cached(
             r"
-            SELECT name, domain, path, value, expires_at, is_secure, is_http_only, same_site
+            SELECT name, domain, path, value, expires_at, is_secure, is_http_only, same_site, host_only
             FROM cookies
             WHERE (expires_at IS NULL OR expires_at > ?1)
             ",
@@ -166,6 +201,7 @@ impl CookieJar {
         let rows = stmt.query_map(params![current_time], |row| {
             let sec_int: i32 = row.get(5)?;
             let http_int: i32 = row.get(6)?;
+            let host_only_int: i32 = row.get(8)?;
             Ok(Cookie {
                 name: row.get(0)?,
                 domain: row.get(1)?,
@@ -175,6 +211,7 @@ impl CookieJar {
                 is_secure: sec_int != 0,
                 is_http_only: http_int != 0,
                 same_site: row.get(7)?,
+                host_only: host_only_int != 0,
             })
         })?;
 
@@ -184,7 +221,13 @@ impl CookieJar {
             if cookie.is_secure && !is_https {
                 continue;
             }
-            if !Self::domain_matches(&host, &cookie.domain) {
+            // Host-only cookies are bound to the exact host; only cookies set
+            // with an explicit Domain attribute may follow the suffix rule.
+            if cookie.host_only {
+                if cookie.domain != host {
+                    continue;
+                }
+            } else if !Self::domain_matches(&host, &cookie.domain) {
                 continue;
             }
             if !Self::path_matches(req_path, &cookie.path) {

@@ -3,6 +3,7 @@
 use storage::{
     BookmarkStore, Cookie, CookieJar, HistoryStore, LocalStorage, SessionStorage, StorageDatabase,
 };
+use url::Url;
 
 #[test]
 fn test_history_recording_and_search() {
@@ -77,6 +78,7 @@ fn test_cookie_jar_rfc6265bis_matching_and_expiry() {
         is_secure: false,
         is_http_only: true,
         same_site: "Lax".to_string(),
+        host_only: false,
     };
     jar.set_cookie(&domain_cookie).unwrap();
 
@@ -89,6 +91,7 @@ fn test_cookie_jar_rfc6265bis_matching_and_expiry() {
         is_secure: true,
         is_http_only: false,
         same_site: "Strict".to_string(),
+        host_only: false,
     };
     jar.set_cookie(&secure_cookie).unwrap();
 
@@ -120,6 +123,84 @@ fn test_cookie_jar_rfc6265bis_matching_and_expiry() {
         .get_cookies_for_url("http://sub.example.com/app/dashboard", 2500)
         .unwrap();
     assert!(remaining.is_empty());
+}
+
+#[test]
+fn test_cookie_domain_attribute_is_contained_by_request_host() {
+    // A subdomain may scope a cookie to its parent domain.
+    let ok = Cookie::parse(
+        "sid=1; Domain=example.com",
+        &Url::parse("https://sub.example.com/").unwrap(),
+    );
+    assert!(ok.is_some());
+    assert!(!ok.unwrap().host_only);
+
+    // A totally unrelated domain must be rejected, not silently accepted.
+    let evil = Cookie::parse(
+        "sid=1; Domain=evil.com",
+        &Url::parse("https://bank.com/").unwrap(),
+    );
+    assert!(evil.is_none());
+
+    // A suffix-spoofing domain ("com" is not a registrable domain) must be rejected.
+    let psl_evasion = Cookie::parse(
+        "sid=1; Domain=com",
+        &Url::parse("https://example.com/").unwrap(),
+    );
+    assert!(psl_evasion.is_none());
+
+    // Domain cookies are not allowed on IP hosts.
+    let ip_host = Cookie::parse(
+        "sid=1; Domain=127.0.0.1",
+        &Url::parse("http://127.0.0.1/").unwrap(),
+    );
+    assert!(ip_host.is_none());
+
+    // Without a Domain attribute the cookie is host-only.
+    let host_only = Cookie::parse("sid=1", &Url::parse("https://a.example.com/").unwrap());
+    assert!(host_only.is_some());
+    assert!(host_only.unwrap().host_only);
+}
+
+#[test]
+fn test_host_only_cookies_are_not_shared_with_subdomains() {
+    let db = StorageDatabase::open_in_memory().expect("failed to open in-memory db");
+    let jar = CookieJar::new(db);
+
+    let session = Cookie::parse(
+        "session=abc",
+        &Url::parse("https://a.example.com/").unwrap(),
+    )
+    .unwrap();
+    assert!(session.host_only);
+    jar.set_cookie(&session).unwrap();
+
+    // The exact host that set the cookie receives it...
+    let exact = jar
+        .get_cookies_for_url("https://a.example.com/page", 100)
+        .unwrap();
+    assert_eq!(exact.len(), 1);
+    assert_eq!(exact[0].name, "session");
+
+    // ...but sibling and parent hosts must not (previously the cookie was
+    // stored as a domain cookie and leaked to every subdomain).
+    let sibling = jar
+        .get_cookies_for_url("https://b.example.com/page", 100)
+        .unwrap();
+    assert!(sibling.is_empty());
+
+    // A cookie set WITH an explicit Domain attribute still matches subdomains.
+    let scoped = Cookie::parse(
+        "wide=1; Domain=example.com",
+        &Url::parse("https://a.example.com/").unwrap(),
+    )
+    .unwrap();
+    jar.set_cookie(&scoped).unwrap();
+    let sub = jar
+        .get_cookies_for_url("https://b.example.com/page", 100)
+        .unwrap();
+    assert_eq!(sub.len(), 1);
+    assert_eq!(sub[0].name, "wide");
 }
 
 #[test]
