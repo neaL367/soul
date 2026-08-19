@@ -44,6 +44,9 @@ pub struct MfPlayer;
 
 impl MfPlayer {
     /// Sniffs magic header bytes to determine the media container format.
+    ///
+    /// Short or truncated headers are reported as `Unknown` rather than
+    /// panicking on out-of-range slices.
     #[must_use]
     pub fn sniff_format(bytes: &[u8]) -> MediaContainerFormat {
         if bytes.len() >= 8 {
@@ -56,11 +59,13 @@ impl MfPlayer {
                 return MediaContainerFormat::WebM;
             }
             // WAV header: RIFF .... WAVE
-            if bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WAVE" {
+            if bytes.starts_with(b"RIFF") && bytes.len() >= 12 && &bytes[8..12] == b"WAVE" {
                 return MediaContainerFormat::Wav;
             }
             // MP3 ID3 header or sync frame
-            if bytes.starts_with(b"ID3") || (bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0) {
+            if bytes.starts_with(b"ID3")
+                || (bytes[0] == 0xFF && bytes.len() >= 2 && (bytes[1] & 0xE0) == 0xE0)
+            {
                 return MediaContainerFormat::Mp3;
             }
         }

@@ -50,3 +50,39 @@ fn test_media_stream_probe_and_frame_decode() {
     assert_eq!(frame.height, 360);
     assert_eq!(frame.data[0], 255);
 }
+
+#[test]
+fn test_truncated_headers_do_not_panic() {
+    // Short "RIFF" prefixes of every length must never panic on slicing.
+    for len in 0..12 {
+        let truncated: Vec<u8> = b"RIFF\x24\x08\x00\x00WAVEfmt "
+            .iter()
+            .take(len)
+            .copied()
+            .collect();
+        assert_eq!(
+            MfPlayer::sniff_format(&truncated),
+            MediaContainerFormat::Unknown,
+            "len {len} must be Unknown, not a panic"
+        );
+    }
+
+    // A single 0xFF byte (truncated MP3 sync frame) must not index byte 1.
+    assert_eq!(
+        MfPlayer::sniff_format(&[0xFF]),
+        MediaContainerFormat::Unknown
+    );
+
+    // Empty and tiny inputs.
+    assert_eq!(MfPlayer::sniff_format(&[]), MediaContainerFormat::Unknown);
+    assert_eq!(
+        MfPlayer::sniff_format(&[0x1A, 0x45]),
+        MediaContainerFormat::Unknown
+    );
+
+    // Full-length headers still sniff correctly after the guard change.
+    let wav = b"RIFF\x24\x08\x00\x00WAVEfmt ";
+    assert_eq!(MfPlayer::sniff_format(wav), MediaContainerFormat::Wav);
+    let mp3_sync = [0xFF, 0xFB, 0x90, 0x64, 0x00, 0x00, 0x00, 0x00];
+    assert_eq!(MfPlayer::sniff_format(&mp3_sync), MediaContainerFormat::Mp3);
+}
