@@ -60,10 +60,7 @@ async fn test_window_resize_command_updates_viewport() {
     let mut initial_ok = false;
     for _ in 0..50 {
         tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
-        let state = handle.state.lock().unwrap();
-        if let Some(win) = state.windows.get(&window_id)
-            && win.frame.is_some()
-        {
+        if handle.has_frame(window_id) {
             initial_ok = true;
             break;
         }
@@ -80,10 +77,7 @@ async fn test_window_resize_command_updates_viewport() {
     let mut resized_ok = false;
     for _ in 0..50 {
         tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
-        let state = handle.state.lock().unwrap();
-        if let Some(win) = state.windows.get(&window_id)
-            && win.frame.is_some()
-        {
+        if handle.has_frame(window_id) {
             resized_ok = true;
             break;
         }

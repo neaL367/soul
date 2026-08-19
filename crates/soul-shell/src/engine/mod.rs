@@ -189,8 +189,14 @@ pub fn render_html_to_buffer(
 ) -> Result<(PixelBuffer, Option<A11yNode>, PipelineTimings), NavigationError> {
     let mut controller = NavigationController::new();
     // Local rendering has no navigation id; use 0 and skip controller transitions.
-    let id =
-        controller.navigate_url(Url::parse("about:start").expect("about:start is a valid URL"));
+    // Both fallbacks are static about: URLs that always parse; the `?` guards
+    // the theoretical failure instead of panicking on a hardcoded constant.
+    let local_url = Url::parse("about:start")
+        .or_else(|_| Url::parse("about:blank"))
+        .map_err(|_| {
+            NavigationError::Other("failed to construct local navigation URL".to_string())
+        })?;
+    let id = controller.navigate_url(local_url);
     controller.handle_response(id, 200, "text/html".to_string());
 
     let parse_start = Instant::now();

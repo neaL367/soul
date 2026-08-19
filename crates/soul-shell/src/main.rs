@@ -7,7 +7,7 @@
 //! chrome backend. Without a URL: renders the built-in start page.
 
 use anyhow::{Context, Result};
-use soul_backend_gpui::GpuiSoulBackend;
+use soul_backend_gpui::{CHROME_HEIGHT, GpuiSoulBackend};
 use soul_shell::engine::{
     RenderOptions, a11y_lines, has_visible_pixels, navigate_and_render, render_html_to_buffer,
 };
@@ -16,6 +16,8 @@ use soul_ui::{
     InputEvent, SoulBackend, SoulConfig, SoulEvent, ViewportFrame, WheelDeltaMode, WindowSpec,
 };
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use url::Url;
 
 /// Parsed command-line configuration.
@@ -52,6 +54,9 @@ fn parse_args(args: &[String]) -> Result<Cli> {
     Ok(cli)
 }
 
+/// Multiplier applied to a line-based wheel delta to reach a scrollable delta.
+const LINE_SCROLL_MULTIPLIER: f64 = 40.0;
+
 #[allow(clippy::cast_possible_truncation)]
 fn main() -> Result<()> {
     common::init_tracing();
@@ -80,17 +85,28 @@ fn main() -> Result<()> {
         })
         .context("failed to open browser window")?;
 
-    let frame = render_selected(&cli)?;
-    let event_driver = NavigationDriver::spawn(
-        backend.shared_handle(),
-        window_id,
-        RenderOptions {
-            width: cli.width,
-            height: cli.height,
-        },
-        frame,
-    );
-    let viewport_height = cli.height;
+    let options = RenderOptions {
+        width: cli.width,
+        height: cli.height,
+    };
+    // Headless reporting (PNG output / a11y dump) renders synchronously and
+    // hands the result to the driver as its initial frame. Interactive startup
+    // shows the new-tab page immediately and navigates on the driver worker, so
+    // the window does not wait on a blocking network render before opening.
+    let headless = cli.output.is_some() || cli.dump_a11y;
+    let initial_frame = if headless {
+        render_selected(&cli)?
+    } else {
+        None
+    };
+
+    let event_driver =
+        NavigationDriver::spawn(backend.shared_handle(), window_id, options, initial_frame);
+    let startup_driver = event_driver.clone();
+    // Shared across the resize and wheel handlers so page-scroll deltas use the
+    // live viewport height rather than a stale startup value.
+    let viewport_height = Arc::new(AtomicU32::new(cli.height));
+    let resize_viewport = viewport_height.clone();
     backend.set_event_handler(Box::new(move |event| {
         tracing::debug!(?event, "Soul UI event");
         let command = match event {
@@ -107,16 +123,18 @@ fn main() -> Result<()> {
                 Some(NavigationCommand::CloseTab { tab_index })
             }
             SoulEvent::WindowResized { width, height, .. } => {
+                resize_viewport.store(height, Ordering::Relaxed);
                 Some(NavigationCommand::Resize { width, height })
             }
             SoulEvent::InputRouted {
                 event: InputEvent::Wheel(wheel),
                 ..
-            } if wheel.position.y > 44.0 => {
+            } if wheel.position.y > f64::from(CHROME_HEIGHT) => {
+                let viewport = f64::from(viewport_height.load(Ordering::Relaxed));
                 let multiplier = match wheel.delta_mode {
                     WheelDeltaMode::Pixel => 1.0,
-                    WheelDeltaMode::Line => 40.0,
-                    WheelDeltaMode::Page => f64::from(viewport_height),
+                    WheelDeltaMode::Line => LINE_SCROLL_MULTIPLIER,
+                    WheelDeltaMode::Page => viewport,
                 };
                 Some(NavigationCommand::Scroll {
                     delta_y: (wheel.delta_y * multiplier) as f32,
@@ -130,6 +148,16 @@ fn main() -> Result<()> {
             tracing::warn!(%error, "Navigation driver unavailable");
         }
     }));
+
+    // In interactive mode, kick off the requested URL on the worker thread so the
+    // window is already open and painted with the new-tab page by the time the
+    // first page render lands.
+    if !headless
+        && let Some(raw_url) = &cli.url
+        && let Err(error) = startup_driver.send(NavigationCommand::Navigate(raw_url.clone()))
+    {
+        tracing::warn!(%error, "Navigation driver unavailable at startup");
+    }
 
     backend.run().context("chrome backend runtime error")?;
     Ok(())
@@ -187,7 +215,7 @@ fn render_remote_url(raw_url: &str, cli: &Cli) -> Result<Option<ViewportFrame>> 
     }
 
     if let Some(path) = &cli.output {
-        save_png(&result.encode_png().map_err(|e| anyhow::anyhow!(e))?, path)?;
+        save_png(&result.encode_png()?, path)?;
     }
 
     Ok(Some(ViewportFrame::SoftwareRgba {

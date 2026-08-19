@@ -3,7 +3,7 @@
 use super::publisher::{
     clear_active_page, publish_active_result, publish_result, publish_tab_strip,
 };
-use super::types::{NavigationCommand, NavigationDriver};
+use super::types::{COMMAND_CHANNEL_CAPACITY, NavigationCommand, NavigationDriver};
 use crate::engine::{RenderOptions, RenderResult, render_active_navigation};
 use crate::local_page::render_new_tab_frame;
 use networking::NetworkClient;
@@ -25,7 +25,7 @@ impl NavigationDriver {
         mut options: RenderOptions,
         initial_frame: Option<ViewportFrame>,
     ) -> Self {
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = mpsc::sync_channel(COMMAND_CHANNEL_CAPACITY);
         thread::spawn(move || {
             let Ok(runtime) = Runtime::new() else {
                 tracing::error!("Failed to create navigation runtime");
@@ -37,13 +37,13 @@ impl NavigationDriver {
             // transport change rather than a rewrite (ADR-2/ADR-5).
             let network_client = runtime.block_on(NetworkClient::ipc_in_process());
             let mut tabs = TabManager::new();
-            tabs.create_tab();
+            let initial_tab_id = tabs.create_tab();
             let mut results: HashMap<TabId, RenderResult> = HashMap::new();
             let mut initial_frames = HashMap::new();
             if let Some(frame) = initial_frame {
-                initial_frames.insert(TabId(1), frame);
+                initial_frames.insert(initial_tab_id, frame);
             } else if let Ok(frame) = render_new_tab_frame(options) {
-                initial_frames.insert(TabId(1), frame);
+                initial_frames.insert(initial_tab_id, frame);
             }
             publish_tab_strip(&backend, window_id, &tabs);
             if let Some(active_id) = tabs.active_tab_id() {

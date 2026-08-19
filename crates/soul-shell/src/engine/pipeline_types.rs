@@ -125,14 +125,14 @@ impl RenderResult {
     ///
     /// # Errors
     ///
-    /// Returns an error if PNG encoding fails.
-    pub fn encode_png(&self) -> Result<Vec<u8>, String> {
+    /// Returns `NavigationError` if PNG encoding fails.
+    pub fn encode_png(&self) -> Result<Vec<u8>, soul_core::NavigationError> {
         image_decode::encode_png(
             &self.pixel_buffer.data,
             self.pixel_buffer.width,
             self.pixel_buffer.height,
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| soul_core::NavigationError::Other(format!("PNG encode failed: {e}")))
     }
 }
 
