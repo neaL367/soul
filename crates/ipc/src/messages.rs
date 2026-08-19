@@ -6,6 +6,16 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MessageId(pub u64);
 
+/// Version of the IPC message protocol carried by every envelope. Peers that
+/// disagree on this value cannot safely exchange messages.
+pub const PROTOCOL_VERSION: u32 = 1;
+
+/// Default protocol version applied when decoding a frame without the field
+/// (forward compatibility for hand-written or older envelopes).
+const fn default_protocol_version() -> u32 {
+    PROTOCOL_VERSION
+}
+
 /// Commands sent from the Browser UI / Core process to a Renderer process.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BrowserToRendererMsg {
@@ -191,6 +201,9 @@ pub struct IpcMessage {
     pub id: MessageId,
     /// Optional correlation identifier linking requests and responses.
     pub correlation_id: Option<MessageId>,
+    /// Protocol version of the envelope (`PROTOCOL_VERSION`).
+    #[serde(default = "default_protocol_version")]
+    pub version: u32,
     /// Underlying protocol message payload.
     pub payload: MessagePayload,
 }
@@ -202,6 +215,7 @@ impl IpcMessage {
         Self {
             id,
             correlation_id: None,
+            version: PROTOCOL_VERSION,
             payload,
         }
     }
@@ -216,6 +230,7 @@ impl IpcMessage {
         Self {
             id,
             correlation_id: Some(request_id),
+            version: PROTOCOL_VERSION,
             payload,
         }
     }

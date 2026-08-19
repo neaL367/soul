@@ -12,7 +12,7 @@ pub use dispatcher::IpcDispatcher;
 pub use error::IpcError;
 pub use messages::{
     BrowserToNetworkMsg, BrowserToRendererMsg, IpcMessage, MessageId, MessagePayload,
-    NetworkToBrowserMsg, RendererToBrowserMsg,
+    NetworkToBrowserMsg, PROTOCOL_VERSION, RendererToBrowserMsg,
 };
 pub use named_pipe::{accept_named_pipe_server, connect_named_pipe_client, generate_pipe_name};
 pub use transport::{

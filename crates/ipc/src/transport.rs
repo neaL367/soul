@@ -57,6 +57,37 @@ impl InMemoryTransport {
     }
 }
 
+/// Reads and decodes the next framed `IpcMessage` from `reader`, buffering
+/// partial frames in `buffer` until enough bytes arrive or the stream ends.
+///
+/// Returns `Ok(Some(msg))` for a complete frame, `Ok(None)` on clean EOF with
+/// no partial data buffered, or an error if the stream ends mid-frame or a
+/// frame exceeds the configured size limit.
+async fn read_next_message<R>(
+    reader: &mut R,
+    buffer: &mut BytesMut,
+) -> Result<Option<IpcMessage>, IpcError>
+where
+    R: AsyncRead + Unpin,
+{
+    loop {
+        if let Some((msg, consumed)) = decode_message(buffer)? {
+            let _ = buffer.split_to(consumed);
+            return Ok(Some(msg));
+        }
+
+        let mut chunk = [0u8; 4096];
+        let n = reader.read(&mut chunk).await?;
+        if n == 0 {
+            if buffer.is_empty() {
+                return Ok(None);
+            }
+            return Err(IpcError::ConnectionClosed);
+        }
+        buffer.extend_from_slice(&chunk[..n]);
+    }
+}
+
 /// Asynchronous stream transport framing messages over any `AsyncRead + AsyncWrite` stream (e.g. Named Pipe or TCP).
 #[derive(Debug)]
 pub struct AsyncStreamTransport<S> {
@@ -103,22 +134,7 @@ impl<S: AsyncRead + Unpin> AsyncStreamReadHalf<S> {
     ///
     /// Returns `IpcError` if reading, framing, or decoding fails.
     pub async fn recv(&mut self) -> Result<Option<IpcMessage>, IpcError> {
-        loop {
-            if let Some((msg, consumed)) = decode_message(&self.read_buffer)? {
-                let _ = self.read_buffer.split_to(consumed);
-                return Ok(Some(msg));
-            }
-
-            let mut chunk = [0u8; 4096];
-            let n = self.read.read(&mut chunk).await?;
-            if n == 0 {
-                if self.read_buffer.is_empty() {
-                    return Ok(None);
-                }
-                return Err(IpcError::ConnectionClosed);
-            }
-            self.read_buffer.extend_from_slice(&chunk[..n]);
-        }
+        read_next_message(&mut self.read, &mut self.read_buffer).await
     }
 }
 
@@ -165,21 +181,6 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncStreamTransport<S> {
     ///
     /// Returns `IpcError` if reading, framing, or decoding fails.
     pub async fn recv(&mut self) -> Result<Option<IpcMessage>, IpcError> {
-        loop {
-            if let Some((msg, consumed)) = decode_message(&self.read_buffer)? {
-                let _ = self.read_buffer.split_to(consumed);
-                return Ok(Some(msg));
-            }
-
-            let mut chunk = [0u8; 4096];
-            let n = self.stream.read(&mut chunk).await?;
-            if n == 0 {
-                if self.read_buffer.is_empty() {
-                    return Ok(None);
-                }
-                return Err(IpcError::ConnectionClosed);
-            }
-            self.read_buffer.extend_from_slice(&chunk[..n]);
-        }
+        read_next_message(&mut self.stream, &mut self.read_buffer).await
     }
 }
