@@ -1,5 +1,6 @@
 //! Integration tests for HTTP/1.1 fetch client against a local test server.
 
+use http_body_util::BodyExt;
 use networking::{HttpClient, HttpRequest, HttpResponse};
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -308,6 +309,176 @@ async fn test_http_client_timeout_bounds_hung_servers() {
         .await
         .expect_err("hung server must trigger the client timeout");
     assert!(matches!(err, networking::NetworkError::Timeout));
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn test_cross_origin_redirect_strips_credentials() {
+    // Server B is the redirect target; record the headers it receives.
+    let received: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let received_b = std::sync::Arc::clone(&received);
+    let (addr_b, handle_b) = spawn_mock_http_server(move |request| {
+        received_b.lock().unwrap().push(request.to_string());
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+            .to_string()
+    })
+    .await;
+
+    // Server A redirects to B (different port => different origin).
+    let location = format!("http://{addr_b}/final");
+    let (addr_a, handle_a) = spawn_mock_http_server(move |_| {
+        format!(
+            "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        )
+    })
+    .await;
+
+    let client = HttpClient::default();
+    let url = Url::parse(&format!("http://{addr_a}/start")).unwrap();
+    let request = HttpRequest::get(url)
+        .with_header("Authorization", "Bearer secret")
+        .with_header("Cookie", "session=abc")
+        .with_header("X-Custom", "keep");
+    let response = client
+        .fetch_request(&request)
+        .await
+        .expect("redirect chain");
+
+    assert_eq!(response.status_code, 200);
+    let requests = received.lock().unwrap();
+    let final_request = requests.first().expect("target server received a request");
+    let lower = final_request.to_ascii_lowercase();
+    assert!(
+        !lower.contains("authorization"),
+        "Authorization header leaked across origins: {final_request}"
+    );
+    assert!(
+        !lower.contains("cookie:"),
+        "Cookie header leaked: {final_request}"
+    );
+    assert!(
+        lower.contains("x-custom: keep"),
+        "non-sensitive header must be preserved: {final_request}"
+    );
+    assert!(final_request.contains("/final"));
+    drop(requests);
+    drop(received);
+
+    handle_a.abort();
+    handle_b.abort();
+}
+
+#[test]
+fn test_decompression_bomb_is_capped() {
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+    use std::io::Write;
+
+    // 100 MiB of zeros compresses to a few KB; the decompressor must not
+    // materialize the full expansion (cap is 64 MiB).
+    let big: Vec<u8> = vec![0u8; 100 * 1024 * 1024];
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(&big).unwrap();
+    let bomb = encoder.finish().unwrap();
+    assert!(bomb.len() < 1024 * 1024, "test fixture must compress well");
+
+    let err = networking::decompress_payload(&bomb, Some("gzip"))
+        .expect_err("decompression bomb must be rejected");
+    assert!(matches!(
+        err,
+        networking::NetworkError::DecompressionFailed(_)
+    ));
+
+    // A small payload still decompresses fine.
+    let small = networking::decompress_payload(b"hello", Some("identity")).unwrap();
+    assert_eq!(small, b"hello");
+}
+
+#[tokio::test]
+async fn test_fetch_streaming_reads_body_and_headers() {
+    let (addr, server_handle) = spawn_mock_http_server(|_req| {
+        let body = "streamed-download-body";
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+    })
+    .await;
+
+    let client = HttpClient::default();
+    let url = Url::parse(&format!("http://127.0.0.1:{}/file.bin", addr.port())).unwrap();
+    let stream = client.fetch_streaming(&url).await.unwrap();
+
+    let content_type = stream
+        .headers
+        .get("content-type")
+        .map_or("", String::as_str);
+    let content_length = stream.content_length();
+    let status_code = stream.status_code;
+    assert_eq!(status_code, 200);
+    assert_eq!(content_type, "application/octet-stream");
+    assert_eq!(content_length, Some(22));
+
+    let mut body = stream.into_body();
+    let mut collected = Vec::new();
+    while let Some(frame) = body.frame().await.transpose().unwrap() {
+        if let Ok(data) = frame.into_data() {
+            collected.extend_from_slice(&data);
+        }
+    }
+    assert_eq!(collected, b"streamed-download-body");
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn test_fetch_streaming_follows_redirect() {
+    // Two-hop redirect: the client makes two connections (/start then /final),
+    // so this server accepts two connections instead of one.
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let server_handle = tokio::spawn(async move {
+        for _ in 0..2 {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0u8; 2048];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                let req_str = String::from_utf8_lossy(&buf[..n]);
+                let response_bytes = if req_str.contains("GET /start") {
+                    "HTTP/1.1 302 Found\r\nLocation: /final\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+                } else {
+                    let body = "redirected";
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                };
+                let _ = socket.write_all(response_bytes.as_bytes()).await;
+                let _ = socket.flush().await;
+            }
+        }
+    });
+
+    let client = HttpClient::default();
+    let url = Url::parse(&format!("http://127.0.0.1:{}/start", addr.port())).unwrap();
+    let stream = client.fetch_streaming(&url).await.unwrap();
+    let status_code = stream.status_code;
+    let final_path = stream.url.path().to_string();
+    assert_eq!(status_code, 200);
+    assert_eq!(final_path, "/final");
+
+    let mut body = stream.into_body();
+    let mut collected = Vec::new();
+    while let Some(frame) = body.frame().await.transpose().unwrap() {
+        if let Ok(data) = frame.into_data() {
+            collected.extend_from_slice(&data);
+        }
+    }
+    assert_eq!(collected, b"redirected");
 
     server_handle.abort();
 }

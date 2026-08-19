@@ -1,9 +1,12 @@
 //! HTTP/1.1 and TLS 1.2/1.3 client implementation using Hyper, Tokio, and Rustls.
 
 use crate::cors::CorsEvaluator;
+use crate::decompression::MAX_DECOMPRESSED_BYTES;
 use crate::error::NetworkError;
 use crate::mixed_content::is_insecure_mixed_content;
 use crate::types::{HttpMethod, HttpRequest, HttpResponse};
+use bytes::Bytes;
+use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full};
 use hyper::client::conn::http1;
 use hyper_util::rt::TokioIo;
@@ -18,6 +21,9 @@ use crate::dns::DnsResolver;
 
 /// Maximum redirect hops followed before failing with `NetworkError::TooManyRedirects`.
 pub const MAX_REDIRECTS: usize = 5;
+
+/// A raw HTTP response whose body is still streamable, before any collection.
+pub(crate) type RawResponse = http::Response<BoxBody<Bytes, hyper::Error>>;
 
 /// Client configuration for network and TLS settings.
 #[derive(Clone)]
@@ -89,19 +95,52 @@ impl HttpClient {
         self.fetch_request(&HttpRequest::get(url.clone())).await
     }
 
+    /// Streams a URL's response body without buffering it in memory, following
+    /// redirects. Intended for large transfers such as file downloads.
+    ///
+    /// The timeout bounds only the handshake and redirect resolution, not the
+    /// (unbounded-duration) body transfer. The wire body is capped at
+    /// [`crate::streaming::MAX_DOWNLOAD_BYTES`].
+    ///
+    /// # Errors
+    /// Returns `NetworkError` if connection, TLS handshake, redirect
+    /// resolution, or the timeout budget is exceeded.
+    pub async fn fetch_streaming(
+        &self,
+        url: &Url,
+    ) -> Result<crate::streaming::StreamingResponse, NetworkError> {
+        let request = HttpRequest::get(url.clone());
+        let (response, final_url) = tokio::time::timeout(
+            self.config.timeout,
+            self.send_with_redirects(&request, None),
+        )
+        .await
+        .map_err(|_| NetworkError::Timeout)??;
+        Ok(crate::streaming::build_streaming_response(
+            response, final_url,
+        ))
+    }
+
     /// Executes an HTTP request with document origin security checks (Mixed Content and CORS).
     ///
     /// Mixed-content enforcement runs at every redirect hop; CORS is evaluated
     /// against the final response URL so cross-origin redirects cannot bypass it.
+    /// The entire operation is bounded by [`HttpClientConfig::timeout`].
     ///
     /// # Errors
-    /// Returns `NetworkError` if mixed content or CORS validation fails.
+    /// Returns `NetworkError` if mixed content or CORS validation fails, or if
+    /// the timeout budget is exceeded.
     pub async fn fetch_with_security_context(
         &self,
         request: &HttpRequest,
         document_origin: Option<&Url>,
     ) -> Result<HttpResponse, NetworkError> {
-        let response = self.fetch_request_inner(request, document_origin).await?;
+        let response = tokio::time::timeout(
+            self.config.timeout,
+            self.fetch_request_inner(request, document_origin),
+        )
+        .await
+        .map_err(|_| NetworkError::Timeout)??;
 
         if let Some(doc_origin) = document_origin
             && response.url.origin() != doc_origin.origin()
@@ -138,6 +177,20 @@ impl HttpClient {
         request: &HttpRequest,
         document_origin: Option<&Url>,
     ) -> Result<HttpResponse, NetworkError> {
+        let (response, final_url) = self.send_with_redirects(request, document_origin).await?;
+        self.collect_response(response, final_url).await
+    }
+
+    /// Follows redirects (up to [`MAX_REDIRECTS`]) and returns the final raw
+    /// response together with the URL it was actually served from.
+    ///
+    /// This never reads the response body, so callers can stream it (e.g. for
+    /// downloads) rather than buffering the whole transfer in memory.
+    async fn send_with_redirects(
+        &self,
+        request: &HttpRequest,
+        document_origin: Option<&Url>,
+    ) -> Result<(RawResponse, Url), NetworkError> {
         let mut current = request.clone();
 
         for _hop in 0..=MAX_REDIRECTS {
@@ -151,8 +204,12 @@ impl HttpClient {
             }
 
             let response = self.execute_request(&current).await?;
-            let status = response.status_code;
-            let location = response.header("location").map(str::to_owned);
+            let status = response.status().as_u16();
+            let location = response
+                .headers()
+                .get(http::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned);
 
             if (300..400).contains(&status)
                 && let Some(location) = location
@@ -175,25 +232,91 @@ impl HttpClient {
                 };
 
                 tracing::info!(from = %current.url, to = %next_url, status, "Following redirect");
+                // Per the fetch spec's redirect handling, credentials and
+                // authorization must not leak to a different origin.
+                let cross_origin = next_url.origin() != current.url.origin();
+                let headers = if cross_origin {
+                    current
+                        .headers
+                        .iter()
+                        .filter(|(name, _)| {
+                            !matches!(
+                                name.to_ascii_lowercase().as_str(),
+                                "authorization" | "cookie" | "proxy-authorization"
+                            )
+                        })
+                        .cloned()
+                        .collect()
+                } else {
+                    current.headers.clone()
+                };
                 current = HttpRequest {
                     url: next_url,
                     method,
-                    headers: current.headers.clone(),
+                    headers,
                     body,
                 };
                 continue;
             }
 
-            let mut final_response = response;
-            final_response.url = current.url.clone();
-            return Ok(final_response);
+            return Ok((response, current.url.clone()));
         }
 
         Err(NetworkError::TooManyRedirects(current.url.to_string()))
     }
 
+    /// Collects a raw streaming response into an in-memory [`HttpResponse`],
+    /// bounding the wire body and applying content decoding.
+    async fn collect_response(
+        &self,
+        response: RawResponse,
+        final_url: Url,
+    ) -> Result<HttpResponse, NetworkError> {
+        let status_code = response.status().as_u16();
+
+        let mut headers = HashMap::new();
+        let mut mime_type = "text/html".to_string();
+        let mut set_cookies = Vec::new();
+
+        for val in response.headers().get_all(http::header::SET_COOKIE) {
+            if let Ok(str_val) = val.to_str() {
+                set_cookies.push(str_val.to_string());
+            }
+        }
+
+        for (name, value) in response.headers() {
+            if let Ok(str_val) = value.to_str() {
+                headers.insert(name.as_str().to_ascii_lowercase(), str_val.to_string());
+                if name == http::header::CONTENT_TYPE {
+                    let mime = str_val.split(';').next().unwrap_or(str_val);
+                    mime_type = mime.trim().to_string();
+                }
+            }
+        }
+
+        // Bound the transferred body so a hostile or broken server cannot
+        // exhaust memory; a separate cap applies after decompression.
+        let collected = http_body_util::Limited::new(response.into_body(), MAX_DECOMPRESSED_BYTES)
+            .collect()
+            .await
+            .map_err(|e| NetworkError::Other(format!("response body read failed: {e}")))?;
+        let raw_payload = collected.to_bytes();
+        let content_encoding = headers.get("content-encoding").map(String::as_str);
+        let decompressed_body =
+            crate::decompression::decompress_payload(&raw_payload, content_encoding)?;
+
+        Ok(HttpResponse {
+            url: final_url,
+            status_code,
+            headers,
+            set_cookies,
+            body: decompressed_body.into(),
+            mime_type,
+        })
+    }
+
     /// Executes a single HTTP request without redirect handling.
-    async fn execute_request(&self, request: &HttpRequest) -> Result<HttpResponse, NetworkError> {
+    async fn execute_request(&self, request: &HttpRequest) -> Result<RawResponse, NetworkError> {
         let scheme = request.url.scheme();
         let is_tls = match scheme {
             "http" => false,
@@ -259,7 +382,7 @@ impl HttpClient {
         io: TokioIo<T>,
         request: &HttpRequest,
         host: &str,
-    ) -> Result<HttpResponse, NetworkError>
+    ) -> Result<RawResponse, NetworkError>
     where
         T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
     {
@@ -307,40 +430,6 @@ impl HttpClient {
         let req = builder.body(Full::new(body_bytes))?;
 
         let response = sender.send_request(req).await?;
-        let status_code = response.status().as_u16();
-
-        let mut headers = HashMap::new();
-        let mut mime_type = "text/html".to_string();
-        let mut set_cookies = Vec::new();
-
-        for val in response.headers().get_all(http::header::SET_COOKIE) {
-            if let Ok(str_val) = val.to_str() {
-                set_cookies.push(str_val.to_string());
-            }
-        }
-
-        for (name, value) in response.headers() {
-            if let Ok(str_val) = value.to_str() {
-                headers.insert(name.as_str().to_ascii_lowercase(), str_val.to_string());
-                if name == http::header::CONTENT_TYPE {
-                    let mime = str_val.split(';').next().unwrap_or(str_val);
-                    mime_type = mime.trim().to_string();
-                }
-            }
-        }
-
-        let raw_payload = response.into_body().collect().await?.to_bytes();
-        let content_encoding = headers.get("content-encoding").map(String::as_str);
-        let decompressed_body =
-            crate::decompression::decompress_payload(&raw_payload, content_encoding)?;
-
-        Ok(HttpResponse {
-            url: request.url.clone(),
-            status_code,
-            headers,
-            set_cookies,
-            body: decompressed_body.into(),
-            mime_type,
-        })
+        Ok(response.map(http_body_util::BodyExt::boxed))
     }
 }

@@ -147,11 +147,27 @@ impl CspPolicy {
                         return true;
                     }
                 }
-                CspSource::Host(host) => {
-                    if let Some(target_host) = target_url.host_str()
-                        && (target_host == host.as_str() || target_url.as_str().starts_with(host))
-                    {
-                        return true;
+                CspSource::Host(source) => {
+                    // Host sources may carry an optional `scheme://` prefix and
+                    // `:port` suffix (e.g. `https://api.example.com:8443`).
+                    // Per CSP3 §6.7.2.3, a host source matches the target's
+                    // host component exactly or via its subdomains — never as
+                    // a string prefix of the full URL (which would let
+                    // `api.example.com.evil.com` bypass `api.example.com`).
+                    let (source_host, source_port) = Self::parse_host_source(source);
+                    let Some(target_host) = target_url.host_str() else {
+                        continue;
+                    };
+                    let host_matches = target_host.eq_ignore_ascii_case(source_host)
+                        || target_host
+                            .to_ascii_lowercase()
+                            .ends_with(&format!(".{}", source_host.to_ascii_lowercase()));
+                    if host_matches {
+                        let port_matches = source_port
+                            .is_none_or(|p| target_url.port_or_known_default() == Some(p));
+                        if port_matches {
+                            return true;
+                        }
                     }
                 }
                 _ => {}
@@ -159,6 +175,23 @@ impl CspPolicy {
         }
 
         false
+    }
+
+    /// Splits a host source expression into its host and optional port parts.
+    ///
+    /// Accepts `example.com`, `https://example.com`, and
+    /// `https://example.com:8443`; returns the host without scheme and the port
+    /// when present (and the port part is all digits).
+    fn parse_host_source(source: &str) -> (&str, Option<u16>) {
+        let without_scheme = source.rsplit_once("://").map_or(source, |(_, rest)| rest);
+        if let Some((host, port)) = without_scheme.rsplit_once(':')
+            && !host.contains('/')
+            && port.chars().all(|c| c.is_ascii_digit())
+        {
+            (host, port.parse().ok())
+        } else {
+            (without_scheme, None)
+        }
     }
 
     /// Evaluates whether a cryptographic nonce is permitted for inline scripts or styles.

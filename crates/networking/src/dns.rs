@@ -7,6 +7,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
+/// Maximum number of cached host records.
+///
+/// The cache is a plain map that could otherwise grow without bound as a
+/// hostile page requests arbitrary hostnames.
+pub const MAX_CACHE_ENTRIES: usize = 1024;
+
 /// Cached DNS record with expiration time.
 #[derive(Debug, Clone)]
 struct CachedDnsRecord {
@@ -34,6 +40,21 @@ impl DnsResolver {
         Self {
             cache: Arc::new(RwLock::new(HashMap::new())),
             default_ttl,
+        }
+    }
+
+    /// Evicts expired entries and, if the cache is still at its ceiling,
+    /// drops one arbitrary entry to make room for the next insert.
+    async fn enforce_cache_bound(&self, now: Instant) {
+        let mut cache = self.cache.write().await;
+        if cache.len() < MAX_CACHE_ENTRIES {
+            return;
+        }
+        cache.retain(|_, record| record.expires_at > now);
+        if cache.len() >= MAX_CACHE_ENTRIES
+            && let Some(oldest_key) = cache.keys().next().cloned()
+        {
+            cache.remove(&oldest_key);
         }
     }
 
@@ -75,7 +96,8 @@ impl DnsResolver {
             }
         };
 
-        // Update cache
+        // Update cache (bounded to prevent unbounded growth)
+        self.enforce_cache_bound(now).await;
         {
             let mut cache = self.cache.write().await;
             cache.insert(
@@ -92,6 +114,7 @@ impl DnsResolver {
 
     /// Inserts a static override for hostname resolution (useful in local environments and testing).
     pub async fn insert_override(&self, host: &str, addresses: Vec<IpAddr>) {
+        self.enforce_cache_bound(Instant::now()).await;
         let mut cache = self.cache.write().await;
         cache.insert(
             host.to_string(),

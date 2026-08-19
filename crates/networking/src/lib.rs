@@ -9,6 +9,7 @@ pub mod error;
 pub mod mixed_content;
 pub mod network_client;
 pub mod service;
+pub mod streaming;
 pub mod types;
 
 pub use client::{HttpClient, HttpClientConfig};
@@ -20,4 +21,5 @@ pub use error::NetworkError;
 pub use mixed_content::is_insecure_mixed_content;
 pub use network_client::{NetworkClient, NetworkClientConfig};
 pub use service::NetworkService;
+pub use streaming::{MAX_DOWNLOAD_BYTES, StreamingResponse};
 pub use types::{HttpRequest, HttpResponse};
