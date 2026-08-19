@@ -1,6 +1,7 @@
 //! Tab strip and individual tab element layout for `PageView`.
 
 use super::PageView;
+use crate::layout::TAB_STRIP_HEIGHT;
 use gpui::{
     Context, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled,
     div, px, rgb,
@@ -12,7 +13,7 @@ impl PageView {
         let tab_items = self.current_tabs().tabs().to_vec();
         div()
             .w_full()
-            .h(px(32.0))
+            .h(px(TAB_STRIP_HEIGHT))
             .flex()
             .items_center()
             .gap_1()

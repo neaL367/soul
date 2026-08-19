@@ -3,6 +3,7 @@
 mod input;
 mod tabs;
 
+use crate::layout::TOOLBAR_HEIGHT;
 use crate::state::{BackendSharedState, SharedEventHandler};
 use crate::toolbar::action_button;
 use gpui::{
@@ -13,6 +14,11 @@ use gpui::{
 use soul_ui::{InputRouter, SoulEvent, TabStripModel, WindowId};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// Poll cadence for background frame pushes. No re-render is scheduled unless
+/// the shared state generation counter changed since the last tick, so idle
+/// windows spend the interval asleep instead of re-rendering every 100 ms.
+const FRAME_POLL_INTERVAL: Duration = Duration::from_millis(33);
 
 /// Live root view for one Soul native window.
 pub struct PageView {
@@ -117,19 +123,34 @@ impl PageView {
         });
     }
 
-    /// Starts low-frequency polling so background navigation frames reach GPUI.
+    /// Polls the shared state generation counter so frames pushed from a
+    /// background navigation task reach GPUI. Only calls `cx.notify()` when the
+    /// counter moved, so nothing is re-rendered while the window is idle.
     fn start_frame_poll(&mut self, cx: &Context<Self>) {
         if self.poll_task.is_some() {
             return;
         }
         self.poll_task = Some(cx.spawn(async move |view, cx| {
+            let mut last_generation: Option<u64> = None;
             loop {
-                if view.update(cx, |_view, cx| cx.notify()).is_err() {
+                if view
+                    .update(cx, |this, cx| {
+                        let generation = this.state.lock().ok().and_then(|state| {
+                            state
+                                .windows
+                                .get(&this.window_id)
+                                .map(|window| window.generation)
+                        });
+                        if last_generation != generation {
+                            last_generation = generation;
+                            cx.notify();
+                        }
+                    })
+                    .is_err()
+                {
                     break;
                 }
-                cx.background_executor()
-                    .timer(Duration::from_millis(100))
-                    .await;
+                cx.background_executor().timer(FRAME_POLL_INTERVAL).await;
             }
         }));
     }
@@ -169,7 +190,7 @@ impl Render for PageView {
             .child(
                 div()
                     .w_full()
-                    .h(px(44.0))
+                    .h(px(TOOLBAR_HEIGHT))
                     .px_2()
                     .gap_2()
                     .items_center()

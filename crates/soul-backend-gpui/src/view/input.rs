@@ -1,6 +1,7 @@
 //! Input conversion and routing handlers for `PageView`.
 
 use super::PageView;
+use crate::layout::page_coordinate;
 use gpui::{
     Context, KeyDownEvent, Modifiers, MouseButton as GpuiMouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, NavigationDirection, ScrollDelta, ScrollWheelEvent, Window,
@@ -66,10 +67,11 @@ impl PageView {
                 PhysicalPosition::new(f64::from(x), f64::from(y)),
             );
         }
-        // Toolbar occupies first 44 logical pixels; translate remaining clicks
-        // into page coordinates before hit-testing layout regions.
-        if y > 44.0
-            && let Some(HitTestTarget::Link(url)) = self.hit_test(x, y - 44.0)
+        // Translate clicks below the chrome into page coordinates before
+        // hit-testing layout regions, so toolbar/tab-strip clicks never leak
+        // through to page links underneath them.
+        if let Some((page_x, page_y)) = page_coordinate(x, y)
+            && let Some(HitTestTarget::Link(url)) = self.hit_test(page_x, page_y)
         {
             self.emit_event(SoulEvent::LinkActivated {
                 window_id: self.window_id.0,
@@ -134,11 +136,20 @@ impl PageView {
             } else {
                 KeyPhase::Down
             };
-            let key = event.keystroke.key.clone();
+            // GPUI exposes the printed key label (`key`) and the typed character
+            // (`key_char`). Map them to the web-style `key` (logical character)
+            // and `code` (physical key) parameters instead of passing the same
+            // value to both.
+            let code = event.keystroke.key.clone();
+            let key = event
+                .keystroke
+                .key_char
+                .clone()
+                .unwrap_or_else(|| code.clone());
             router.handle_key(
                 self.window_id,
-                key.clone(),
                 key,
+                code,
                 phase,
                 Self::modifiers(event.keystroke.modifiers),
                 event.keystroke.key_char.clone(),
