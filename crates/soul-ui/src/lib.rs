@@ -20,7 +20,9 @@ pub use input::{
     MouseEvent, MousePhase, PhysicalPosition, PhysicalSize, WheelDeltaMode, WheelEvent,
 };
 pub use input_router::InputRouter;
-pub use omnibox::{OmniboxEngine, OmniboxModel, OmniboxSuggestion, OmniboxSuggestionType};
+pub use omnibox::{
+    OmniboxEngine, OmniboxModel, OmniboxSuggestion, OmniboxSuggestionType, looks_like_url,
+};
 pub use soul::{SoulAction, SoulModel};
 pub use soul_core::TabId;
 pub use tab_strip::{TabItem, TabStripModel};

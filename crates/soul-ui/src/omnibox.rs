@@ -215,7 +215,7 @@ impl OmniboxEngine {
             if let Ok(u) = Url::parse(input) {
                 return Some(u.to_string());
             }
-        } else if !input.contains(' ') && (input.contains('.') || input.starts_with("localhost")) {
+        } else if looks_like_url(input) {
             let candidate = format!("https://{input}");
             if let Ok(u) = Url::parse(&candidate) {
                 return Some(u.to_string());
@@ -228,4 +228,15 @@ impl OmniboxEngine {
 /// Percent-encodes a raw user query so it cannot alter the search URL structure.
 fn encode_query_value(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+/// Returns `true` when `input` reads as a web URL rather than a search query.
+///
+/// A URL-looking input has no spaces and either contains a dot or names the
+/// loopback host. Shared by the omnibox and submission resolution so the
+/// "is this a URL?" decision is defined once instead of duplicated.
+#[must_use]
+pub fn looks_like_url(input: &str) -> bool {
+    let trimmed = input.trim();
+    !trimmed.contains(' ') && (trimmed.contains('.') || trimmed.starts_with("localhost"))
 }

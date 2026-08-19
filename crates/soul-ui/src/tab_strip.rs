@@ -115,12 +115,26 @@ impl TabStripModel {
         }
     }
 
-    /// Reorders a tab from one index to another.
+    /// Reorders a tab from one index to another, preserving the invariant that
+    /// pinned tabs always precede unpinned tabs.
     pub fn move_tab(&mut self, from_index: usize, to_index: usize) {
-        if from_index < self.tabs.len() && to_index < self.tabs.len() && from_index != to_index {
-            let tab = self.tabs.remove(from_index);
-            self.tabs.insert(to_index, tab);
+        if from_index >= self.tabs.len() || to_index >= self.tabs.len() || from_index == to_index {
+            return;
         }
+        let tab = self.tabs.remove(from_index);
+        let mut target = to_index;
+        let pinned_left = self.tabs.iter().filter(|t| t.is_pinned).count();
+        if tab.is_pinned {
+            // Keep a pinned tab inside the leading pinned run whenever another
+            // pinned tab still anchors it; the sole pinned tab may go anywhere.
+            if pinned_left > 0 {
+                target = target.min(pinned_left - 1);
+            }
+        } else {
+            // An unpinned tab must never be inserted before the pinned run.
+            target = target.max(pinned_left);
+        }
+        self.tabs.insert(target.min(self.tabs.len()), tab);
     }
 
     /// Returns the currently active tab item if any.

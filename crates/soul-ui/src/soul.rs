@@ -99,8 +99,7 @@ impl SoulModel {
         let target = self.omnibox.target_url();
         if target.starts_with("http://") || target.starts_with("https://") {
             target
-        } else if !target.contains(' ') && (target.contains('.') || target.starts_with("localhost"))
-        {
+        } else if crate::omnibox::looks_like_url(&target) {
             format!("https://{target}")
         } else {
             let encoded: String =
