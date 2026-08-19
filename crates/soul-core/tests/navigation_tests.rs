@@ -233,3 +233,101 @@ fn page_scroll_state_clamps_and_tracks_bounds() {
     assert!(scroll.offset_y.abs() < 0.001);
     assert!(scroll.max_offset().abs() < 0.001);
 }
+
+#[test]
+fn cancel_transitions_navigating_to_failed() {
+    let mut controller = NavigationController::new();
+    let id = controller.navigate("https://example.com").unwrap();
+    assert!(matches!(
+        controller.state(),
+        NavigationState::Navigating { .. }
+    ));
+
+    controller.cancel();
+    match controller.state() {
+        NavigationState::Failed {
+            id: failed_id,
+            error,
+            ..
+        } => {
+            assert_eq!(*failed_id, id);
+            assert!(error.contains("cancel"), "unexpected error: {error}");
+        }
+        other => panic!("expected Failed after cancel, got {other:?}"),
+    }
+}
+
+#[test]
+fn cancel_without_active_navigation_is_a_noop() {
+    let mut controller = NavigationController::new();
+    assert_eq!(*controller.state(), NavigationState::Init);
+    controller.cancel();
+    assert_eq!(*controller.state(), NavigationState::Init);
+
+    // After a completed load, cancel leaves the Loaded state untouched.
+    let id = controller.navigate("https://example.com").unwrap();
+    controller.handle_response(id, 200, "text/html".to_string());
+    controller.handle_dom_ready(id);
+    controller.handle_loaded(id);
+    assert!(matches!(controller.state(), NavigationState::Loaded { .. }));
+    controller.cancel();
+    assert!(matches!(controller.state(), NavigationState::Loaded { .. }));
+}
+
+#[test]
+fn reload_restarts_active_navigation() {
+    let mut controller = NavigationController::new();
+    assert_eq!(
+        controller.reload(),
+        None,
+        "no URL to reload before any navigation"
+    );
+
+    let id = controller.navigate("https://example.com").unwrap();
+    controller.handle_response(id, 200, "text/html".to_string());
+    controller.handle_dom_ready(id);
+    controller.handle_loaded(id);
+
+    let reload_id = controller
+        .reload()
+        .expect("reload should start a navigation");
+    assert_ne!(reload_id, id);
+    assert!(matches!(
+        controller.state(),
+        NavigationState::Navigating { .. }
+    ));
+    assert_eq!(
+        controller.state().current_url().unwrap().as_str(),
+        "https://example.com/"
+    );
+}
+
+#[test]
+fn error_handlers_discard_stale_and_missing_events() {
+    let mut controller = NavigationController::new();
+    // handle_error with no active navigation is discarded.
+    assert!(!controller.handle_error(NavigationId(999), "boom".to_string()));
+
+    let id = controller.navigate("https://example.com").unwrap();
+    // Stale id error is discarded.
+    assert!(!controller.handle_error(NavigationId(500), "stale".to_string()));
+
+    // Matching error transitions to Failed and surfaces the message.
+    assert!(controller.handle_error(id, "connection refused".to_string()));
+    match controller.state() {
+        NavigationState::Failed {
+            id: failed_id,
+            error,
+            ..
+        } => {
+            assert_eq!(*failed_id, id);
+            assert_eq!(error, "connection refused");
+        }
+        other => panic!("expected Failed, got {other:?}"),
+    }
+
+    // handle_response / handle_dom_ready / handle_loaded after failure are stale.
+    assert!(!controller.handle_response(id, 200, "text/html".to_string()));
+    assert!(!controller.handle_dom_ready(id));
+    assert!(!controller.handle_loaded(id));
+}

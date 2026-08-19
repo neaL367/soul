@@ -99,10 +99,6 @@ pub enum NavigationError {
     #[error("Failed to parse URL '{0}': {1}")]
     InvalidUrl(String, url::ParseError),
 
-    /// Navigation operation was canceled.
-    #[error("Navigation canceled")]
-    Canceled,
-
     /// General navigation error.
     #[error("Navigation error: {0}")]
     Other(String),
