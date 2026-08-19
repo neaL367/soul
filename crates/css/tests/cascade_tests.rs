@@ -247,3 +247,165 @@ fn test_unitless_lengths_only_zero_is_valid() {
     assert!((styles.get(&z_id).unwrap().margin_left - 0.0).abs() < f32::EPSILON);
     assert_eq!(styles.get(&z_id).unwrap().line_height, Some(0.0));
 }
+
+#[test]
+fn test_multibyte_hex_color_does_not_panic() {
+    let html = r#"<html><body><div id="a">A</div><div id="b">B</div></body></html>"#;
+    let doc = parse_html(html);
+
+    // Non-ASCII hex digits must be rejected without panicking on byte slicing.
+    let css = r"
+        #a { color: #🎨; }
+        #b { color: #🎨🎨🎨🎨; }
+    ";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let a_id = doc.get_element_by_id("a").unwrap();
+    let b_id = doc.get_element_by_id("b").unwrap();
+
+    assert_eq!(styles.get(&a_id).unwrap().color, Color::BLACK);
+    assert_eq!(styles.get(&b_id).unwrap().color, Color::BLACK);
+}
+
+#[test]
+fn test_negative_hue_wraps_per_css_color_4() {
+    let html = r#"<html><body><div id="c">C</div></body></html>"#;
+    let doc = parse_html(html);
+
+    // -120deg is equivalent to 240deg: pure blue.
+    let css = "#c { color: hsl(-120, 100%, 50%); }";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let c_id = doc.get_element_by_id("c").unwrap();
+    assert_eq!(styles.get(&c_id).unwrap().color, Color::rgb(0, 0, 255));
+}
+
+#[test]
+fn test_non_finite_numbers_rejected() {
+    let html = r#"<html><body><div id="d">D</div></body></html>"#;
+    let doc = parse_html(html);
+
+    let css = r"
+        #d {
+            opacity: NaN;
+            flex-grow: NaN;
+            width: infpx;
+            line-height: inf;
+        }
+    ";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let d_id = doc.get_element_by_id("d").unwrap();
+    let d = styles.get(&d_id).unwrap();
+
+    assert!((d.opacity - 1.0).abs() < f32::EPSILON);
+    assert!((d.flex_grow - 0.0).abs() < f32::EPSILON);
+    assert_eq!(d.width, css::Length::Auto);
+    assert_eq!(d.line_height, None);
+}
+
+#[test]
+fn test_cornflowerblue_named_color() {
+    let html = r#"<html><body><div id="e">E</div></body></html>"#;
+    let doc = parse_html(html);
+
+    let css = "#e { color: cornflowerblue; }";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let e_id = doc.get_element_by_id("e").unwrap();
+    assert_eq!(styles.get(&e_id).unwrap().color, Color::rgb(100, 149, 237));
+}
+
+#[test]
+fn test_important_spacing_and_case_variants() {
+    let html = r#"<html><body><div id="main" class="box">Content</div></body></html>"#;
+    let doc = parse_html(html);
+
+    // No whitespace before `!`, uppercase marker, and whitespace after `!`
+    // must all be recognized as `!important`.
+    let css = r"
+        #main { color: #ff0000!important; }
+        .box { color: #00ff00; }
+    ";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let div_id = doc.get_element_by_id("main").unwrap();
+    assert_eq!(styles.get(&div_id).unwrap().color, Color::rgb(255, 0, 0));
+
+    let css2 = r"
+        #main { color: #0000ff ! IMPORTANT; }
+        .box { color: #00ff00; }
+    ";
+    let author_sheet2 = parse_stylesheet(css2, Origin::Author);
+    let resolver2 = CascadeResolver::new(&doc, &[&author_sheet2]);
+    let styles2 = resolver2.resolve_all();
+
+    assert_eq!(styles2.get(&div_id).unwrap().color, Color::rgb(0, 0, 255));
+}
+
+#[test]
+fn test_child_combinator_without_whitespace() {
+    let html = r#"<html><body><section><p class="kid">Kid</p></section></body></html>"#;
+    let doc = parse_html(html);
+
+    // `section>p` (no spaces) must parse as child combinator, not a literal tag.
+    let css = "section>p { color: #ff0000; }";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let kid = doc.get_elements_by_class_name("kid")[0];
+    assert_eq!(styles.get(&kid).unwrap().color, Color::rgb(255, 0, 0));
+}
+
+#[test]
+fn test_strings_and_urls_do_not_break_declarations() {
+    let html = r#"<html><body><div id="f">F</div></body></html>"#;
+    let doc = parse_html(html);
+
+    // Semicolons and braces inside quoted strings and url(...) values must not
+    // terminate the declaration or the rule.
+    let css = r#"
+        #f {
+            content: "a;b"; /* semicolon inside string */
+            background: url(data:image/svg+xml;utf8,<svg>{}</svg>); /* brace + semicolon inside url */
+            color: #0000ff;
+        }
+    "#;
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let f_id = doc.get_element_by_id("f").unwrap();
+    assert_eq!(styles.get(&f_id).unwrap().color, Color::rgb(0, 0, 255));
+}
+
+#[test]
+fn test_at_rule_body_is_not_misparsed() {
+    let html = r#"<html><body><p class="outside">Text</p></body></html>"#;
+    let doc = parse_html(html);
+
+    let css = r"
+        @media screen {
+            p { color: #ff0000; }
+        }
+        p { color: #00ff00; }
+    ";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    // The rule inside the unsupported @media block must not leak into the sheet.
+    let p = doc.get_elements_by_class_name("outside")[0];
+    assert_eq!(styles.get(&p).unwrap().color, Color::rgb(0, 255, 0));
+}

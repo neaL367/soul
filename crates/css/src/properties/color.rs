@@ -68,6 +68,12 @@ impl Color {
     }
 
     fn parse_hex(hex: &str) -> Option<Self> {
+        // Reject any non-ASCII input before slicing: byte-length checks below
+        // assume one byte per hex digit, and slicing a multibyte char boundary
+        // would panic on untrusted CSS input.
+        if !hex.is_ascii() {
+            return None;
+        }
         match hex.len() {
             3 => {
                 let r = u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()?;
@@ -114,6 +120,9 @@ impl Color {
             let g = parts[1].parse::<u8>().ok()?;
             let b = parts[2].parse::<u8>().ok()?;
             let alpha_f = parts[3].parse::<f32>().ok()?;
+            if !alpha_f.is_finite() {
+                return None;
+            }
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let a = (alpha_f.clamp(0.0, 1.0) * 255.0).round() as u8;
             Some(Self::rgba(r, g, b, a))
@@ -135,11 +144,19 @@ impl Color {
         if parts.len() < 3 {
             return None;
         }
-        let h = parts[0].trim_end_matches("deg").parse::<f32>().ok()? % 360.0;
+        let h = parts[0].trim_end_matches("deg").parse::<f32>().ok()?;
         let s = parts[1].trim_end_matches('%').parse::<f32>().ok()? / 100.0;
         let l = parts[2].trim_end_matches('%').parse::<f32>().ok()? / 100.0;
+        if !h.is_finite() || !s.is_finite() || !l.is_finite() {
+            return None;
+        }
+        // Negative hues wrap around the color wheel per CSS Color 4; NaN is rejected above.
+        let h = h.rem_euclid(360.0);
         let a = if parts.len() >= 4 {
             let alpha_f = parts[3].trim_end_matches('%').parse::<f32>().ok()?;
+            if !alpha_f.is_finite() {
+                return None;
+            }
             (alpha_f.clamp(0.0, 1.0) * 255.0).round() as u8
         } else {
             255
@@ -194,6 +211,7 @@ impl Color {
             "coral" => Some(Self::rgb(255, 127, 80)),
             "brown" => Some(Self::rgb(165, 42, 42)),
             "crimson" => Some(Self::rgb(220, 20, 60)),
+            "cornflowerblue" => Some(Self::rgb(100, 149, 237)),
             _ => None,
         }
     }

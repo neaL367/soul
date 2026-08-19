@@ -42,7 +42,9 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "opacity" => {
-            if let Ok(val) = decl.value.parse::<f32>() {
+            if let Ok(val) = decl.value.parse::<f32>()
+                && val.is_finite()
+            {
                 style.opacity = val.clamp(0.0, 1.0);
             }
         }
@@ -70,7 +72,9 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             "bold" | "700" => style.font_weight = FontWeight::Bold,
             "normal" | "400" => style.font_weight = FontWeight::Normal,
             _ => {
-                if let Ok(w) = decl.value.parse::<u16>() {
+                if let Ok(w) = decl.value.parse::<u16>()
+                    && (1..=1000).contains(&w)
+                {
                     style.font_weight = FontWeight::Number(w);
                 }
             }
@@ -98,6 +102,7 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             if let Some(px) = parse_px(&decl.value) {
                 style.line_height = Some(px);
             } else if let Ok(factor) = decl.value.trim().parse::<f32>()
+                && factor.is_finite()
                 && factor > 0.0
             {
                 style.line_height = Some(style.font_size * factor);
@@ -265,12 +270,16 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             _ => {}
         },
         "flex-grow" => {
-            if let Ok(v) = decl.value.trim().parse::<f32>() {
+            if let Ok(v) = decl.value.trim().parse::<f32>()
+                && v.is_finite()
+            {
                 style.flex_grow = v.max(0.0);
             }
         }
         "flex-shrink" => {
-            if let Ok(v) = decl.value.trim().parse::<f32>() {
+            if let Ok(v) = decl.value.trim().parse::<f32>()
+                && v.is_finite()
+            {
                 style.flex_shrink = v.max(0.0);
             }
         }
@@ -317,9 +326,8 @@ fn apply_border_shorthand(style: &mut ComputedStyle, value: &str) {
 
 fn parse_percent(value: &str) -> Option<f32> {
     let trimmed = value.trim();
-    trimmed
-        .strip_suffix('%')
-        .and_then(|num| num.trim().parse::<f32>().ok())
+    let num = trimmed.strip_suffix('%')?.trim().parse::<f32>().ok()?;
+    if num.is_finite() { Some(num) } else { None }
 }
 
 fn parse_px(value: &str) -> Option<f32> {
@@ -332,7 +340,10 @@ fn parse_px(value: &str) -> Option<f32> {
                 None
             }
         },
-        |num| num.trim().parse::<f32>().ok(),
+        |num| {
+            let num = num.trim().parse::<f32>().ok()?;
+            if num.is_finite() { Some(num) } else { None }
+        },
     )
 }
 
