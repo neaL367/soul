@@ -20,6 +20,14 @@ where
         return Vec::new();
     }
 
+    // A non-finite width constraint disables soft wrapping; hard breaks still
+    // apply below. Guarding here keeps widths finite downstream.
+    let max_width = if max_width.is_finite() {
+        max_width.max(0.0)
+    } else {
+        f32::MAX
+    };
+
     let mut lines = Vec::new();
     let mut current_line = String::new();
     let mut current_width = 0.0;

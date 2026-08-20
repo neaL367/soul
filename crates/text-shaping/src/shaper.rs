@@ -78,6 +78,22 @@ impl TextShaper {
         letter_spacing: f32,
         word_spacing: f32,
     ) -> ShapedRun {
+        let font_size = if font_size.is_finite() {
+            font_size.max(0.0)
+        } else {
+            0.0
+        };
+        let letter_spacing = if letter_spacing.is_finite() {
+            letter_spacing
+        } else {
+            0.0
+        };
+        let word_spacing = if word_spacing.is_finite() {
+            word_spacing
+        } else {
+            0.0
+        };
+
         let metrics = FontMetrics::for_size(font_size);
         let _font_id = self.font_db.query_font(font_family);
 

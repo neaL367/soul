@@ -136,11 +136,15 @@ impl TreeSink for HtmlTreeSink {
         sibling: &Self::Handle,
         new_node: NodeOrText<Self::Handle>,
     ) {
-        let parent = self
-            .document
-            .get_node(*sibling)
-            .and_then(|n| n.parent)
-            .expect("append_before_sibling on parentless node");
+        // A parentless sibling (e.g. a node whose parent was removed during a
+        // foster-parenting edge case) cannot be inserted before; drop the
+        // mutation instead of panicking on untrusted input.
+        let Some(parent) = self.document.get_node(*sibling).and_then(|n| n.parent) else {
+            self.parse_error(Cow::Borrowed(
+                "append_before_sibling on parentless node; mutation dropped",
+            ));
+            return;
+        };
 
         match new_node {
             NodeOrText::AppendNode(node_id) => {
@@ -227,5 +231,24 @@ impl TreeSink for HtmlTreeSink {
 
     fn reparent_children(&mut self, node: &Self::Handle, new_parent: &Self::Handle) {
         self.document.reparent_children(*node, *new_parent);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use html5ever::tree_builder::{ElementFlags, NodeOrText};
+    use html5ever::{local_name, ns};
+
+    #[test]
+    fn append_before_sibling_on_parentless_sibling_drops_mutation() {
+        let mut sink = HtmlTreeSink::new();
+        let root = sink.get_document();
+        let name = QualName::new(None, ns!(html), local_name!("span"));
+        let sibling = sink.create_element(name, Vec::new(), ElementFlags::default());
+
+        // Sibling has no parent; the mutation must be dropped, not panic.
+        sink.append_before_sibling(&sibling, NodeOrText::AppendText("x".into()));
+        assert_eq!(sink.document.children(root).len(), 0);
     }
 }

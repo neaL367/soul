@@ -78,3 +78,49 @@ fn test_text_shaper_letter_and_word_spacing() {
         "expected diff {expected_diff}, got {actual_diff}"
     );
 }
+
+#[test]
+fn test_non_finite_shaping_inputs_are_sanitized() {
+    let shaper = TextShaper::new();
+
+    // NaN font size clamps to zero: zero-width run, no NaN propagates.
+    let nan_run = shaper.shape_text("Hello", "sans-serif", f32::NAN, false);
+    assert!((nan_run.advance_width - 0.0).abs() < f32::EPSILON);
+    assert!(nan_run.advance_width.is_finite());
+    assert!(nan_run.metrics.line_height.is_finite());
+
+    // Negative font size clamps to zero.
+    let negative_run = shaper.shape_text("Hello", "sans-serif", -16.0, false);
+    assert!((negative_run.advance_width - 0.0).abs() < f32::EPSILON);
+
+    // NaN spacing does not poison per-character advances.
+    let spaced = shaper.shape_text_with_spacing(
+        "Hello World",
+        "sans-serif",
+        16.0,
+        false,
+        f32::NAN,
+        f32::NAN,
+    );
+    assert!(spaced.advance_width.is_finite());
+    assert!(spaced.advance_width > 0.0);
+}
+
+#[test]
+fn test_non_finite_max_width_does_not_break_soft_wrapping() {
+    let shaper = TextShaper::new();
+    let text = "A short line\nwith a hard break";
+
+    // NaN max width disables soft wrapping; hard breaks still apply and all
+    // widths stay finite.
+    let lines = break_lines(text, f32::NAN, |segment| {
+        shaper
+            .shape_text(segment, "sans-serif", 16.0, false)
+            .advance_width
+    });
+
+    assert_eq!(lines.len(), 2);
+    for line in &lines {
+        assert!(line.width.is_finite());
+    }
+}
