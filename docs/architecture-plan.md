@@ -228,7 +228,7 @@ browser/
 | M5 HTML parser | html5ever → DOM | **Complete** |
 | M6 DOM API | NodeId arena, mutation, query | **Complete** |
 | M7 CSS + style | cascade, computed style | **Complete** — note: tokenizer/selector matching is hand-rolled rather than `cssparser`/`selectors` (ADR-17) |
-| M8 Layout | block/inline/flex + text shaping | **Partial** — block/inline layout is wired and tested; `layout_flex` exists but has no pipeline caller (flex containers lay out as blocks); text renders as placeholder rectangles because shaping is a synthetic-advance stub with no glyph rasterization (ADR-18); em/rem widths fall back to auto; inline-block is treated as inline; absolute/fixed/sticky positions compute but are not laid out |
+| M8 Layout | block/inline/flex + text shaping | **Partial** — block and inline layout are wired and tested; `display: flex` containers now dispatch to the flex algorithm (taffy) from the live pipeline (`layout_block`), including nested flex containers and anonymous flex items; remaining gaps: text renders as placeholder rectangles because shaping is a synthetic-advance stub with no glyph rasterization (ADR-18); em/rem widths fall back to auto; inline-block is treated as inline; absolute/fixed/sticky positions compute but are not laid out |
 | M9 Paint | display list | **Complete** |
 | M9.5 A11y skeleton | semantic data in fragment tree | **Complete** |
 | M10a Software raster | CPU pixels on screen | **Complete** |
