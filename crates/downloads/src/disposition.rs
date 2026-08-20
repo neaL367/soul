@@ -71,7 +71,8 @@ pub fn sanitize_filename(name: &str) -> String {
         .collect();
 
     let trimmed = sanitized.trim().trim_end_matches('.');
-    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." || trimmed.chars().all(|c| c == '.')
+    {
         return "download".to_string();
     }
 

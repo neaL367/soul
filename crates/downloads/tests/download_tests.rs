@@ -87,6 +87,32 @@ fn test_sanitize_reserved_windows_device_names() {
 }
 
 #[test]
+fn test_sanitize_all_dot_names() {
+    assert_eq!(sanitize_filename("..."), "download");
+    assert_eq!(sanitize_filename(".."), "download");
+    assert_eq!(sanitize_filename("...."), "download");
+}
+
+#[tokio::test]
+async fn test_start_download_sanitizes_destination_filename() {
+    let manager = DownloadManager::new();
+    // Illegal Windows characters and dot-only names in the file name must be
+    // neutralized before the item is recorded or any file is created.
+    let raw = std::env::temp_dir().join("..").join("report:final?.pdf");
+    let id = manager
+        .start_download("http://127.0.0.1:9/invalid", raw)
+        .await
+        .unwrap();
+
+    let item = manager.get_download(id).await.unwrap();
+    assert_eq!(
+        item.destination_path.file_name().unwrap().to_str().unwrap(),
+        "reportfinal.pdf"
+    );
+    assert_eq!(item.file_name, "reportfinal.pdf");
+}
+
+#[test]
 fn test_sanitize_reserved_name_via_content_disposition() {
     let header = "attachment; filename=\"NUL.exe\"";
     assert_eq!(

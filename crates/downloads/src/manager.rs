@@ -1,5 +1,6 @@
 //! Asynchronous file download manager coordinating disk streaming and progress updates.
 
+use crate::disposition::sanitize_filename;
 use crate::error::DownloadError;
 use crate::item::{DownloadItem, DownloadState};
 use crate::motw::attach_zone_identifier;
@@ -8,7 +9,7 @@ use http_body_util::BodyExt;
 use http_body_util::combinators::BoxBody;
 use networking::HttpClient;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
@@ -66,6 +67,10 @@ impl DownloadManager {
             Url::parse(url_str).map_err(|e| DownloadError::InvalidUrl(e.to_string()))?;
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
+        // Sanitize the file name component at the boundary so a caller passing
+        // a raw server-supplied `Content-Disposition` name can never write
+        // outside the chosen directory or use illegal Windows characters.
+        let destination = sanitize_destination(&destination);
         let item = DownloadItem::new(id, url_str.to_string(), destination.clone());
         {
             let mut lock = self.downloads.lock().await;
@@ -213,4 +218,16 @@ impl DownloadManager {
         list.sort_by_key(|d| d.id);
         list
     }
+}
+
+/// Replaces the file name component of `destination` with its sanitized form,
+/// keeping the caller-chosen directory unchanged.
+fn sanitize_destination(destination: &Path) -> PathBuf {
+    let name = destination
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map_or_else(|| "download".to_string(), sanitize_filename);
+    destination
+        .parent()
+        .map_or_else(|| PathBuf::from(&name), |parent| parent.join(&name))
 }
