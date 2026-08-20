@@ -208,9 +208,9 @@ fn test_negative_width_height_padding_and_border_are_ignored() {
     // (the declarations fall back to the initial values, not to negatives).
     assert_eq!(style.width, Length::Auto);
     assert_eq!(style.height, Length::Auto);
-    assert_eq!(style.padding_left, 0.0);
-    assert_eq!(style.border_top_width, 0.0);
-    assert_eq!(style.font_size, 16.0);
+    assert!((style.padding_left - 0.0).abs() < f32::EPSILON);
+    assert!((style.border_top_width - 0.0).abs() < f32::EPSILON);
+    assert!((style.font_size - 16.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -232,8 +232,8 @@ fn test_negative_margin_and_letter_spacing_still_apply() {
     let style = styles.get(&box_id).unwrap();
 
     // Negative margins and letter-spacing are valid CSS and must survive.
-    assert_eq!(style.margin_left, -10.0);
-    assert_eq!(style.letter_spacing, -1.0);
+    assert!((style.margin_left + 10.0).abs() < f32::EPSILON);
+    assert!((style.letter_spacing + 1.0).abs() < f32::EPSILON);
 }
 
 #[test]
