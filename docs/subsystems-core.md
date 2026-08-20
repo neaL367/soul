@@ -38,7 +38,7 @@ Each process boundary is introduced **only after** the thing it isolates already
 
 **Phase 2 (cross-process):** the same command/event enums are serialized. Recommended stack:
 - Transport: Windows named pipes (`\\.\pipe\...`) via the `interprocess` crate, or raw Win32 `CreateNamedPipe`/`ConnectNamedPipe` through the `windows` crate if `interprocess` proves insufficient for duplex + multiple clients.
-- Framing: length-prefixed frames (u32 LE length + payload), one connection per process pair.
+- Framing: length-prefixed frames (u32 LE length + payload), one connection per process pair. Every `IpcMessage` carries a `PROTOCOL_VERSION` (`u32`, currently `1`) that is serialized with the payload (serde default) so a version mismatch between peers is detectable at the transport boundary rather than surfacing as an opaque decode failure.
 - Serialization: `rkyv` (zero-copy deserialization, matters for per-frame display-list traffic) for hot paths (compositor traffic), `postcard` (compact, serde-based, simpler) for low-frequency control messages (navigation, downloads). Avoid `bincode`'s version-fragility for anything crossing a process boundary that will outlive a single build.
 - Validation: every message received across a process boundary is treated as **untrusted input** and validated before use (bounds checks, enum discriminant checks) — this is a real security boundary once renderer processes are sandboxed, not just a convenience API.
 - Shared GPU memory: display-list *pixels* don't go through the pipe — the renderer/compositor hands the GPU process a shared DXGI texture handle; only small metadata (damage rects, texture handle, frame ID) crosses IPC. Full display lists cross IPC only when the renderer itself is out-of-process from the compositor.
