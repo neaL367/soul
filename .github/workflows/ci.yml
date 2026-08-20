@@ -27,3 +27,20 @@ jobs:
 
       - name: Build Workspace
         run: cargo build --workspace
+
+      - name: Enforce GPUI Isolation
+        shell: pwsh
+        run: |
+          $m = cargo metadata --format-version 1 | ConvertFrom-Json
+          $members = $m.workspace_members
+          $violators = @(
+            $m.packages | Where-Object {
+              $members -contains $_.id -and
+              $_.name -ne 'soul-backend-gpui' -and
+              ($_.dependencies | Where-Object { $_.name -in @('gpui', 'gpui_platform') })
+            }
+          )
+          if ($violators.Count -gt 0) {
+            $names = ($violators | ForEach-Object { $_.name }) -join ', '
+            throw "gpui leaked into non-soul-backend-gpui crates: $names"
+          }
