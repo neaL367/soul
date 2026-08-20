@@ -86,3 +86,28 @@ fn test_truncated_headers_do_not_panic() {
     let mp3_sync = [0xFF, 0xFB, 0x90, 0x64, 0x00, 0x00, 0x00, 0x00];
     assert_eq!(MfPlayer::sniff_format(&mp3_sync), MediaContainerFormat::Mp3);
 }
+
+#[test]
+fn test_mf_context_initialization() {
+    let ctx = media::MfContext::init();
+    assert!(ctx.is_ok());
+}
+
+#[test]
+fn test_media_audio_probing() {
+    let wav_header = b"RIFF\x24\x08\x00\x00WAVEfmt ";
+    let descriptor = MfPlayer::probe_stream("https://example.com/audio.wav", wav_header)
+        .expect("probe wav audio");
+    assert_eq!(descriptor.format, MediaContainerFormat::Wav);
+    assert!(descriptor.has_audio);
+    assert!(!descriptor.has_video);
+    assert_eq!(descriptor.codec, "pcm");
+
+    let mp3_header = b"ID3\x03\x00\x00\x00\x00\x0f\x76";
+    let descriptor = MfPlayer::probe_stream("https://example.com/audio.mp3", mp3_header)
+        .expect("probe mp3 audio");
+    assert_eq!(descriptor.format, MediaContainerFormat::Mp3);
+    assert!(descriptor.has_audio);
+    assert!(!descriptor.has_video);
+    assert_eq!(descriptor.codec, "mp3");
+}

@@ -5,6 +5,10 @@ use thiserror::Error;
 /// Errors arising during media stream decoding or Canvas 2D operations.
 #[derive(Debug, Error)]
 pub enum MediaError {
+    /// Underlying Windows Media Foundation / COM failure.
+    #[error("Windows Media Foundation error: {0}")]
+    Win32(#[from] windows::core::Error),
+
     /// Format or codec decoding failure.
     #[error("Media decoding error: {0}")]
     DecodeError(String),

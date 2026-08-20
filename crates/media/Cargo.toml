@@ -14,3 +14,9 @@ raster = { path = "../raster" }
 thiserror.workspace = true
 tiny-skia = "0.11"
 tracing.workspace = true
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+] }
+

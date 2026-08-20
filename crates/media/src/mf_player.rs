@@ -2,7 +2,48 @@
 
 use crate::error::MediaError;
 use raster::PixelBuffer;
+use std::path::Path;
 use std::time::Duration;
+use windows::Win32::Media::MediaFoundation::{
+    IMFMediaType, IMFSourceReader, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE,
+    MF_SDK_VERSION, MF_SOURCE_READER_FIRST_VIDEO_STREAM, MFCreateMediaType,
+    MFCreateSourceReaderFromURL, MFMediaType_Video, MFSTARTUP_NOSOCKET, MFShutdown, MFStartup,
+    MFVideoFormat_RGB32,
+};
+
+/// Global Windows Media Foundation session initializer ensuring `MFStartup` and `MFShutdown`.
+#[derive(Debug)]
+pub struct MfContext {
+    initialized: bool,
+}
+
+// SAFETY: Media Foundation session is process-wide and thread-safe.
+unsafe impl Send for MfContext {}
+unsafe impl Sync for MfContext {}
+
+impl MfContext {
+    /// Initializes the Windows Media Foundation platform for the process.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MediaError::Win32` if Media Foundation initialization fails.
+    pub fn init() -> Result<Self, MediaError> {
+        unsafe {
+            MFStartup(MF_SDK_VERSION, MFSTARTUP_NOSOCKET)?;
+        }
+        Ok(Self { initialized: true })
+    }
+}
+
+impl Drop for MfContext {
+    fn drop(&mut self) {
+        if self.initialized {
+            unsafe {
+                let _ = MFShutdown();
+            }
+        }
+    }
+}
 
 /// Supported media container and stream formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,5 +164,58 @@ impl MfPlayer {
             chunk[3] = 255;
         }
         buffer
+    }
+
+    /// Creates an `IMFSourceReader` configured for uncompressed 32-bit RGB video extraction.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MediaError` if reader creation or video media type configuration fails.
+    #[allow(clippy::cast_sign_loss)]
+    pub fn create_video_reader(file_path: &Path) -> Result<IMFSourceReader, MediaError> {
+        let _mf_ctx = MfContext::init()?;
+
+        let wide_path: Vec<u16> = file_path
+            .as_os_str()
+            .to_string_lossy()
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+
+        let reader = unsafe {
+            MFCreateSourceReaderFromURL(windows::core::PCWSTR(wide_path.as_ptr()), None)?
+        };
+
+        // Configure video stream output type to uncompressed RGB32
+        let media_type: IMFMediaType = unsafe { MFCreateMediaType()? };
+        unsafe {
+            media_type.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
+            media_type.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)?;
+            reader.SetCurrentMediaType(
+                MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
+                None,
+                &media_type,
+            )?;
+        }
+
+        Ok(reader)
+    }
+
+    /// Reads dimensions of the active video stream from an `IMFSourceReader`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MediaError` if querying current media type fails.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn query_video_dimensions(reader: &IMFSourceReader) -> Result<(u32, u32), MediaError> {
+        let media_type =
+            unsafe { reader.GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32)? };
+
+        let packed_size = unsafe { media_type.GetUINT64(&MF_MT_FRAME_SIZE)? };
+
+        let width = (packed_size >> 32) as u32;
+        let height = (packed_size & 0xFFFF_FFFF) as u32;
+
+        Ok((width, height))
     }
 }
