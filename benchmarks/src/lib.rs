@@ -41,6 +41,16 @@ pub struct PipelineStats {
     pub iterations: usize,
     /// Mean total duration per frame.
     pub mean_total: Duration,
+    /// Mean HTML parsing duration per iteration.
+    pub mean_html_parse: Duration,
+    /// Mean CSS cascade duration per iteration.
+    pub mean_css_cascade: Duration,
+    /// Mean block layout duration per iteration.
+    pub mean_layout: Duration,
+    /// Mean display-list paint duration per iteration.
+    pub mean_paint: Duration,
+    /// Mean CPU rasterization duration per iteration.
+    pub mean_raster: Duration,
     /// Minimum recorded frame duration.
     pub min_total: Duration,
     /// Maximum recorded frame duration.
@@ -105,11 +115,21 @@ pub fn benchmark_pipeline_stats(
     let mut total_duration = Duration::ZERO;
     let mut min_total = Duration::MAX;
     let mut max_total = Duration::ZERO;
+    let mut html_parse_duration = Duration::ZERO;
+    let mut css_cascade_duration = Duration::ZERO;
+    let mut layout_duration = Duration::ZERO;
+    let mut paint_duration = Duration::ZERO;
+    let mut raster_duration = Duration::ZERO;
 
     for _ in 0..count {
         let res = benchmark_full_pipeline(html_source, css_source);
         let tot = res.total_duration();
         total_duration += tot;
+        html_parse_duration += res.html_parse_duration;
+        css_cascade_duration += res.css_cascade_duration;
+        layout_duration += res.layout_duration;
+        paint_duration += res.paint_duration;
+        raster_duration += res.raster_duration;
         if tot < min_total {
             min_total = tot;
         }
@@ -118,7 +138,8 @@ pub fn benchmark_pipeline_stats(
         }
     }
 
-    let mean_total = total_duration / count as u32;
+    let count_u32 = count as u32;
+    let mean_total = total_duration / count_u32;
     let mean_secs = mean_total.as_secs_f64();
     let throughput_fps = if mean_secs > 0.0 {
         1.0 / mean_secs
@@ -129,6 +150,11 @@ pub fn benchmark_pipeline_stats(
     PipelineStats {
         iterations: count,
         mean_total,
+        mean_html_parse: html_parse_duration / count_u32,
+        mean_css_cascade: css_cascade_duration / count_u32,
+        mean_layout: layout_duration / count_u32,
+        mean_paint: paint_duration / count_u32,
+        mean_raster: raster_duration / count_u32,
         min_total,
         max_total,
         throughput_fps,

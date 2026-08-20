@@ -38,4 +38,10 @@ fn test_pipeline_multi_iteration_stats() {
     assert!(stats.mean_total > std::time::Duration::ZERO);
     assert!(stats.min_total <= stats.max_total);
     assert!(stats.throughput_fps > 0.0);
+    // Every pipeline stage must be measured per iteration.
+    assert!(stats.mean_html_parse > std::time::Duration::ZERO);
+    assert!(stats.mean_css_cascade > std::time::Duration::ZERO);
+    assert!(stats.mean_layout > std::time::Duration::ZERO);
+    assert!(stats.mean_paint > std::time::Duration::ZERO);
+    assert!(stats.mean_raster > std::time::Duration::ZERO);
 }
