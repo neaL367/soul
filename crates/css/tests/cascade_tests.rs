@@ -1,6 +1,6 @@
 //! Integration tests for CSS parsing, selector matching, specificity, and cascade resolution.
 
-use css::{CascadeResolver, Color, Display, Origin, parse_stylesheet};
+use css::{CascadeResolver, Color, Display, Length, Origin, parse_stylesheet};
 use html::parse_html;
 
 #[test]
@@ -181,6 +181,59 @@ fn test_hsl_color_and_border_radius() {
     assert!((badge_style.border_radius_top_left - 8.0).abs() < f32::EPSILON);
     assert_eq!(badge_style.font_style, css::FontStyle::Italic);
     assert_eq!(badge_style.text_decoration, css::TextDecoration::Underline);
+}
+
+#[test]
+fn test_negative_width_height_padding_and_border_are_ignored() {
+    let html = "<html><body><div id=\"box\">Content</div></body></html>";
+    let doc = parse_html(html);
+
+    let css = r"
+        #box {
+            width: -50px;
+            height: -30px;
+            padding: -4px;
+            border-width: -2px;
+            font-size: -12px;
+        }
+    ";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let box_id = doc.get_element_by_id("box").unwrap();
+    let style = styles.get(&box_id).unwrap();
+
+    // Negative lengths are invalid for these properties and must be ignored
+    // (the declarations fall back to the initial values, not to negatives).
+    assert_eq!(style.width, Length::Auto);
+    assert_eq!(style.height, Length::Auto);
+    assert_eq!(style.padding_left, 0.0);
+    assert_eq!(style.border_top_width, 0.0);
+    assert_eq!(style.font_size, 16.0);
+}
+
+#[test]
+fn test_negative_margin_and_letter_spacing_still_apply() {
+    let html = "<html><body><div id=\"box\">Content</div></body></html>";
+    let doc = parse_html(html);
+
+    let css = r"
+        #box {
+            margin: -10px;
+            letter-spacing: -1px;
+        }
+    ";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let box_id = doc.get_element_by_id("box").unwrap();
+    let style = styles.get(&box_id).unwrap();
+
+    // Negative margins and letter-spacing are valid CSS and must survive.
+    assert_eq!(style.margin_left, -10.0);
+    assert_eq!(style.letter_spacing, -1.0);
 }
 
 #[test]

@@ -49,7 +49,7 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "font-size" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
                 style.font_size = px;
             }
         }
@@ -99,7 +99,7 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             _ => {}
         },
         "line-height" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
                 style.line_height = Some(px);
             } else if let Ok(factor) = decl.value.trim().parse::<f32>()
                 && factor.is_finite()
@@ -137,7 +137,7 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "padding" => {
-            if let Some((t, r, b, l)) = parse_4_edges(&decl.value) {
+            if let Some((t, r, b, l)) = parse_4_edges_non_negative(&decl.value) {
                 style.padding_top = t;
                 style.padding_right = r;
                 style.padding_bottom = b;
@@ -145,22 +145,22 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "padding-top" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
                 style.padding_top = px;
             }
         }
         "padding-bottom" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
                 style.padding_bottom = px;
             }
         }
         "padding-left" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
                 style.padding_left = px;
             }
         }
         "padding-right" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
                 style.padding_right = px;
             }
         }
@@ -168,7 +168,7 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             apply_border_shorthand(style, &decl.value);
         }
         "border-width" => {
-            if let Some((t, r, b, l)) = parse_4_edges(&decl.value) {
+            if let Some((t, r, b, l)) = parse_4_edges_non_negative(&decl.value) {
                 style.border_top_width = t;
                 style.border_right_width = r;
                 style.border_bottom_width = b;
@@ -184,7 +184,7 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "border-radius" => {
-            if let Some((tl, tr, br, bl)) = parse_4_edges(&decl.value) {
+            if let Some((tl, tr, br, bl)) = parse_4_edges_non_negative(&decl.value) {
                 style.border_radius_top_left = tl;
                 style.border_radius_top_right = tr;
                 style.border_radius_bottom_right = br;
@@ -192,22 +192,22 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "border-top-width" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
                 style.border_top_width = px;
             }
         }
         "border-right-width" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
                 style.border_right_width = px;
             }
         }
         "border-bottom-width" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
                 style.border_bottom_width = px;
             }
         }
         "border-left-width" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
                 style.border_left_width = px;
             }
         }
@@ -217,14 +217,14 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "width" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
                 style.width = Length::Px(px);
             } else if let Some(pct) = parse_percent(&decl.value) {
                 style.width = Length::Percent(pct);
             }
         }
         "height" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
                 style.height = Length::Px(px);
             } else if let Some(pct) = parse_percent(&decl.value) {
                 style.height = Length::Percent(pct);
@@ -284,7 +284,7 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "flex-basis" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
                 style.flex_basis = Length::Px(px);
             } else if let Some(pct) = parse_percent(&decl.value) {
                 style.flex_basis = Length::Percent(pct);
@@ -310,7 +310,7 @@ fn parse_font_family(value: &str) -> Option<String> {
 
 fn apply_border_shorthand(style: &mut ComputedStyle, value: &str) {
     for part in value.split_whitespace() {
-        if let Some(px) = parse_px(part) {
+        if let Some(px) = parse_non_negative_px(part) {
             style.border_top_width = px;
             style.border_right_width = px;
             style.border_bottom_width = px;
@@ -345,6 +345,20 @@ fn parse_px(value: &str) -> Option<f32> {
             if num.is_finite() { Some(num) } else { None }
         },
     )
+}
+
+/// Parses a length in `px`, rejecting negative values.
+///
+/// Negative lengths are invalid for most properties (width, height, padding,
+/// border widths, font-size); they remain legal for margin and letter/word
+/// spacing, which keep using `parse_px` directly.
+fn parse_non_negative_px(value: &str) -> Option<f32> {
+    parse_px(value).filter(|v| *v >= 0.0)
+}
+
+/// Parses 1–4 edge lengths, rejecting the whole declaration if any edge is negative.
+fn parse_4_edges_non_negative(value: &str) -> Option<(f32, f32, f32, f32)> {
+    parse_4_edges(value).filter(|(t, r, b, l)| *t >= 0.0 && *r >= 0.0 && *b >= 0.0 && *l >= 0.0)
 }
 
 fn parse_4_edges(value: &str) -> Option<(f32, f32, f32, f32)> {
