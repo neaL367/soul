@@ -121,18 +121,32 @@ fn css_style_to_taffy(style: &ComputedStyle, is_container: bool) -> Style {
 
 // -- Public API ----------------------------------------------------------------
 
-/// A flex-laid-out child with the resolved origin and size.
+/// A flex-laid-out child with the resolved border-box origin and size.
 #[derive(Debug, Clone)]
 pub struct FlexResult {
     /// The child index (matching the input order).
     pub index: usize,
-    /// Resolved dimensions after flex layout.
+    /// Resolved border-box location (relative to the container's content box
+    /// origin) and size after flex layout.
     pub dimensions: Dimensions,
+}
+
+/// Complete result of a flex layout pass: per-item results plus the
+/// container's own resolved height.
+#[derive(Debug, Clone)]
+pub struct FlexContainerResult {
+    /// Per-item flex results, one per input child, in input order.
+    pub items: Vec<FlexResult>,
+    /// The container's resolved content box after flex layout (width matches
+    /// `container_width`; height is taffy's resolved border-box height minus
+    /// the container's own padding and border).
+    pub container: Dimensions,
 }
 
 /// Runs CSS Flexbox layout for a container with `display: flex`.
 ///
-/// Returns one `FlexResult` per child, in the same order as `children_styles`.
+/// Returns one `FlexResult` per child, in the same order as `children_styles`,
+/// plus the resolved container dimensions.
 ///
 /// # Arguments
 /// * `container_style` — computed style of the flex container.
@@ -143,7 +157,7 @@ pub fn layout_flex(
     container_style: &ComputedStyle,
     container_width: f32,
     children_styles: &[(usize, &ComputedStyle)],
-) -> Vec<FlexResult> {
+) -> FlexContainerResult {
     let mut tree: TaffyTree<()> = TaffyTree::new();
 
     let child_nodes: Vec<NodeId> = children_styles
@@ -168,7 +182,7 @@ pub fn layout_flex(
     )
     .expect("taffy compute_layout failed");
 
-    children_styles
+    let items = children_styles
         .iter()
         .zip(child_nodes.iter())
         .map(|((idx, _), node)| {
@@ -178,10 +192,32 @@ pub fn layout_flex(
                 dimensions: taffy_layout_to_dimensions(layout),
             }
         })
-        .collect()
+        .collect();
+
+    let root_layout = tree.layout(root).expect("taffy layout missing");
+    let padding_v = container_style.padding_top + container_style.padding_bottom;
+    let border_v = container_style.border_top_width + container_style.border_bottom_width;
+    let container = Dimensions {
+        content: Rect::new(
+            0.0,
+            0.0,
+            container_width,
+            (root_layout.size.height - padding_v - border_v).max(0.0),
+        ),
+        padding: EdgeSizes::default(),
+        border: EdgeSizes::default(),
+        margin: EdgeSizes::default(),
+    };
+
+    FlexContainerResult { items, container }
 }
 
 /// Converts a taffy `Layout` into a Soul `Dimensions` struct.
+///
+/// The resulting `content` rect holds the taffy border-box location (relative
+/// to the container's content-box origin) and border-box size; padding, border,
+/// and margin are zeroed because the caller applies them from the child's own
+/// computed style.
 fn taffy_layout_to_dimensions(layout: &taffy::Layout) -> Dimensions {
     Dimensions {
         content: Rect {

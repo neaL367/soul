@@ -155,35 +155,52 @@ pub fn build_box_tree_with_intrinsics<S: BuildHasher, S2: BuildHasher>(
 
 /// Enforces CSS 2.1 §9.2.1.1: if a block container has both block and inline children,
 /// wrap consecutive sequences of inline children in anonymous block boxes.
+/// Flex containers instead always wrap inline children in anonymous block boxes
+/// (anonymous flex items, CSS Flexbox §4), so every child is a flex item.
 fn normalize_box_children(parent_box: &mut LayoutBox) {
+    let is_flex = parent_box
+        .style
+        .as_ref()
+        .is_some_and(|s| s.display == Display::Flex);
+
+    if is_flex {
+        wrap_inline_runs(&mut parent_box.children);
+        return;
+    }
+
     let has_block_child = parent_box.children.iter().any(LayoutBox::is_block);
     let has_inline_child = parent_box.children.iter().any(LayoutBox::is_inline);
 
     if has_block_child && has_inline_child {
-        let mut normalized = Vec::new();
-        let mut current_anon: Option<LayoutBox> = None;
-
-        for child in parent_box.children.drain(..) {
-            if child.is_inline() {
-                if let Some(ref mut anon) = current_anon {
-                    anon.children.push(child);
-                } else {
-                    let mut anon = LayoutBox::new(BoxType::AnonymousBlock, None);
-                    anon.children.push(child);
-                    current_anon = Some(anon);
-                }
-            } else {
-                if let Some(anon) = current_anon.take() {
-                    normalized.push(anon);
-                }
-                normalized.push(child);
-            }
-        }
-
-        if let Some(anon) = current_anon.take() {
-            normalized.push(anon);
-        }
-
-        parent_box.children = normalized;
+        wrap_inline_runs(&mut parent_box.children);
     }
+}
+
+/// Wraps consecutive runs of inline children in anonymous block boxes.
+fn wrap_inline_runs(children: &mut Vec<LayoutBox>) {
+    let mut normalized = Vec::new();
+    let mut current_anon: Option<LayoutBox> = None;
+
+    for child in children.drain(..) {
+        if child.is_inline() {
+            if let Some(ref mut anon) = current_anon {
+                anon.children.push(child);
+            } else {
+                let mut anon = LayoutBox::new(BoxType::AnonymousBlock, None);
+                anon.children.push(child);
+                current_anon = Some(anon);
+            }
+        } else {
+            if let Some(anon) = current_anon.take() {
+                normalized.push(anon);
+            }
+            normalized.push(child);
+        }
+    }
+
+    if let Some(anon) = current_anon.take() {
+        normalized.push(anon);
+    }
+
+    *children = normalized;
 }

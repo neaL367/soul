@@ -32,10 +32,10 @@ fn test_flex_row_items_laid_out_horizontally() {
 
     let results = layout_flex(&container, 600.0, &children);
 
-    assert_eq!(results.len(), 2, "must return one result per child");
+    assert_eq!(results.items.len(), 2, "must return one result per child");
 
-    let r_a = &results[0];
-    let r_b = &results[1];
+    let r_a = &results.items[0];
+    let r_b = &results.items[1];
     assert_eq!(r_a.index, 0, "first result index must be 0");
     assert_eq!(r_b.index, 1, "second result index must be 1");
 
@@ -67,9 +67,9 @@ fn test_flex_column_items_laid_out_vertically() {
 
     let results = layout_flex(&container, 200.0, &children);
 
-    assert_eq!(results.len(), 2);
-    let r_a = &results[0];
-    let r_b = &results[1];
+    assert_eq!(results.items.len(), 2);
+    let r_a = &results.items[0];
+    let r_b = &results.items[1];
 
     // Column direction: item a at y=0, item b follows below
     assert!(
@@ -105,9 +105,9 @@ fn test_flex_grow_fills_container() {
 
     let results = layout_flex(&container, 300.0, &children);
 
-    assert_eq!(results.len(), 2);
-    let r_a = &results[0];
-    let r_b = &results[1];
+    assert_eq!(results.items.len(), 2);
+    let r_a = &results.items[0];
+    let r_b = &results.items[1];
 
     // Fixed item stays at 100px, growing item absorbs remaining 200px
     assert!(
