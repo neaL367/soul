@@ -3,15 +3,19 @@
 use crate::error::SandboxError;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_JOB_MEMORY,
-    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_PROCESS_MEMORY,
-    JOB_OBJECT_UILIMIT_DESKTOP, JOB_OBJECT_UILIMIT_DISPLAYSETTINGS, JOB_OBJECT_UILIMIT_EXITWINDOWS,
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_CPU_RATE_CONTROL_ENABLE,
+    JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP, JOB_OBJECT_LIMIT_ACTIVE_PROCESS,
+    JOB_OBJECT_LIMIT_JOB_MEMORY, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOB_OBJECT_LIMIT_PROCESS_MEMORY, JOB_OBJECT_UILIMIT_DESKTOP,
+    JOB_OBJECT_UILIMIT_DISPLAYSETTINGS, JOB_OBJECT_UILIMIT_EXITWINDOWS,
     JOB_OBJECT_UILIMIT_GLOBALATOMS, JOB_OBJECT_UILIMIT_HANDLES, JOB_OBJECT_UILIMIT_READCLIPBOARD,
     JOB_OBJECT_UILIMIT_SYSTEMPARAMETERS, JOB_OBJECT_UILIMIT_WRITECLIPBOARD,
     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_BASIC_UI_RESTRICTIONS,
+    JOBOBJECT_CPU_RATE_CONTROL_INFORMATION, JOBOBJECT_CPU_RATE_CONTROL_INFORMATION_0,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectBasicAccountingInformation,
-    JobObjectBasicUIRestrictions, JobObjectExtendedLimitInformation, QueryInformationJobObject,
-    SetInformationJobObject, TerminateJobObject,
+    JobObjectBasicUIRestrictions, JobObjectCpuRateControlInformation,
+    JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
+    TerminateJobObject,
 };
 
 /// Safe RAII wrapper around a Windows Win32 Job Object handle.
@@ -46,8 +50,8 @@ impl JobObject {
     /// Returns `SandboxError::Win32` if configuration fails.
     #[allow(clippy::cast_possible_truncation)]
     pub fn set_memory_limit(&self, max_bytes: usize) -> Result<(), SandboxError> {
-        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_PROCESS_MEMORY
+        let mut info = self.query_extended_limit_info().unwrap_or_default();
+        info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_PROCESS_MEMORY
             | JOB_OBJECT_LIMIT_JOB_MEMORY
             | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         info.ProcessMemoryLimit = max_bytes;
@@ -65,6 +69,81 @@ impl JobObject {
             )?;
         }
         Ok(())
+    }
+
+    /// Sets the maximum number of active processes allowed within the Job Object simultaneously.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SandboxError::Win32` if configuration fails.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn set_active_process_limit(&self, max_processes: u32) -> Result<(), SandboxError> {
+        let mut info = self.query_extended_limit_info().unwrap_or_default();
+        info.BasicLimitInformation.LimitFlags |=
+            JOB_OBJECT_LIMIT_ACTIVE_PROCESS | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        info.BasicLimitInformation.ActiveProcessLimit = max_processes;
+
+        unsafe {
+            SetInformationJobObject(
+                self.handle,
+                JobObjectExtendedLimitInformation,
+                std::ptr::from_ref(&info).cast(),
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Sets a hard CPU rate cap on the Job Object (1–100 percent).
+    ///
+    /// # Errors
+    ///
+    /// Returns `SandboxError::InvalidLimit` if percentage is out of 1..=100 range,
+    /// or `SandboxError::Win32` if Win32 configuration fails.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn set_cpu_rate_limit(&self, cpu_percent: u32) -> Result<(), SandboxError> {
+        if cpu_percent == 0 || cpu_percent > 100 {
+            return Err(SandboxError::InvalidLimit(format!(
+                "CPU rate limit percent must be 1..=100, got {cpu_percent}"
+            )));
+        }
+
+        // Rate is in 1/100 of 1% (i.e. 10,000 = 100%).
+        let rate_val = cpu_percent * 100;
+        let cpu_info = JOBOBJECT_CPU_RATE_CONTROL_INFORMATION {
+            ControlFlags: JOB_OBJECT_CPU_RATE_CONTROL_ENABLE | JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP,
+            Anonymous: JOBOBJECT_CPU_RATE_CONTROL_INFORMATION_0 { CpuRate: rate_val },
+        };
+
+        unsafe {
+            SetInformationJobObject(
+                self.handle,
+                JobObjectCpuRateControlInformation,
+                std::ptr::from_ref(&cpu_info).cast(),
+                size_of::<JOBOBJECT_CPU_RATE_CONTROL_INFORMATION>() as u32,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Queries the current extended limit information struct.
+    #[allow(clippy::cast_possible_truncation)]
+    fn query_extended_limit_info(
+        &self,
+    ) -> Result<JOBOBJECT_EXTENDED_LIMIT_INFORMATION, SandboxError> {
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        let mut return_length: u32 = 0;
+
+        unsafe {
+            QueryInformationJobObject(
+                self.handle,
+                JobObjectExtendedLimitInformation,
+                std::ptr::from_mut(&mut info).cast(),
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                Some(&raw mut return_length),
+            )?;
+        }
+        Ok(info)
     }
 
     /// Enforces strict UI restrictions (locks clipboard, prevents desktop/display modification).
@@ -126,7 +205,7 @@ impl JobObject {
         Ok(())
     }
 
-    /// Queries basic accounting information for this Job Object.
+    /// Queries accounting and resource utilization metrics for this Job Object.
     ///
     /// # Errors
     ///
@@ -148,10 +227,16 @@ impl JobObject {
             )?;
         }
 
+        let ext = self.query_extended_limit_info().unwrap_or_default();
+
         Ok(JobAccounting {
             active_processes: info.ActiveProcesses,
             total_processes: info.TotalProcesses,
             total_terminated_processes: info.TotalTerminatedProcesses,
+            peak_process_memory_bytes: ext.PeakProcessMemoryUsed,
+            peak_job_memory_bytes: ext.PeakJobMemoryUsed,
+            total_user_time_100ns: info.TotalUserTime,
+            total_kernel_time_100ns: info.TotalKernelTime,
         })
     }
 
@@ -166,7 +251,7 @@ impl JobObject {
     }
 }
 
-/// Basic process count statistics for a running Windows Job Object.
+/// Process count and resource statistics for a running Windows Job Object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct JobAccounting {
     /// Total number of processes currently active in the job.
@@ -175,6 +260,14 @@ pub struct JobAccounting {
     pub total_processes: u32,
     /// Total number of processes that have terminated in the job.
     pub total_terminated_processes: u32,
+    /// Peak memory used by any single process in the job (bytes).
+    pub peak_process_memory_bytes: usize,
+    /// Peak total memory used by all processes in the job simultaneously (bytes).
+    pub peak_job_memory_bytes: usize,
+    /// Total CPU time spent in user mode across all processes (in 100ns intervals).
+    pub total_user_time_100ns: i64,
+    /// Total CPU time spent in kernel mode across all processes (in 100ns intervals).
+    pub total_kernel_time_100ns: i64,
 }
 
 impl Drop for JobObject {
