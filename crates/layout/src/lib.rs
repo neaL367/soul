@@ -8,7 +8,7 @@ pub mod geometry;
 pub mod inline;
 
 pub use a11y::{A11yNode, A11yRole};
-pub use block::layout_block;
+pub use block::{MAX_LAYOUT_DEPTH, layout_block};
 pub use box_tree::{BoxType, LayoutBox, build_box_tree, build_box_tree_with_intrinsics};
 pub use flex::{FlexResult, layout_flex};
 pub use geometry::{Dimensions, EdgeSizes, IntrinsicSize, Rect};

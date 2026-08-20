@@ -4,8 +4,22 @@ use crate::box_tree::LayoutBox;
 use crate::geometry::{Dimensions, EdgeSizes};
 use css::{BoxSizing, Length};
 
+/// Maximum depth of recursive block layout before child layout is skipped.
+///
+/// Guards against stack exhaustion on hand-built `LayoutBox` trees with
+/// unbounded nesting. DOM-derived trees are already capped by `dom`'s
+/// `MAX_DOM_DEPTH`; this budget keeps that guarantee if box trees are ever
+/// constructed independently. Boxes at or below the limit lay out normally;
+/// deeper boxes get their own width/position/height but their children are
+/// left unlaid-out rather than recursed into.
+pub const MAX_LAYOUT_DEPTH: usize = 1024;
+
 /// Computes normal flow block layout for a layout box and all of its descendants.
 pub fn layout_block(layout_box: &mut LayoutBox, containing_block: &Dimensions) {
+    layout_block_inner(layout_box, containing_block, 0);
+}
+
+fn layout_block_inner(layout_box: &mut LayoutBox, containing_block: &Dimensions, depth: usize) {
     // 1. Calculate width, margins, padding, and borders
     calculate_block_width(layout_box, containing_block);
 
@@ -13,7 +27,9 @@ pub fn layout_block(layout_box: &mut LayoutBox, containing_block: &Dimensions) {
     calculate_block_position(layout_box, containing_block, 0.0);
 
     // 3. Recursively layout children with margin collapsing
-    layout_block_children(layout_box);
+    if depth < MAX_LAYOUT_DEPTH {
+        layout_block_children(layout_box, depth);
+    }
 
     // 4. Calculate final height
     calculate_block_height(layout_box);
@@ -100,7 +116,7 @@ fn collapse_vertical_margins(prev_bottom: f32, current_top: f32) -> f32 {
     }
 }
 
-fn layout_block_children(layout_box: &mut LayoutBox) {
+fn layout_block_children(layout_box: &mut LayoutBox, depth: usize) {
     if layout_box.children.iter().any(LayoutBox::is_inline) {
         let max_w = layout_box.dimensions.content.width;
         let inline_h = crate::inline::layout_inline_context(layout_box, max_w);
@@ -133,7 +149,9 @@ fn layout_block_children(layout_box: &mut LayoutBox) {
             child.dimensions.content.y =
                 layout_box.dimensions.content.y + vertical_offset + border_padding_y;
 
-            layout_block_children(child);
+            if depth < MAX_LAYOUT_DEPTH {
+                layout_block_children(child, depth + 1);
+            }
             calculate_block_height(child);
 
             vertical_offset += child.dimensions.content.height
