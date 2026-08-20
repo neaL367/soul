@@ -19,12 +19,14 @@ impl DisplayListBuilder {
     #[must_use]
     pub fn build(root_box: &LayoutBox, images: &HashMap<NodeId, DecodedImage>) -> DisplayList {
         let mut list = DisplayList::new();
-        list.bounds = Rect::new(
-            root_box.dimensions.content.x,
-            root_box.dimensions.content.y,
-            root_box.dimensions.content.width,
-            root_box.dimensions.content.height,
-        );
+        if root_box.dimensions.content.is_finite() {
+            list.bounds = Rect::new(
+                root_box.dimensions.content.x,
+                root_box.dimensions.content.y,
+                root_box.dimensions.content.width,
+                root_box.dimensions.content.height,
+            );
+        }
 
         let root_stacking = build_stacking_tree(root_box);
         Self::paint_stacking_context(&mut list, &root_stacking, images);
@@ -38,7 +40,7 @@ impl DisplayListBuilder {
         context: &StackingContext,
         images: &HashMap<NodeId, DecodedImage>,
     ) {
-        let has_opacity = context.opacity < 1.0 - f32::EPSILON;
+        let has_opacity = context.opacity.is_finite() && context.opacity < 1.0 - f32::EPSILON;
         if has_opacity {
             list.push(DisplayItem::PushOpacity {
                 opacity: context.opacity,
@@ -88,7 +90,9 @@ impl DisplayListBuilder {
         };
 
         // Paint background rectangle
-        if style.background_color != Color::TRANSPARENT {
+        if style.background_color != Color::TRANSPARENT
+            && layout_box.dimensions.padding_box().is_finite()
+        {
             list.push(DisplayItem::DrawRect {
                 rect: layout_box.dimensions.padding_box(),
                 color: style.background_color,
@@ -97,7 +101,9 @@ impl DisplayListBuilder {
 
         // Paint borders if non-zero
         let border_widths = layout_box.dimensions.border;
-        if border_widths.horizontal_total() > 0.0 || border_widths.vertical_total() > 0.0 {
+        if (border_widths.horizontal_total() > 0.0 || border_widths.vertical_total() > 0.0)
+            && layout_box.dimensions.border_box().is_finite()
+        {
             list.push(DisplayItem::DrawBorder {
                 rect: layout_box.dimensions.border_box(),
                 widths: border_widths,
@@ -108,6 +114,7 @@ impl DisplayListBuilder {
         // Paint decoded `<img>` content if available for this element.
         if let BoxType::BlockNode(id) | BoxType::InlineNode(id) = layout_box.box_type
             && let Some(image) = images.get(&id)
+            && layout_box.dimensions.content.is_finite()
         {
             list.push(DisplayItem::DrawImage {
                 rect: layout_box.dimensions.content,
@@ -137,14 +144,16 @@ impl DisplayListBuilder {
                     .as_ref()
                     .is_some_and(|s| s.font_weight == FontWeight::Bold);
 
-                list.push(DisplayItem::DrawText {
-                    rect: layout_box.dimensions.content,
-                    text: text.clone(),
-                    color,
-                    font_size,
-                    font_family,
-                    is_bold,
-                });
+                if layout_box.dimensions.content.is_finite() && font_size.is_finite() {
+                    list.push(DisplayItem::DrawText {
+                        rect: layout_box.dimensions.content,
+                        text: text.clone(),
+                        color,
+                        font_size,
+                        font_family,
+                        is_bold,
+                    });
+                }
             }
             BoxType::InlineNode(_) => {
                 Self::paint_box_background_and_borders(list, layout_box, images);

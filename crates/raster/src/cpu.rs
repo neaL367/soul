@@ -25,6 +25,9 @@ impl CpuRasterizer {
         if width == 0 || height == 0 {
             return Err(RasterError::InvalidDimensions { width, height });
         }
+        if (u64::from(width) * u64::from(height)) > (usize::MAX as u64) / 4 {
+            return Err(RasterError::InvalidDimensions { width, height });
+        }
 
         let mut pixmap = Pixmap::new(width, height)
             .ok_or(RasterError::PixmapAllocationFailed { width, height })?;

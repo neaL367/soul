@@ -13,9 +13,23 @@ pub struct PixelBuffer {
 
 impl PixelBuffer {
     /// Creates a new empty `PixelBuffer` filled with transparent pixels.
+    ///
+    /// If the pixel count would overflow `usize`, returns an empty zero-sized
+    /// buffer instead of panicking; callers must treat a zero-sized result as
+    /// an invalid allocation.
     #[must_use]
     pub fn new(width: u32, height: u32) -> Self {
-        let size = (width as usize) * (height as usize) * 4;
+        let Some(size) = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|pixels| pixels.checked_mul(4))
+        else {
+            return Self {
+                width: 0,
+                height: 0,
+                data: Vec::new(),
+            };
+        };
+
         Self {
             width,
             height,

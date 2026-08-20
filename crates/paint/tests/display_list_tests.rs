@@ -1,8 +1,9 @@
 //! Integration tests for display list generation, CSS 2.1 Appendix E stacking order, and draw commands.
 
 use css::{CascadeResolver, Color, Origin, parse_stylesheet};
+use dom::NodeId;
 use html::parse_html;
-use layout::{Dimensions, Rect, build_box_tree, layout_block};
+use layout::{BoxType, Dimensions, LayoutBox, Rect, build_box_tree, layout_block};
 use paint::{DisplayItem, DisplayListBuilder};
 
 #[test]
@@ -198,4 +199,57 @@ fn test_display_list_bounds_and_culling() {
     // Cull against top-left viewport (0, 0, 200, 200)
     let culled = list.cull_to_viewport(Rect::new(0.0, 0.0, 200.0, 200.0));
     assert_eq!(culled.len(), 1);
+}
+
+/// Root block box with a single text leaf whose content rect is configurable.
+fn root_with_text_leaf(rect: Rect) -> LayoutBox {
+    let mut root = LayoutBox::new(BoxType::BlockNode(NodeId(1)), None);
+    root.dimensions.content = Rect::new(0.0, 0.0, 100.0, 20.0);
+    let mut text = LayoutBox::new(BoxType::TextNode(NodeId(2), "hello".to_string()), None);
+    text.dimensions.content = rect;
+    root.children.push(text);
+    root
+}
+
+#[test]
+fn test_finite_text_leaf_is_emitted() {
+    let root = root_with_text_leaf(Rect::new(0.0, 0.0, 40.0, 16.0));
+    let display_list = DisplayListBuilder::build(&root, &std::collections::HashMap::new());
+
+    let has_text = display_list
+        .items
+        .iter()
+        .any(|item| matches!(item, DisplayItem::DrawText { .. }));
+    assert!(has_text);
+}
+
+#[test]
+fn test_non_finite_item_is_skipped_and_bounds_stay_finite() {
+    let root = root_with_text_leaf(Rect::new(f32::NAN, 0.0, 40.0, 16.0));
+    let display_list = DisplayListBuilder::build(&root, &std::collections::HashMap::new());
+
+    let has_text = display_list
+        .items
+        .iter()
+        .any(|item| matches!(item, DisplayItem::DrawText { .. }));
+    assert!(!has_text, "non-finite text rect must not be emitted");
+    assert!(display_list.bounds.is_finite());
+
+    for item in &display_list.items {
+        if let Some(bounds) = item.bounds() {
+            assert!(
+                bounds.is_finite(),
+                "emitted item has non-finite bounds: {item:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_non_finite_root_bounds_are_sanitized() {
+    let mut root = root_with_text_leaf(Rect::new(0.0, 0.0, 40.0, 16.0));
+    root.dimensions.content = Rect::new(f32::INFINITY, 0.0, 40.0, 16.0);
+    let display_list = DisplayListBuilder::build(&root, &std::collections::HashMap::new());
+
+    assert!(display_list.bounds.is_finite());
 }

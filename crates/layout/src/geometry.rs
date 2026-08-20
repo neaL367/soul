@@ -31,6 +31,15 @@ impl Rect {
         px >= self.x && px <= self.x + self.width && py >= self.y && py <= self.y + self.height
     }
 
+    /// Returns `true` if all fields are finite (no NaN or infinity).
+    #[must_use]
+    pub const fn is_finite(&self) -> bool {
+        self.x.is_finite()
+            && self.y.is_finite()
+            && self.width.is_finite()
+            && self.height.is_finite()
+    }
+
     /// Returns `true` if this rectangle intersects with another rectangle.
     #[must_use]
     pub fn intersects(&self, other: &Self) -> bool {

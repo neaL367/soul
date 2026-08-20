@@ -4,7 +4,7 @@ use css::{CascadeResolver, Origin, parse_stylesheet};
 use html::parse_html;
 use layout::{Dimensions, Rect, build_box_tree, layout_block};
 use paint::DisplayListBuilder;
-use raster::CpuRasterizer;
+use raster::{CpuRasterizer, PixelBuffer, RasterError};
 
 #[test]
 fn test_end_to_end_html_to_pixel_buffer() {
@@ -167,4 +167,40 @@ fn test_clip_rect_rasterization() {
 
     // Outside clip area (10, 10) should be transparent (culled by clip rect)
     assert_eq!(pixel_buffer.get_pixel(10, 10).unwrap(), [0, 0, 0, 0]);
+}
+
+#[test]
+fn test_pixel_buffer_new_overflows_to_empty_buffer() {
+    let buffer = PixelBuffer::new(u32::MAX, u32::MAX);
+    assert_eq!(buffer.width, 0);
+    assert_eq!(buffer.height, 0);
+    assert!(buffer.data.is_empty());
+}
+
+#[test]
+fn test_rasterize_rejects_overflowing_dimensions() {
+    let display_list = paint::DisplayList::default();
+    let err = CpuRasterizer::rasterize(&display_list, u32::MAX, u32::MAX).unwrap_err();
+    assert!(matches!(err, RasterError::InvalidDimensions { .. }));
+}
+
+#[test]
+fn test_rasterize_ignores_non_finite_items() {
+    use paint::DisplayItem;
+
+    let mut display_list = paint::DisplayList::default();
+    display_list.push(DisplayItem::DrawRect {
+        rect: Rect::new(f32::NAN, 0.0, 200.0, 200.0),
+        color: css::Color::rgba(255, 0, 0, 255),
+    });
+    display_list.push(DisplayItem::DrawRect {
+        rect: Rect::new(0.0, 0.0, f32::INFINITY, f32::INFINITY),
+        color: css::Color::rgba(0, 255, 0, 255),
+    });
+
+    let pixel_buffer = CpuRasterizer::rasterize(&display_list, 100, 100).expect("rasterize failed");
+    assert_eq!(pixel_buffer.width, 100);
+    assert_eq!(pixel_buffer.height, 100);
+    // Non-finite items draw nothing; buffer stays fully transparent.
+    assert_eq!(pixel_buffer.get_pixel(50, 50).unwrap(), [0, 0, 0, 0]);
 }
