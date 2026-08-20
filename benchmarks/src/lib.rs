@@ -41,6 +41,12 @@ pub struct PipelineStats {
     pub iterations: usize,
     /// Mean total duration per frame.
     pub mean_total: Duration,
+    /// 50th percentile (median) duration per frame.
+    pub p50_total: Duration,
+    /// 95th percentile duration per frame.
+    pub p95_total: Duration,
+    /// 99th percentile duration per frame.
+    pub p99_total: Duration,
     /// Mean HTML parsing duration per iteration.
     pub mean_html_parse: Duration,
     /// Mean CSS cascade duration per iteration.
@@ -57,6 +63,14 @@ pub struct PipelineStats {
     pub max_total: Duration,
     /// Calculated frames per second throughput.
     pub throughput_fps: f64,
+}
+
+impl PipelineStats {
+    /// Checks if the mean frame rendering duration satisfies a given budget.
+    #[must_use]
+    pub const fn satisfies_budget(&self, max_allowed_mean: Duration) -> bool {
+        self.mean_total.as_nanos() <= max_allowed_mean.as_nanos()
+    }
 }
 
 /// Runs a full synthetic HTML-to-pixels pipeline benchmark.
@@ -121,9 +135,12 @@ pub fn benchmark_pipeline_stats(
     let mut paint_duration = Duration::ZERO;
     let mut raster_duration = Duration::ZERO;
 
+    let mut totals = Vec::with_capacity(count);
+
     for _ in 0..count {
         let res = benchmark_full_pipeline(html_source, css_source);
         let tot = res.total_duration();
+        totals.push(tot);
         total_duration += tot;
         html_parse_duration += res.html_parse_duration;
         css_cascade_duration += res.css_cascade_duration;
@@ -138,6 +155,13 @@ pub fn benchmark_pipeline_stats(
         }
     }
 
+    totals.sort_unstable();
+    let p50_total = totals[count / 2];
+    let p95_idx = ((count * 95) / 100).min(count - 1);
+    let p95_total = totals[p95_idx];
+    let p99_idx = ((count * 99) / 100).min(count - 1);
+    let p99_total = totals[p99_idx];
+
     let count_u32 = count as u32;
     let mean_total = total_duration / count_u32;
     let mean_secs = mean_total.as_secs_f64();
@@ -150,6 +174,9 @@ pub fn benchmark_pipeline_stats(
     PipelineStats {
         iterations: count,
         mean_total,
+        p50_total,
+        p95_total,
+        p99_total,
         mean_html_parse: html_parse_duration / count_u32,
         mean_css_cascade: css_cascade_duration / count_u32,
         mean_layout: layout_duration / count_u32,

@@ -19,7 +19,22 @@ impl DamageTracker {
 
     /// Marks a rectangular region as damaged/dirty.
     pub fn add_damage(&mut self, rect: Rect) {
-        self.dirty_rects.push(rect);
+        if rect.left().is_finite()
+            && rect.top().is_finite()
+            && rect.right().is_finite()
+            && rect.bottom().is_finite()
+            && rect.width() > 0.0
+            && rect.height() > 0.0
+        {
+            self.dirty_rects.push(rect);
+        }
+    }
+
+    /// Marks multiple rectangular regions as damaged/dirty in batch.
+    pub fn add_damage_rects(&mut self, rects: &[Rect]) {
+        for &rect in rects {
+            self.add_damage(rect);
+        }
     }
 
     /// Computes the minimal bounding box enclosing all accumulated damage rectangles.
@@ -41,7 +56,22 @@ impl DamageTracker {
             bottom = bottom.max(r.bottom());
         }
 
-        Rect::from_ltrb(left, top, right, bottom)
+        if left < right && top < bottom {
+            Rect::from_ltrb(left, top, right, bottom)
+        } else {
+            None
+        }
+    }
+
+    /// Checks if any accumulated dirty rectangle intersects `target`.
+    #[must_use]
+    pub fn intersects_any(&self, target: Rect) -> bool {
+        self.dirty_rects.iter().any(|r| {
+            r.left() < target.right()
+                && r.right() > target.left()
+                && r.top() < target.bottom()
+                && r.bottom() > target.top()
+        })
     }
 
     /// Clears all accumulated damage.

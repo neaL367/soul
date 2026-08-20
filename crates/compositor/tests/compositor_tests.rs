@@ -15,15 +15,21 @@ fn test_damage_tracker_union() {
     let r1 = Rect::from_xywh(10.0, 10.0, 50.0, 50.0).unwrap();
     let r2 = Rect::from_xywh(40.0, 40.0, 60.0, 60.0).unwrap();
 
-    tracker.add_damage(r1);
-    tracker.add_damage(r2);
+    tracker.add_damage_rects(&[r1, r2]);
 
     assert!(!tracker.is_empty());
+    assert_eq!(tracker.rects().len(), 2);
     let union = tracker.union_bounds().unwrap();
     assert_eq!(union.left(), 10.0);
     assert_eq!(union.top(), 10.0);
     assert_eq!(union.right(), 100.0);
     assert_eq!(union.bottom(), 100.0);
+
+    let test_intersect = Rect::from_xywh(20.0, 20.0, 10.0, 10.0).unwrap();
+    assert!(tracker.intersects_any(test_intersect));
+
+    let outside_intersect = Rect::from_xywh(200.0, 200.0, 10.0, 10.0).unwrap();
+    assert!(!tracker.intersects_any(outside_intersect));
 
     tracker.clear();
     assert!(tracker.is_empty());

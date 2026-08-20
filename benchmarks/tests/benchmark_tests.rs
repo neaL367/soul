@@ -44,4 +44,22 @@ fn test_pipeline_multi_iteration_stats() {
     assert!(stats.mean_layout > std::time::Duration::ZERO);
     assert!(stats.mean_paint > std::time::Duration::ZERO);
     assert!(stats.mean_raster > std::time::Duration::ZERO);
+
+    // Percentiles must be ordered properly
+    assert!(stats.p50_total <= stats.p95_total);
+    assert!(stats.p95_total <= stats.p99_total);
+    assert!(stats.min_total <= stats.p50_total);
+    assert!(stats.p99_total <= stats.max_total);
+}
+
+#[test]
+fn test_pipeline_budget_satisfaction() {
+    let html = "<html><body><div><p>Simple benchmark content</p></div></body></html>";
+    let css = "p { color: green; font-size: 16px; }";
+
+    let stats = benchmarks::benchmark_pipeline_stats(html, css, 5);
+
+    // Assert that a simple page layout and raster completes well within the 1-second budget (< 100ms for synthetic doc)
+    assert!(stats.satisfies_budget(std::time::Duration::from_millis(500)));
+    assert!(!stats.satisfies_budget(std::time::Duration::from_nanos(1)));
 }
