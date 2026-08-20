@@ -14,6 +14,9 @@ pub struct RestrictedToken {
     handle: HANDLE,
 }
 
+// SAFETY: `HANDLE` wraps a Win32 kernel handle with no per-thread state;
+// token handles are usable from any thread and `Drop` closes them once via
+// `CloseHandle`.
 unsafe impl Send for RestrictedToken {}
 unsafe impl Sync for RestrictedToken {}
 
@@ -26,6 +29,9 @@ impl RestrictedToken {
     /// Returns `SandboxError::Win32` if token query or creation fails.
     pub fn create_for_renderer() -> Result<Self, SandboxError> {
         let mut process_token = HANDLE::default();
+        // SAFETY: `process_token` is an initialized out-parameter; the pseudo
+        // handle from `GetCurrentProcess` is valid for the duration of the
+        // call and the result is checked with `?`.
         unsafe {
             OpenProcessToken(
                 GetCurrentProcess(),
@@ -35,6 +41,9 @@ impl RestrictedToken {
         }
 
         let mut restricted_token = HANDLE::default();
+        // SAFETY: `restricted_token` is an initialized out-parameter; the
+        // empty input slices mean no SIDs or privileges are excluded, which
+        // Win32 accepts. The call result is checked with `?`.
         let res = unsafe {
             CreateRestrictedToken(
                 process_token,
@@ -46,6 +55,8 @@ impl RestrictedToken {
             )
         };
 
+        // SAFETY: `process_token` was opened by the successful `OpenProcessToken`
+        // above and is closed exactly once here; it is not used afterwards.
         unsafe {
             let _ = CloseHandle(process_token);
         }
@@ -70,6 +81,8 @@ impl RestrictedToken {
 impl Drop for RestrictedToken {
     fn drop(&mut self) {
         if !self.handle.is_invalid() {
+            // SAFETY: the handle is valid, unclosed, and `CloseHandle` runs
+            // exactly once because `Drop` runs once.
             unsafe {
                 let _ = CloseHandle(self.handle);
             }

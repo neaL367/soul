@@ -76,6 +76,8 @@ pub struct ProcessLauncher;
 /// Returns `SandboxError` if the process's threads cannot be enumerated or its
 /// primary thread cannot be resumed.
 fn resume_primary_thread(pid: u32) -> Result<(), SandboxError> {
+    // SAFETY: `CreateToolhelp32Snapshot` returns a valid snapshot handle on
+    // success or a Win32 error surfaced by `?`.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) }?;
 
     let mut entry = THREADENTRY32 {
@@ -86,6 +88,11 @@ fn resume_primary_thread(pid: u32) -> Result<(), SandboxError> {
     };
 
     let mut primary_tid = None;
+    // SAFETY: `entry.dwSize` is set to the correct struct size and the
+    // enumeration operates on the valid snapshot handle created above;
+    // `Thread32First`/`Thread32Next` only write `entry` in bounds. The
+    // snapshot is closed exactly once after the loop, which always
+    // terminates because `Thread32Next` failure breaks the loop.
     unsafe {
         if Thread32First(snapshot, &raw mut entry).is_ok() {
             loop {
@@ -110,6 +117,8 @@ fn resume_primary_thread(pid: u32) -> Result<(), SandboxError> {
     // SAFETY: `tid` was obtained from a thread enumeration of this process
     // family; the handle is used only for the resume call and closed below.
     let thread_handle = unsafe { OpenThread(THREAD_SUSPEND_RESUME, false, tid) }?;
+    // SAFETY: `thread_handle` is a valid handle from the checked
+    // `OpenThread` call; it is closed exactly once after the resume.
     unsafe {
         let _ = ResumeThread(thread_handle);
         let _ = CloseHandle(thread_handle);

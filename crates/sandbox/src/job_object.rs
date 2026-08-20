@@ -20,7 +20,9 @@ pub struct JobObject {
     handle: HANDLE,
 }
 
-// Windows HANDLEs for Job Objects can be safely sent across threads.
+// SAFETY: `HANDLE` wraps a Win32 kernel handle with no per-thread state;
+// Job Object handles are usable from any thread. `Drop` closes it via
+// `CloseHandle`, which is thread-safe and happens exactly once.
 unsafe impl Send for JobObject {}
 unsafe impl Sync for JobObject {}
 
@@ -31,6 +33,8 @@ impl JobObject {
     ///
     /// Returns `SandboxError::Win32` if Job Object creation fails.
     pub fn create() -> Result<Self, SandboxError> {
+        // SAFETY: `CreateJobObjectW` returns a valid handle on success or a
+        // Win32 error that the `windows` crate surfaces via `?`.
         let handle = unsafe { CreateJobObjectW(None, None)? };
         Ok(Self { handle })
     }
@@ -49,6 +53,9 @@ impl JobObject {
         info.ProcessMemoryLimit = max_bytes;
         info.JobMemoryLimit = max_bytes;
 
+        // SAFETY: `info` is fully initialized and its address is valid for the
+        // duration of the call; `size_of` matches the struct Win32 expects and
+        // the handle was returned by a successful `CreateJobObjectW`.
         unsafe {
             SetInformationJobObject(
                 self.handle,
@@ -78,6 +85,8 @@ impl JobObject {
                 | JOB_OBJECT_UILIMIT_EXITWINDOWS,
         };
 
+        // SAFETY: `ui_info` is fully initialized and the handle is valid; the
+        // struct size matches the Win32 definition.
         unsafe {
             SetInformationJobObject(
                 self.handle,
@@ -95,6 +104,9 @@ impl JobObject {
     ///
     /// Returns `SandboxError::Win32` if assignment fails.
     pub fn assign_process(&self, process_handle: HANDLE) -> Result<(), SandboxError> {
+        // SAFETY: `self.handle` is a live Job Object handle created by
+        // `create` and not yet closed; `process_handle` is borrowed from the
+        // caller and must remain valid for the duration of the call.
         unsafe {
             AssignProcessToJobObject(self.handle, process_handle)?;
         }
@@ -107,6 +119,7 @@ impl JobObject {
     ///
     /// Returns `SandboxError::Win32` if termination fails.
     pub fn terminate(&self, exit_code: u32) -> Result<(), SandboxError> {
+        // SAFETY: `self.handle` is a live Job Object handle not yet closed.
         unsafe {
             TerminateJobObject(self.handle, exit_code)?;
         }
@@ -123,6 +136,8 @@ impl JobObject {
         let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
         let mut return_length: u32 = 0;
 
+        // SAFETY: `info` and `return_length` are sized out-parameters with the
+        // exact structure size Win32 writes; the handle is live.
         unsafe {
             QueryInformationJobObject(
                 self.handle,
@@ -165,6 +180,9 @@ pub struct JobAccounting {
 impl Drop for JobObject {
     fn drop(&mut self) {
         if !self.handle.is_invalid() {
+            // SAFETY: the handle is a valid, non-null Job Object handle that
+            // has not been closed before; `CloseHandle` runs exactly once per
+            // object because `Drop` runs once.
             unsafe {
                 let _ = CloseHandle(self.handle);
             }

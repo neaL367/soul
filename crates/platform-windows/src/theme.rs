@@ -32,6 +32,11 @@ impl SystemTheme {
 /// Returns `SystemTheme::Light` by default if the key is absent or querying fails.
 #[must_use]
 pub fn query_system_theme() -> SystemTheme {
+    // SAFETY: `hkey` is an initialized out-parameter from `RegOpenKeyExW`;
+    // on error the function returns before the handle is used. `data` is a
+    // 4-byte `u32` with `data_size = 4`, and `val_type` is a typed out-param,
+    // so the registry query writes within bounds. `RegCloseKey` runs exactly
+    // once on the opened handle before the block ends.
     unsafe {
         let mut hkey = windows::Win32::System::Registry::HKEY::default();
         let subkey = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");

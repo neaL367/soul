@@ -23,6 +23,11 @@ impl Dpapi {
 
         let mut output_blob = CRYPT_INTEGER_BLOB::default();
 
+        // SAFETY: `input_blob` borrows `plaintext`, which outlives the call.
+        // `output_blob` is an initialized out-parameter. The `windows` crate
+        // wraps the Win32 return code, so success means the call returned
+        // `ERROR_SUCCESS` and `output_blob` describes a valid LocalAlloc
+        // buffer owned by the caller.
         unsafe {
             CryptProtectData(
                 &raw const input_blob,
@@ -36,6 +41,10 @@ impl Dpapi {
             .map_err(|e| format!("DPAPI CryptProtectData failed: {e}"))?;
         }
 
+        // SAFETY: after a successful `CryptProtectData`, `output_blob.pbData`
+        // points to `cbData` valid bytes in a LocalAlloc buffer that only this
+        // function may free. The slice is read into an owned `Vec` before
+        // `LocalFree` releases the buffer exactly once.
         let result = unsafe {
             let slice = std::slice::from_raw_parts(output_blob.pbData, output_blob.cbData as usize);
             let vec = slice.to_vec();
@@ -60,6 +69,10 @@ impl Dpapi {
 
         let mut output_blob = CRYPT_INTEGER_BLOB::default();
 
+        // SAFETY: `input_blob` borrows `ciphertext`, which outlives the call.
+        // `output_blob` is an initialized out-parameter and the Win32 result is
+        // checked, so on success it describes a valid LocalAlloc buffer owned
+        // by the caller.
         unsafe {
             CryptUnprotectData(
                 &raw const input_blob,
@@ -73,6 +86,9 @@ impl Dpapi {
             .map_err(|e| format!("DPAPI CryptUnprotectData failed: {e}"))?;
         }
 
+        // SAFETY: after a successful `CryptUnprotectData`, `output_blob.pbData`
+        // points to `cbData` valid bytes in a LocalAlloc buffer freed exactly
+        // once by `LocalFree` after the owned copy is taken.
         let result = unsafe {
             let slice = std::slice::from_raw_parts(output_blob.pbData, output_blob.cbData as usize);
             let vec = slice.to_vec();
