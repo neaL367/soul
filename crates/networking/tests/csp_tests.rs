@@ -104,3 +104,17 @@ fn test_csp_host_source_with_port() {
     let https_default = Url::parse("https://api.example.com/x.js").unwrap();
     assert!(portless_policy.allows(CspDirective::ScriptSrc, &https_default, &doc_origin));
 }
+
+#[test]
+fn test_csp_unsafe_inline_and_eval() {
+    let policy = CspPolicy::parse("script-src 'self' 'unsafe-inline'; style-src 'self'");
+    assert!(policy.allows_inline(CspDirective::ScriptSrc));
+    assert!(!policy.allows_inline(CspDirective::StyleSrc));
+
+    let default_policy = CspPolicy::parse("default-src 'unsafe-inline'");
+    assert!(default_policy.allows_inline(CspDirective::ScriptSrc));
+    assert!(default_policy.allows_inline(CspDirective::StyleSrc));
+
+    let empty = CspPolicy::parse("");
+    assert!(empty.is_empty());
+}

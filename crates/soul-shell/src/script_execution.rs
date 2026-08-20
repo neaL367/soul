@@ -2,7 +2,7 @@
 
 use dom::{Document, NodeId};
 use javascript::JsRuntime;
-use networking::{HttpRequest, NetworkClient};
+use networking::{CspDirective, CspPolicy, HttpRequest, NetworkClient};
 use soul_core::NavigationError;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -14,9 +14,23 @@ use web_api::{
 };
 
 /// Creates a rich fetch callback handler for script execution in the shell.
-fn create_shell_fetch_handler(client: NetworkClient, doc_url: Url) -> RichFetchHandler {
+fn create_shell_fetch_handler(
+    client: NetworkClient,
+    doc_url: Url,
+    csp: Option<CspPolicy>,
+) -> RichFetchHandler {
     Arc::new(move |req: &FetchRequest| {
         let target_url = doc_url.join(&req.url).map_err(|e| e.to_string())?;
+
+        // Enforce Content Security Policy (connect-src) on outgoing fetch requests.
+        if let Some(policy) = &csp
+            && !policy.allows(CspDirective::ConnectSrc, &target_url, &doc_url)
+        {
+            return Err(format!(
+                "fetch to {target_url} blocked by Content Security Policy (connect-src)"
+            ));
+        }
+
         let method = match req.method.to_ascii_uppercase().as_str() {
             "POST" => networking::types::HttpMethod::Post,
             "HEAD" => networking::types::HttpMethod::Head,
@@ -87,7 +101,7 @@ pub fn execute_inline_scripts(
     document_url: Option<&Url>,
     client: Option<&NetworkClient>,
 ) -> Result<Document, NavigationError> {
-    execute_scripts(document, document_url, client, None)
+    execute_scripts(document, document_url, client, None, None)
 }
 
 /// Executes all scripts (both inline and external) in document order.
@@ -100,6 +114,7 @@ pub fn execute_scripts(
     document_url: Option<&Url>,
     client: Option<&NetworkClient>,
     external_scripts: Option<&HashMap<NodeId, String>>,
+    csp: Option<&CspPolicy>,
 ) -> Result<Document, NavigationError> {
     let mut scripts: Vec<String> = Vec::new();
     for script_id in document.get_elements_by_tag_name("script") {
@@ -110,7 +125,26 @@ pub fn execute_scripts(
         } else {
             let inline_text = document.text_content(script_id);
             if !inline_text.trim().is_empty() {
-                scripts.push(inline_text);
+                let allowed = csp.is_none_or(|policy| {
+                    let node = document.get_node(script_id);
+                    let nonce = node.and_then(|n| {
+                        if let dom::NodeData::Element(e) = &n.data {
+                            e.attr("nonce")
+                        } else {
+                            None
+                        }
+                    });
+                    nonce.map_or_else(
+                        || policy.allows_inline(CspDirective::ScriptSrc),
+                        |nonce_val| policy.allows_nonce(CspDirective::ScriptSrc, nonce_val),
+                    )
+                });
+
+                if allowed {
+                    scripts.push(inline_text);
+                } else {
+                    tracing::warn!("Blocked inline script by Content Security Policy (script-src)");
+                }
             }
         }
     }
@@ -137,7 +171,8 @@ pub fn execute_scripts(
     let _ = register_session_storage(&mut runtime.context, session_storage, &origin);
 
     if let (Some(client), Some(doc_url)) = (client, document_url) {
-        let fetch_handler = create_shell_fetch_handler(client.clone(), doc_url.clone());
+        let fetch_handler =
+            create_shell_fetch_handler(client.clone(), doc_url.clone(), csp.cloned());
         let _ = register_rich_fetch(&mut runtime.context, fetch_handler);
     }
 

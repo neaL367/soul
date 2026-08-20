@@ -239,3 +239,74 @@ async fn test_external_stylesheet_link_applied_end_to_end() {
 
     server_handle.abort();
 }
+
+#[tokio::test]
+async fn test_navigation_csp_subresource_blocking() {
+    let css_file = "body { background-color: #0000ff; }";
+    let html_page = r#"<!DOCTYPE html>
+    <html>
+    <head>
+        <link rel="stylesheet" href="/styles/main.css">
+    </head>
+    <body>
+        <h1>CSP Blocked Style</h1>
+    </body>
+    </html>"#;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let css_copy = css_file.to_string();
+    let html_copy = html_page.to_string();
+
+    let server_handle = tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let mut buf = [0u8; 4096];
+            let n = tokio::io::AsyncReadExt::read(&mut socket, &mut buf)
+                .await
+                .unwrap_or(0);
+            let req_str = String::from_utf8_lossy(&buf[..n]);
+
+            let response = if req_str.contains("GET /styles/main.css ") {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/css\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    css_copy.len(),
+                    css_copy
+                )
+            } else {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Security-Policy: default-src 'self'; style-src 'none'\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    html_copy.len(),
+                    html_copy
+                )
+            };
+            let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, response.as_bytes()).await;
+            let _ = tokio::io::AsyncWriteExt::flush(&mut socket).await;
+            drop(socket);
+        }
+    });
+
+    let url = Url::parse(&format!("http://127.0.0.1:{}/csp-test", addr.port())).unwrap();
+    let options = RenderOptions {
+        width: 320,
+        height: 240,
+    };
+
+    let result = navigate_and_render(url, options)
+        .await
+        .expect("navigation with CSP should complete");
+    let buffer = &result.pixel_buffer.data;
+    let width = result.pixel_buffer.width;
+
+    // Body background should NOT be blue because style-src 'none' actively blocked the stylesheet
+    let bg = pixel_at(buffer, width, 10, 10);
+    assert_ne!(
+        (bg[0], bg[1], bg[2]),
+        (0, 0, 255),
+        "style-src 'none' must block external stylesheet from coloring body blue"
+    );
+
+    server_handle.abort();
+}

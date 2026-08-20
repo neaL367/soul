@@ -115,20 +115,32 @@ pub async fn render_active_navigation(
         .text()
         .map_err(|e| NavigationError::Other(format!("non-UTF8 response body: {e}")))?;
 
+    // Parse Content Security Policy if provided in document response headers.
+    let csp = response
+        .headers
+        .get("content-security-policy")
+        .map(|h| networking::CspPolicy::parse(h));
+
     // Stage 2: parse document and extract author `<style>` sheets.
     let parse_start = Instant::now();
     let (doc, mut style_sources) = parse_html_with_styles(&html);
     timings.parse = parse_start.elapsed();
 
     // Stage 2.5: fetch external scripts and execute all scripts in document order.
-    let external_scripts = load_subresource_scripts(client, &url, &doc).await;
-    let doc = execute_scripts(doc, Some(&url), Some(client), Some(&external_scripts))?;
+    let external_scripts = load_subresource_scripts(client, &url, &doc, csp.as_ref()).await;
+    let doc = execute_scripts(
+        doc,
+        Some(&url),
+        Some(client),
+        Some(&external_scripts),
+        csp.as_ref(),
+    )?;
     let title = document_title(&doc, &url);
 
     // Stage 3: fetch + decode `<img>` and `<link rel="stylesheet">` subresources.
     let images_start = Instant::now();
-    let images = load_subresource_images(client, &url, &doc).await;
-    let external_stylesheets = load_subresource_stylesheets(client, &url, &doc).await;
+    let images = load_subresource_images(client, &url, &doc, csp.as_ref()).await;
+    let external_stylesheets = load_subresource_stylesheets(client, &url, &doc, csp.as_ref()).await;
     style_sources.extend(external_stylesheets);
     timings.images = images_start.elapsed();
 

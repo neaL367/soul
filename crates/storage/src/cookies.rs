@@ -76,12 +76,12 @@ impl Cookie {
             }
         }
 
-        // RFC 6265bis §5.3 steps 3-4: a `Domain` attribute is only honored when
+        // RFC 6265bis §5.3 steps 3-5: a `Domain` attribute is only honored when
         // it is a suffix of the request host, is not itself an IP address, and
-        // is not a bare single-label name (a public-suffix-adjacent form such
-        // as `Domain=com` would otherwise let every `.com` site read the
-        // cookie). Any other value means the whole cookie must be ignored,
-        // never silently downgraded to host-only.
+        // is not a public suffix (e.g. `com` or `co.uk`, which would otherwise
+        // let an attacker poison cookies across all subdomains). Any other
+        // value means the whole cookie must be ignored, never silently downgraded
+        // to host-only.
         let (domain, host_only) = match domain_attr {
             Some(attr_domain) => {
                 let host_is_ip = request_url
@@ -90,7 +90,7 @@ impl Cookie {
                 let domain_is_ip = attr_domain.parse::<std::net::IpAddr>().is_ok();
                 if host_is_ip
                     || domain_is_ip
-                    || !attr_domain.contains('.')
+                    || Self::is_public_suffix(&attr_domain)
                     || !Self::is_domain_suffix_of(&default_domain, &attr_domain)
                 {
                     return None;
@@ -111,6 +111,56 @@ impl Cookie {
             same_site,
             host_only,
         })
+    }
+
+    /// Returns true when `domain` is a public suffix (e.g. `com`, `co.uk`, `org.uk`)
+    /// under which cookies must not be set across all sites.
+    fn is_public_suffix(domain: &str) -> bool {
+        let lower = domain.trim_start_matches('.').to_ascii_lowercase();
+        if !lower.contains('.') {
+            return true;
+        }
+        matches!(
+            lower.as_str(),
+            "co.uk"
+                | "ac.uk"
+                | "gov.uk"
+                | "org.uk"
+                | "net.uk"
+                | "com.au"
+                | "net.au"
+                | "org.au"
+                | "edu.au"
+                | "gov.au"
+                | "co.jp"
+                | "ne.jp"
+                | "or.jp"
+                | "ac.jp"
+                | "go.jp"
+                | "co.nz"
+                | "net.nz"
+                | "org.nz"
+                | "com.br"
+                | "net.br"
+                | "org.br"
+                | "com.sg"
+                | "edu.sg"
+                | "gov.sg"
+                | "com.tw"
+                | "org.tw"
+                | "edu.tw"
+                | "co.in"
+                | "net.in"
+                | "org.in"
+                | "gov.in"
+                | "co.za"
+                | "org.za"
+                | "gov.za"
+                | "co.kr"
+                | "ne.kr"
+                | "or.kr"
+                | "go.kr"
+        )
     }
 
     /// Returns true when `host` is `domain` itself or a subdomain of it.

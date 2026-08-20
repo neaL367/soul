@@ -26,6 +26,10 @@ pub enum CspSource {
     SelfOrigin,
     /// Explicitly forbidden (`'none'`).
     None,
+    /// Unsafe inline script/style execution (`'unsafe-inline'`).
+    UnsafeInline,
+    /// Dynamic code evaluation via `eval()` (`'unsafe-eval'`).
+    UnsafeEval,
     /// Specific scheme prefix (e.g. `https:`, `data:`).
     Scheme(String),
     /// Explicit host match (e.g. `https://api.example.com`).
@@ -53,6 +57,7 @@ pub struct CspViolationReport {
 #[derive(Debug, Default, Clone)]
 pub struct CspPolicy {
     directives: Vec<(CspDirective, Vec<CspSource>)>,
+    raw_header: String,
 }
 
 impl CspPolicy {
@@ -85,6 +90,10 @@ impl CspPolicy {
                     CspSource::SelfOrigin
                 } else if src.eq_ignore_ascii_case("'none'") {
                     CspSource::None
+                } else if src.eq_ignore_ascii_case("'unsafe-inline'") {
+                    CspSource::UnsafeInline
+                } else if src.eq_ignore_ascii_case("'unsafe-eval'") {
+                    CspSource::UnsafeEval
                 } else if trimmed.starts_with("nonce-") {
                     CspSource::Nonce(trimmed.trim_start_matches("nonce-").to_string())
                 } else if trimmed.starts_with("sha256-")
@@ -103,7 +112,43 @@ impl CspPolicy {
             directives.push((directive_kind, sources));
         }
 
-        Self { directives }
+        Self {
+            directives,
+            raw_header: header.to_string(),
+        }
+    }
+
+    /// Returns `true` if no directives were successfully parsed.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.directives.is_empty()
+    }
+
+    /// Returns the raw header string that was parsed.
+    #[must_use]
+    pub fn raw_header(&self) -> &str {
+        &self.raw_header
+    }
+
+    /// Evaluates whether inline execution is permitted for `directive`.
+    #[must_use]
+    pub fn allows_inline(&self, directive: CspDirective) -> bool {
+        let sources = self
+            .directives
+            .iter()
+            .find(|(d, _)| *d == directive)
+            .or_else(|| {
+                self.directives
+                    .iter()
+                    .find(|(d, _)| *d == CspDirective::DefaultSrc)
+            })
+            .map(|(_, s)| s);
+
+        let Some(sources) = sources else {
+            return true;
+        };
+
+        sources.iter().any(|s| matches!(s, CspSource::UnsafeInline))
     }
 
     /// Evaluates whether an outgoing resource request is permitted by policy.

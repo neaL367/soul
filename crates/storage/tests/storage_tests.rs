@@ -454,3 +454,21 @@ fn test_http_cache_set_cookie_and_authorization_are_never_cached() {
 
     let _ = std::fs::remove_file(&dir);
 }
+
+#[test]
+fn test_cookie_public_suffix_rejection() {
+    let url = Url::parse("https://app.example.co.uk/index.html").unwrap();
+
+    // Suffix domain `example.co.uk`: allowed
+    let valid_cookie = Cookie::parse("session=123; Domain=example.co.uk", &url);
+    assert!(valid_cookie.is_some());
+    assert_eq!(valid_cookie.unwrap().domain, "example.co.uk");
+
+    // Public suffix `co.uk`: must be rejected
+    let public_suffix_cookie = Cookie::parse("session=123; Domain=co.uk", &url);
+    assert!(public_suffix_cookie.is_none());
+
+    // Bare TLD `uk`: must be rejected
+    let bare_tld_cookie = Cookie::parse("session=123; Domain=uk", &url);
+    assert!(bare_tld_cookie.is_none());
+}

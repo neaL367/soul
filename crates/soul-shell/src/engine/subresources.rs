@@ -2,16 +2,17 @@
 
 use dom::{Document, NodeData, NodeId};
 use image_decode::{DecodedImage, ImageDecoder};
-use networking::{HttpRequest, NetworkClient};
+use networking::{CspDirective, CspPolicy, HttpRequest, NetworkClient};
 use std::collections::HashMap;
 use url::Url;
 
 /// Fetches and decodes every `<img>` subresource through the security-checked
-/// client path (mixed content + CORS enforced against the document origin).
+/// client path (mixed content + CORS + CSP enforced against the document origin).
 pub(super) async fn load_subresource_images(
     client: &NetworkClient,
     document_url: &Url,
     doc: &Document,
+    csp: Option<&CspPolicy>,
 ) -> HashMap<NodeId, DecodedImage> {
     let mut images = HashMap::new();
 
@@ -29,6 +30,13 @@ pub(super) async fn load_subresource_images(
             tracing::warn!(src, "Skipping image with unresolvable src");
             continue;
         };
+
+        if let Some(policy) = csp
+            && !policy.allows(CspDirective::ImgSrc, &url, document_url)
+        {
+            tracing::warn!(url = %url, "Blocked image by Content Security Policy (img-src)");
+            continue;
+        }
 
         let request = HttpRequest::get(url.clone());
         match client
@@ -66,6 +74,7 @@ pub(super) async fn load_subresource_stylesheets(
     client: &NetworkClient,
     document_url: &Url,
     doc: &Document,
+    csp: Option<&CspPolicy>,
 ) -> Vec<String> {
     let mut sheets = Vec::new();
 
@@ -96,6 +105,13 @@ pub(super) async fn load_subresource_stylesheets(
             continue;
         };
 
+        if let Some(policy) = csp
+            && !policy.allows(CspDirective::StyleSrc, &url, document_url)
+        {
+            tracing::warn!(url = %url, "Blocked stylesheet by Content Security Policy (style-src)");
+            continue;
+        }
+
         let request = HttpRequest::get(url.clone());
         match client
             .fetch_with_security_context(&request, Some(document_url))
@@ -124,6 +140,7 @@ pub(super) async fn load_subresource_scripts(
     client: &NetworkClient,
     document_url: &Url,
     doc: &Document,
+    csp: Option<&CspPolicy>,
 ) -> HashMap<NodeId, String> {
     let mut scripts = HashMap::new();
 
@@ -141,6 +158,13 @@ pub(super) async fn load_subresource_scripts(
             tracing::warn!(src, "Skipping external script with unresolvable src");
             continue;
         };
+
+        if let Some(policy) = csp
+            && !policy.allows(CspDirective::ScriptSrc, &url, document_url)
+        {
+            tracing::warn!(url = %url, "Blocked external script by Content Security Policy (script-src)");
+            continue;
+        }
 
         let request = HttpRequest::get(url.clone());
         match client
