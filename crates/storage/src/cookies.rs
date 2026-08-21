@@ -100,6 +100,11 @@ impl Cookie {
             None => (default_domain, true),
         };
 
+        // RFC 6265bis §5.4: Cookies with SameSite=None must specify the Secure attribute.
+        if same_site.eq_ignore_ascii_case("None") && !is_secure {
+            return None;
+        }
+
         Some(Self {
             name: name.trim().to_string(),
             domain,
@@ -287,6 +292,61 @@ impl CookieJar {
         }
 
         Ok(matched)
+    }
+
+    /// Retrieves active cookies matching the given URL taking `SameSite` security policy into account.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `StorageError` if URL parsing or database querying fails.
+    #[allow(clippy::significant_drop_tightening)]
+    pub fn get_cookies_for_request(
+        &self,
+        url_str: &str,
+        current_time: i64,
+        top_origin: Option<&str>,
+        is_safe_method: bool,
+    ) -> Result<Vec<Cookie>, StorageError> {
+        let all_matched = self.get_cookies_for_url(url_str, current_time)?;
+        let parsed_target =
+            Url::parse(url_str).map_err(|e| StorageError::InvalidUrl(e.to_string()))?;
+        let target_host = parsed_target.host_str().unwrap_or("").to_ascii_lowercase();
+
+        let same_site_context =
+            top_origin
+                .and_then(|to| Url::parse(to).ok())
+                .is_some_and(|to_url| {
+                    let to_host = to_url.host_str().unwrap_or("").to_ascii_lowercase();
+                    to_host == target_host
+                        || Self::domain_matches(&target_host, &to_host)
+                        || Self::domain_matches(&to_host, &target_host)
+                });
+
+        let mut filtered = Vec::new();
+        for cookie in all_matched {
+            let same_site_lower = cookie.same_site.to_ascii_lowercase();
+            match same_site_lower.as_str() {
+                "strict" => {
+                    if same_site_context {
+                        filtered.push(cookie);
+                    }
+                }
+                "none" => {
+                    // SameSite=None cookies MUST have Secure attribute set
+                    if cookie.is_secure {
+                        filtered.push(cookie);
+                    }
+                }
+                _ => {
+                    // Default behavior (Lax)
+                    if same_site_context || is_safe_method {
+                        filtered.push(cookie);
+                    }
+                }
+            }
+        }
+
+        Ok(filtered)
     }
 
     /// Removes expired cookies from the persistent store.

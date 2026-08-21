@@ -167,6 +167,31 @@ impl HttpClient {
         Ok(response)
     }
 
+    /// Fetches a subresource request initiated by a document, verifying both CSP and CORS policies.
+    ///
+    /// # Errors
+    /// Returns `NetworkError::CspViolation` if target URL is forbidden by `csp_policy`.
+    /// Returns `NetworkError::CorsViolation` if response headers forbid access from `document_origin`.
+    pub async fn fetch_with_csp_and_cors(
+        &self,
+        request: &HttpRequest,
+        document_origin: Option<&Url>,
+        csp_policy: Option<&crate::csp::CspPolicy>,
+        directive: crate::csp::CspDirective,
+    ) -> Result<HttpResponse, NetworkError> {
+        if let (Some(csp), Some(doc_origin)) = (csp_policy, document_origin)
+            && !csp.allows(directive, &request.url, doc_origin)
+        {
+            return Err(NetworkError::CspViolation(format!(
+                "Blocked by CSP directive {directive:?}: {}",
+                request.url
+            )));
+        }
+
+        self.fetch_with_security_context(request, document_origin)
+            .await
+    }
+
     /// Executes an arbitrary `HttpRequest` over HTTP/1.1 or HTTP/2, following redirects.
     ///
     /// # Errors

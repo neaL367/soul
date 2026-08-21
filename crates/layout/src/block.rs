@@ -1,10 +1,11 @@
 //! Normal flow block layout algorithm with W3C box-sizing and CSS 2.1 §8.3.1 margin collapsing.
 
 use crate::box_tree::LayoutBox;
+use crate::calc::{LengthContext, resolve_length};
 use crate::flex::layout_flex;
 use crate::geometry::{Dimensions, EdgeSizes};
 use crate::grid::layout_grid;
-use css::{BoxSizing, ComputedStyle, Display, Length, Position};
+use css::{BoxSizing, ComputedStyle, Display, Position};
 
 /// Maximum depth of recursive block layout before child layout is skipped.
 ///
@@ -28,13 +29,16 @@ fn layout_block_inner(layout_box: &mut LayoutBox, containing_block: &Dimensions,
     // 2. Position the box within the containing block at offset 0.0
     calculate_block_position(layout_box, containing_block, 0.0);
 
-    // 3. Recursively layout children (flex containers use the flex path)
+    // 3. Recursively layout in-flow children
     if depth < MAX_LAYOUT_DEPTH {
         layout_children(layout_box, depth);
     }
 
     // 4. Calculate final height
     calculate_block_height(layout_box);
+
+    // 5. Layout out-of-flow children after container dimensions and height are finalized
+    layout_out_of_flow_children(layout_box, depth);
 }
 
 /// Returns `true` if the box is a flex container (`display: flex`).
@@ -61,9 +65,7 @@ fn is_out_of_flow(layout_box: &LayoutBox) -> bool {
         .is_some_and(|s| matches!(s.position, Position::Absolute | Position::Fixed))
 }
 
-/// Lays out a container's children, dispatching flex/grid containers to the
-/// appropriate algorithm and everything else to normal flow block layout.
-/// Out-of-flow children are positioned in a second pass.
+/// Lays out a container's in-flow children.
 fn layout_children(layout_box: &mut LayoutBox, depth: usize) {
     if is_flex_container(layout_box) {
         layout_flex_children(layout_box, depth);
@@ -72,8 +74,6 @@ fn layout_children(layout_box: &mut LayoutBox, depth: usize) {
     } else {
         layout_block_children(layout_box, depth);
     }
-    // Second pass for out-of-flow children (absolute/fixed).
-    layout_out_of_flow_children(layout_box, depth);
 }
 
 fn calculate_block_width(layout_box: &mut LayoutBox, containing_block: &Dimensions) {
@@ -104,26 +104,19 @@ fn calculate_block_width(layout_box: &mut LayoutBox, containing_block: &Dimensio
     let total_spacing =
         padding.horizontal_total() + border.horizontal_total() + margin.horizontal_total();
 
-    let width = match style.width {
-        Length::Px(px) => {
+    let ctx = LengthContext::new(containing_block.content.width, 800.0, 600.0)
+        .with_font_sizes(style.font_size, 16.0);
+
+    let width = resolve_length(&style.width, &ctx).map_or_else(
+        || (containing_block.content.width - total_spacing).max(0.0),
+        |resolved| {
             if style.box_sizing == BoxSizing::BorderBox {
-                (px - (padding.horizontal_total() + border.horizontal_total())).max(0.0)
+                (resolved - (padding.horizontal_total() + border.horizontal_total())).max(0.0)
             } else {
-                px
+                resolved
             }
-        }
-        Length::Percent(pct) => {
-            let total_w = containing_block.content.width * pct / 100.0;
-            if style.box_sizing == BoxSizing::BorderBox {
-                (total_w - (padding.horizontal_total() + border.horizontal_total())).max(0.0)
-            } else {
-                total_w
-            }
-        }
-        Length::Auto | Length::Em(_) | Length::Rem(_) => {
-            (containing_block.content.width - total_spacing).max(0.0)
-        }
-    };
+        },
+    );
 
     layout_box.dimensions.content.width = width;
     layout_box.dimensions.padding = padding;
@@ -220,27 +213,86 @@ fn layout_block_children(layout_box: &mut LayoutBox, depth: usize) {
 
 fn layout_out_of_flow_children(layout_box: &mut LayoutBox, depth: usize) {
     // Position absolute/fixed children out-of-flow; they do not affect parent height.
-    // For MVP, containing block is the direct parent's content box.
     let containing = layout_box.dimensions;
     for child in &mut layout_box.children {
         if !is_out_of_flow(child) {
             continue;
         }
         calculate_block_width(child, &containing);
-        // Place at containing block's content origin (top-left), offset by margin/border/padding.
-        child.dimensions.content.x = containing.content.x
-            + child.dimensions.margin.left
-            + child.dimensions.border.left
-            + child.dimensions.padding.left;
-        child.dimensions.content.y = containing.content.y
-            + child.dimensions.margin.top
-            + child.dimensions.border.top
-            + child.dimensions.padding.top;
 
         if depth < MAX_LAYOUT_DEPTH {
             layout_children(child, depth + 1);
         }
         calculate_block_height(child);
+
+        let (offset_x, offset_y) = if let Some(ref style) = child.style {
+            let ctx_w = LengthContext::new(containing.content.width, 800.0, 600.0)
+                .with_font_sizes(style.font_size, 16.0);
+            let ctx_h = LengthContext::new(containing.content.height, 800.0, 600.0)
+                .with_font_sizes(style.font_size, 16.0);
+
+            let x = if let Some(left) = resolve_length(&style.left, &ctx_w) {
+                containing.content.x
+                    + left
+                    + child.dimensions.margin.left
+                    + child.dimensions.border.left
+                    + child.dimensions.padding.left
+            } else if let Some(right) = resolve_length(&style.right, &ctx_w) {
+                let child_box_w = child.dimensions.content.width
+                    + child.dimensions.padding.horizontal_total()
+                    + child.dimensions.border.horizontal_total();
+                containing.content.x + containing.content.width
+                    - right
+                    - child.dimensions.margin.right
+                    - child_box_w
+                    + child.dimensions.border.left
+                    + child.dimensions.padding.left
+            } else {
+                containing.content.x
+                    + child.dimensions.margin.left
+                    + child.dimensions.border.left
+                    + child.dimensions.padding.left
+            };
+
+            let y = if let Some(top) = resolve_length(&style.top, &ctx_h) {
+                containing.content.y
+                    + top
+                    + child.dimensions.margin.top
+                    + child.dimensions.border.top
+                    + child.dimensions.padding.top
+            } else if let Some(bottom) = resolve_length(&style.bottom, &ctx_h) {
+                let child_box_h = child.dimensions.content.height
+                    + child.dimensions.padding.vertical_total()
+                    + child.dimensions.border.vertical_total();
+                containing.content.y + containing.content.height
+                    - bottom
+                    - child.dimensions.margin.bottom
+                    - child_box_h
+                    + child.dimensions.border.top
+                    + child.dimensions.padding.top
+            } else {
+                containing.content.y
+                    + child.dimensions.margin.top
+                    + child.dimensions.border.top
+                    + child.dimensions.padding.top
+            };
+
+            (x, y)
+        } else {
+            (
+                containing.content.x
+                    + child.dimensions.margin.left
+                    + child.dimensions.border.left
+                    + child.dimensions.padding.left,
+                containing.content.y
+                    + child.dimensions.margin.top
+                    + child.dimensions.border.top
+                    + child.dimensions.padding.top,
+            )
+        };
+
+        child.dimensions.content.x = offset_x;
+        child.dimensions.content.y = offset_y;
     }
 }
 
@@ -368,22 +420,24 @@ fn layout_grid_children(layout_box: &mut LayoutBox, depth: usize) {
 
 #[allow(clippy::cast_precision_loss)]
 fn calculate_block_height(layout_box: &mut LayoutBox) {
-    if let Some(ref style) = layout_box.style
-        && let Length::Px(px) = style.height
-    {
-        if style.box_sizing == BoxSizing::BorderBox {
-            let padding_border = layout_box.dimensions.padding.vertical_total()
-                + layout_box.dimensions.border.vertical_total();
-            layout_box.dimensions.content.height = (px - padding_border).max(0.0);
-        } else {
-            layout_box.dimensions.content.height = px;
+    if let Some(ref style) = layout_box.style {
+        let ctx = LengthContext::new(layout_box.dimensions.content.height, 800.0, 600.0)
+            .with_font_sizes(style.font_size, 16.0);
+        if let Some(resolved) = resolve_length(&style.height, &ctx) {
+            if style.box_sizing == BoxSizing::BorderBox {
+                let padding_border = layout_box.dimensions.padding.vertical_total()
+                    + layout_box.dimensions.border.vertical_total();
+                layout_box.dimensions.content.height = (resolved - padding_border).max(0.0);
+            } else {
+                layout_box.dimensions.content.height = resolved;
+            }
+        } else if let Some(intrinsic) = layout_box.intrinsic
+            && intrinsic.width > 0
+            && layout_box.dimensions.content.width > 0.0
+        {
+            let width = layout_box.dimensions.content.width;
+            layout_box.dimensions.content.height =
+                width * (intrinsic.height as f32 / intrinsic.width as f32);
         }
-    } else if let Some(intrinsic) = layout_box.intrinsic
-        && intrinsic.width > 0
-        && layout_box.dimensions.content.width > 0.0
-    {
-        let width = layout_box.dimensions.content.width;
-        layout_box.dimensions.content.height =
-            width * (intrinsic.height as f32 / intrinsic.width as f32);
     }
 }

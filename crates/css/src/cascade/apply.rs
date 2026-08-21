@@ -13,11 +13,11 @@ use self::transform::{
 };
 use self::values::{
     apply_border_shorthand, parse_4_edges, parse_4_edges_non_negative, parse_font_family,
-    parse_grid_tracks, parse_non_negative_px, parse_percent, parse_px,
+    parse_grid_tracks, parse_length, parse_non_negative_length, parse_non_negative_px, parse_px,
 };
 use crate::properties::{
     AlignItems, AlignSelf, BoxSizing, Color, ComputedStyle, Display, FlexDirection, FlexWrap,
-    FontStyle, FontWeight, GridTrack, JustifyContent, Length, Position, TextAlign, TextDecoration,
+    FontStyle, FontWeight, GridTrack, JustifyContent, Position, TextAlign, TextDecoration,
 };
 use crate::rule::Declaration;
 
@@ -255,17 +255,33 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "width" => {
-            if let Some(px) = parse_non_negative_px(value) {
-                style.width = Length::Px(px);
-            } else if let Some(pct) = parse_percent(value) {
-                style.width = Length::Percent(pct);
+            if let Some(len) = parse_non_negative_length(value) {
+                style.width = len;
             }
         }
         "height" => {
-            if let Some(px) = parse_non_negative_px(value) {
-                style.height = Length::Px(px);
-            } else if let Some(pct) = parse_percent(value) {
-                style.height = Length::Percent(pct);
+            if let Some(len) = parse_non_negative_length(value) {
+                style.height = len;
+            }
+        }
+        "top" => {
+            if let Some(len) = parse_length(value) {
+                style.top = len;
+            }
+        }
+        "right" => {
+            if let Some(len) = parse_length(value) {
+                style.right = len;
+            }
+        }
+        "bottom" => {
+            if let Some(len) = parse_length(value) {
+                style.bottom = len;
+            }
+        }
+        "left" => {
+            if let Some(len) = parse_length(value) {
+                style.left = len;
             }
         }
         "flex-direction" => match value {
@@ -322,10 +338,8 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "flex-basis" => {
-            if let Some(px) = parse_non_negative_px(value) {
-                style.flex_basis = Length::Px(px);
-            } else if let Some(pct) = parse_percent(value) {
-                style.flex_basis = Length::Percent(pct);
+            if let Some(len) = parse_non_negative_length(value) {
+                style.flex_basis = len;
             }
         }
         "grid-template-columns" => {

@@ -71,18 +71,24 @@ const fn to_taffy_align_self(a: CssAlignSelf) -> Option<taffy::AlignSelf> {
     }
 }
 
-fn length_to_dimension(l: Length) -> Dimension {
+fn length_to_dimension(l: &Length) -> Dimension {
     match l {
         Length::Auto => Dimension::auto(),
-        Length::Px(v) => Dimension::length(v),
-        Length::Percent(v) => Dimension::percent(v / 100.0),
-        Length::Em(v) | Length::Rem(v) => Dimension::length(v * 16.0),
+        Length::Px(v) => Dimension::length(*v),
+        Length::Percent(v) => Dimension::percent(*v / 100.0),
+        Length::Em(v) | Length::Rem(v) => Dimension::length(*v * 16.0),
+        Length::Vw(v) => Dimension::length(*v * 8.0),
+        Length::Vh(v) => Dimension::length(*v * 6.0),
+        Length::Calc(expr) => {
+            let ctx = crate::calc::LengthContext::default();
+            crate::calc::evaluate_calc(expr, &ctx).map_or_else(Dimension::auto, Dimension::length)
+        }
     }
 }
 
 fn css_style_to_taffy(style: &ComputedStyle, is_container: bool) -> Style {
-    let width = length_to_dimension(style.width);
-    let height = length_to_dimension(style.height);
+    let width = length_to_dimension(&style.width);
+    let height = length_to_dimension(&style.height);
 
     let margin = taffy::Rect {
         left: LengthPercentageAuto::length(style.margin_left),
@@ -103,7 +109,7 @@ fn css_style_to_taffy(style: &ComputedStyle, is_container: bool) -> Style {
         padding,
         flex_grow: style.flex_grow,
         flex_shrink: style.flex_shrink,
-        flex_basis: length_to_dimension(style.flex_basis),
+        flex_basis: length_to_dimension(&style.flex_basis),
         align_self: to_taffy_align_self(style.align_self),
         ..Default::default()
     };

@@ -53,6 +53,10 @@ pub enum NetworkError {
     #[error("CORS access denied for request origin '{0}'")]
     CorsViolation(String),
 
+    /// Content Security Policy (CSP) violation blocked request.
+    #[error("Content Security Policy blocked request: {0}")]
+    CspViolation(String),
+
     /// Redirect limit exceeded while following `Location` headers.
     #[error("Too many redirects while fetching '{0}'")]
     TooManyRedirects(String),

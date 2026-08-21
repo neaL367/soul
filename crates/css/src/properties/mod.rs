@@ -90,6 +90,14 @@ pub struct ComputedStyle {
     pub width: Length,
     /// Height dimension.
     pub height: Length,
+    /// Offset from top edge of containing block.
+    pub top: Length,
+    /// Offset from right edge of containing block.
+    pub right: Length,
+    /// Offset from bottom edge of containing block.
+    pub bottom: Length,
+    /// Offset from left edge of containing block.
+    pub left: Length,
     /// Stacking order z-index.
     pub z_index: Option<i32>,
     // ── Flex / Grid ──────────────────────────────────────────────────────────
@@ -196,6 +204,10 @@ impl ComputedStyle {
             border_radius_bottom_left: 0.0,
             width: Length::Auto,
             height: Length::Auto,
+            top: Length::Auto,
+            right: Length::Auto,
+            bottom: Length::Auto,
+            left: Length::Auto,
             z_index: None,
             flex_direction: FlexDirection::Row,
             flex_wrap: FlexWrap::NoWrap,

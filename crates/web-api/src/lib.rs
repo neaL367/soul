@@ -1,13 +1,17 @@
 //! Web APIs implementation including DOM, Console, Timers, Web Storage, Fetch,
 //! Workers, `EventTarget`, `MutationObserver`, Web Cryptography, URL, and Performance.
 
+pub mod blob_binding;
 pub mod canvas_binding;
 pub mod console;
 pub mod crypto_binding;
 pub mod dom_bindings;
 pub mod event_binding;
 pub mod fetch_binding;
+pub mod form_data_binding;
 pub mod indexeddb_binding;
+pub mod media_binding;
+pub mod media_query_binding;
 pub mod mutation_observer;
 pub mod performance_binding;
 pub mod storage_binding;
@@ -17,6 +21,7 @@ pub mod websocket_binding;
 pub mod window_bindings;
 pub mod worker;
 
+pub use blob_binding::{create_blob_instance, register_blob};
 pub use canvas_binding::{create_canvas_context_2d, create_canvas_element, register_canvas};
 pub use console::register_console;
 pub use crypto_binding::register_crypto;
@@ -26,7 +31,10 @@ pub use fetch_binding::{
     FetchHandler, FetchRequest, FetchResponse, RichFetchHandler, register_fetch,
     register_rich_fetch,
 };
+pub use form_data_binding::{create_form_data_instance, register_form_data};
 pub use indexeddb_binding::register_indexeddb;
+pub use media_binding::{create_audio_element, create_video_element, register_media};
+pub use media_query_binding::{evaluate_media_query, register_match_media};
 pub use mutation_observer::{
     MutationObserverInit, MutationQueue, MutationRecord, MutationRecordType,
     register_mutation_observer,
@@ -46,8 +54,7 @@ use boa_engine::{Context, JsResult};
 use dom::Document;
 use std::sync::{Arc, Mutex};
 
-/// Registers common Web APIs (`console`, `timers`, `document`, `CustomEvent`,
-/// `MutationObserver`, `WebSocket`, `HTMLCanvasElement`, `crypto`, `URL`, `performance`) into a Boa `Context`.
+/// Registers standard Web platform APIs into a Boa `Context`.
 ///
 /// # Errors
 ///
@@ -80,6 +87,18 @@ pub fn bind_web_apis(
     register_crypto(context);
     register_url(context)?;
     register_performance(context);
+    register_match_media(context);
+    register_form_data(context);
+    register_blob(context);
+    register_media(context);
+
+    let global = context.global_object();
+    let _ = global.set(
+        boa_engine::js_string!("window"),
+        global.clone(),
+        false,
+        context,
+    );
 
     Ok(())
 }

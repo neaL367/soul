@@ -14,19 +14,24 @@ fn grid_track_to_taffy(track: GridTrack) -> GridTemplateComponent<String> {
     }
 }
 
+fn length_to_grid_dimension(l: &Length) -> Dimension {
+    match l {
+        Length::Auto => Dimension::auto(),
+        Length::Px(v) => Dimension::length(*v),
+        Length::Percent(v) => Dimension::percent(*v / 100.0),
+        Length::Em(v) | Length::Rem(v) => Dimension::length(*v * 16.0),
+        Length::Vw(v) => Dimension::length(*v * 8.0),
+        Length::Vh(v) => Dimension::length(*v * 6.0),
+        Length::Calc(expr) => {
+            let ctx = crate::calc::LengthContext::default();
+            crate::calc::evaluate_calc(expr, &ctx).map_or_else(Dimension::auto, Dimension::length)
+        }
+    }
+}
+
 fn css_style_to_taffy_grid(style: &ComputedStyle, is_container: bool) -> Style {
-    let width = match style.width {
-        Length::Auto => Dimension::auto(),
-        Length::Px(v) => Dimension::length(v),
-        Length::Percent(v) => Dimension::percent(v / 100.0),
-        Length::Em(v) | Length::Rem(v) => Dimension::length(v * 16.0),
-    };
-    let height = match style.height {
-        Length::Auto => Dimension::auto(),
-        Length::Px(v) => Dimension::length(v),
-        Length::Percent(v) => Dimension::percent(v / 100.0),
-        Length::Em(v) | Length::Rem(v) => Dimension::length(v * 16.0),
-    };
+    let width = length_to_grid_dimension(&style.width);
+    let height = length_to_grid_dimension(&style.height);
 
     let margin = taffy::Rect {
         left: LengthPercentageAuto::length(style.margin_left),

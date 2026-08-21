@@ -1,6 +1,90 @@
 //! CSS value parsers for lengths, percentages, edge boxes, font families, and grid tracks.
 
-use crate::properties::{Color, ComputedStyle, GridTrack};
+use crate::properties::{Color, ComputedStyle, GridTrack, Length};
+
+/// Parses a CSS dimension into a `Length` representation (px, em, rem, vw, vh, %, calc, auto).
+pub(crate) fn parse_length(value: &str) -> Option<Length> {
+    let trimmed = value.trim();
+    if trimmed.eq_ignore_ascii_case("auto") {
+        return Some(Length::Auto);
+    }
+    if trimmed.starts_with("calc(") && trimmed.ends_with(')') {
+        let inner = &trimmed[5..trimmed.len() - 1];
+        return Some(Length::Calc(inner.trim().to_string()));
+    }
+    if let Some(num) = trimmed.strip_suffix("rem") {
+        let n = num.trim().parse::<f32>().ok()?;
+        return if n.is_finite() {
+            Some(Length::Rem(n))
+        } else {
+            None
+        };
+    }
+    if let Some(num) = trimmed.strip_suffix("em") {
+        let n = num.trim().parse::<f32>().ok()?;
+        return if n.is_finite() {
+            Some(Length::Em(n))
+        } else {
+            None
+        };
+    }
+    if let Some(num) = trimmed.strip_suffix("vw") {
+        let n = num.trim().parse::<f32>().ok()?;
+        return if n.is_finite() {
+            Some(Length::Vw(n))
+        } else {
+            None
+        };
+    }
+    if let Some(num) = trimmed.strip_suffix("vh") {
+        let n = num.trim().parse::<f32>().ok()?;
+        return if n.is_finite() {
+            Some(Length::Vh(n))
+        } else {
+            None
+        };
+    }
+    if let Some(num) = trimmed.strip_suffix('%') {
+        let n = num.trim().parse::<f32>().ok()?;
+        return if n.is_finite() {
+            Some(Length::Percent(n))
+        } else {
+            None
+        };
+    }
+    if let Some(num) = trimmed.strip_suffix("px") {
+        let n = num.trim().parse::<f32>().ok()?;
+        return if n.is_finite() {
+            Some(Length::Px(n))
+        } else {
+            None
+        };
+    }
+    if trimmed == "0" || trimmed == "0.0" {
+        return Some(Length::Px(0.0));
+    }
+    None
+}
+
+/// Parses a length, percentage, or expression, rejecting negative scalar values.
+pub(crate) fn parse_non_negative_length(value: &str) -> Option<Length> {
+    let len = parse_length(value)?;
+    match &len {
+        Length::Px(v)
+        | Length::Em(v)
+        | Length::Rem(v)
+        | Length::Vw(v)
+        | Length::Vh(v)
+        | Length::Percent(v) => {
+            if *v >= 0.0 {
+                Some(len)
+            } else {
+                None
+            }
+        }
+        Length::Auto | Length::Calc(_) => Some(len),
+    }
+}
 
 pub(crate) fn parse_font_family(value: &str) -> Option<String> {
     let first = value.split(',').next()?.trim();

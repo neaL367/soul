@@ -34,8 +34,8 @@ pub enum Position {
     Sticky,
 }
 
-/// CSS length dimension or keyword.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+/// CSS length dimension, relative unit, or expression.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum Length {
     /// Automatic sizing.
     #[default]
@@ -46,8 +46,14 @@ pub enum Length {
     Em(f32),
     /// Root font-relative rem units.
     Rem(f32),
+    /// Viewport width percentage units (1vw = 1% of viewport width).
+    Vw(f32),
+    /// Viewport height percentage units (1vh = 1% of viewport height).
+    Vh(f32),
     /// Percentage relative to containing block.
     Percent(f32),
+    /// CSS mathematical expression (e.g. `calc(100% - 32px)`).
+    Calc(String),
 }
 
 /// CSS `box-sizing` property values (W3C CSS3 UI §3.1).
