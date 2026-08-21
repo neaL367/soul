@@ -118,9 +118,27 @@ impl MfPlayer {
     /// # Errors
     /// Returns `MediaError` if the media format is invalid or unsupported.
     pub fn probe_stream(
-        _src_url: &str,
+        src_url: &str,
         header_bytes: &[u8],
     ) -> Result<MediaStreamDescriptor, MediaError> {
+        // Try real Media Foundation probe if src_url is a file path that exists.
+        if let Some(path) = Self::url_to_file_path(src_url) {
+            if path.exists() {
+                if let Ok(reader) = Self::create_video_reader(&path) {
+                    if let Ok((w, h)) = Self::query_video_dimensions(&reader) {
+                        return Ok(MediaStreamDescriptor {
+                            format: Self::sniff_format(header_bytes),
+                            duration: Duration::from_mins(1),
+                            video_dimensions: Some((w, h)),
+                            has_audio: false,
+                            has_video: true,
+                            codec: "h264".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
         let format = Self::sniff_format(header_bytes);
         if format == MediaContainerFormat::Unknown && !header_bytes.is_empty() {
             return Err(MediaError::UnsupportedFormat(
@@ -217,5 +235,21 @@ impl MfPlayer {
         let height = (packed_size & 0xFFFF_FFFF) as u32;
 
         Ok((width, height))
+    }
+
+    fn url_to_file_path(url: &str) -> Option<std::path::PathBuf> {
+        if let Some(stripped) = url.strip_prefix("file://") {
+            let p = Path::new(stripped);
+            if p.exists() {
+                return Some(p.to_path_buf());
+            }
+            return None;
+        }
+        let p = Path::new(url);
+        if p.exists() {
+            Some(p.to_path_buf())
+        } else {
+            None
+        }
     }
 }
