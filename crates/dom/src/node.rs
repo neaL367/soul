@@ -152,6 +152,15 @@ pub struct DocumentTypeData {
     pub system_id: String,
 }
 
+/// Shadow root attachment mode per the WHATWG DOM standard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ShadowRootMode {
+    /// Shadow root is accessible via `element.shadowRoot`.
+    Open,
+    /// Shadow root is not accessible from outside the component.
+    Closed,
+}
+
 /// Payload contained within a DOM node.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NodeData {
@@ -165,6 +174,28 @@ pub enum NodeData {
     Text(String),
     /// HTML comment.
     Comment(String),
+    /// Lightweight container for a subtree with no parent document context.
+    ///
+    /// Used as the content host for `<template>` elements per the WHATWG HTML
+    /// standard §4.12.3 and as the target of `DocumentFragment`-based DOM ops.
+    DocumentFragment,
+    /// Shadow tree root attached to a host element (WHATWG DOM §4.2.2).
+    ShadowRoot(ShadowRootMode),
+}
+
+/// A single registered event listener per WHATWG `EventTarget` (§2.7).
+#[derive(Debug, Clone)]
+pub struct EventListener {
+    /// Event type string (e.g. `"click"`, `"input"`).
+    pub event_type: String,
+    /// Unique opaque handle used to remove the listener.
+    pub id: u64,
+    /// Whether this listener fires in the capture phase.
+    pub capture: bool,
+    /// Whether the listener should fire at most once and then auto-remove.
+    pub once: bool,
+    /// Whether `preventDefault()` is a no-op (passive listener).
+    pub passive: bool,
 }
 
 /// Arena-allocated DOM node containing data and structural bidirectional pointers.
@@ -186,6 +217,12 @@ pub struct Node {
     pub next_sibling: Option<NodeId>,
     /// Invalidation dirty flags.
     pub dirty_flags: InvalidationFlags,
+    /// Registered WHATWG `EventTarget` listeners on this node.
+    pub event_listeners: Vec<EventListener>,
+    /// For `ShadowRoot` nodes: the `NodeId` of the host element.
+    /// For `DocumentFragment` used as `<template>` content: the owning
+    /// `<template>` element id.
+    pub host: Option<NodeId>,
 }
 
 impl Node {
@@ -201,6 +238,8 @@ impl Node {
             prev_sibling: None,
             next_sibling: None,
             dirty_flags: InvalidationFlags::all(),
+            event_listeners: Vec::new(),
+            host: None,
         }
     }
 
@@ -214,6 +253,18 @@ impl Node {
     #[must_use]
     pub const fn is_text(&self) -> bool {
         matches!(self.data, NodeData::Text(_))
+    }
+
+    /// Returns `true` if this node is a `DocumentFragment`.
+    #[must_use]
+    pub const fn is_document_fragment(&self) -> bool {
+        matches!(self.data, NodeData::DocumentFragment)
+    }
+
+    /// Returns `true` if this node is a `ShadowRoot`.
+    #[must_use]
+    pub const fn is_shadow_root(&self) -> bool {
+        matches!(self.data, NodeData::ShadowRoot(_))
     }
 
     /// Returns a reference to `ElementData` if this is an element node.

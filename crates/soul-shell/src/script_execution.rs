@@ -161,8 +161,14 @@ pub fn execute_scripts(
 
     let document = Arc::new(Mutex::new(document));
     let mut runtime = JsRuntime::new();
-    bind_web_apis(&mut runtime.context, Some(document.clone()), None, None)
-        .map_err(|error| NavigationError::Other(format!("failed to bind Web APIs: {error}")))?;
+    bind_web_apis(
+        &mut runtime.context,
+        Some(document.clone()),
+        None,
+        None,
+        None,
+    )
+    .map_err(|error| NavigationError::Other(format!("failed to bind Web APIs: {error}")))?;
 
     let current_url_str = document_url.map_or("about:blank", Url::as_str);
     let _ = web_api::register_window(&mut runtime.context, current_url_str);

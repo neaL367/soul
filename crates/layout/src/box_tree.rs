@@ -149,7 +149,10 @@ pub fn build_box_tree_with_intrinsics<S: BuildHasher, S2: BuildHasher>(
                 ))
             }
         }
-        NodeData::DocumentType(_) | NodeData::Comment(_) => None,
+        NodeData::DocumentType(_)
+        | NodeData::Comment(_)
+        | NodeData::DocumentFragment
+        | NodeData::ShadowRoot(_) => None,
     }
 }
 

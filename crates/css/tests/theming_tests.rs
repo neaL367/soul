@@ -132,8 +132,7 @@ fn test_prefers_color_scheme_dark_matches_when_dark_requested() {
     );
 
     // 2. In dark mode: #target is white (#ffffff)
-    let dark_resolver =
-        CascadeResolver::new_with_scheme(&doc, &[&author_sheet], ColorScheme::Dark);
+    let dark_resolver = CascadeResolver::new_with_scheme(&doc, &[&author_sheet], ColorScheme::Dark);
     let dark_styles = dark_resolver.resolve_all();
     assert_eq!(
         dark_styles.get(&target).unwrap().color,
@@ -164,8 +163,7 @@ fn test_dark_theme_variable_override() {
     ";
     let author_sheet = parse_stylesheet(css, Origin::Author);
 
-    let dark_resolver =
-        CascadeResolver::new_with_scheme(&doc, &[&author_sheet], ColorScheme::Dark);
+    let dark_resolver = CascadeResolver::new_with_scheme(&doc, &[&author_sheet], ColorScheme::Dark);
     let styles = dark_resolver.resolve_all();
     let target = doc.get_element_by_id("target").unwrap();
     let style = styles.get(&target).unwrap();

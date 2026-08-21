@@ -10,7 +10,7 @@ fn test_console_log_captured() {
     let mut runtime = JsRuntime::new();
     let logs = Arc::new(Mutex::new(Vec::new()));
 
-    bind_web_apis(&mut runtime.context, None, Some(logs.clone()), None)
+    bind_web_apis(&mut runtime.context, None, Some(logs.clone()), None, None)
         .expect("bind_web_apis failed");
 
     runtime
@@ -31,7 +31,7 @@ fn test_dom_get_element_by_id_and_mutate_text() {
     let doc = Arc::new(Mutex::new(parse_html(html)));
 
     let mut runtime = JsRuntime::new();
-    bind_web_apis(&mut runtime.context, Some(doc.clone()), None, None)
+    bind_web_apis(&mut runtime.context, Some(doc.clone()), None, None, None)
         .expect("bind_web_apis failed");
 
     let js = r"
@@ -63,8 +63,14 @@ fn test_set_timeout_callback_queued() {
         web_api::TimerState::default(),
     ));
 
-    bind_web_apis(&mut runtime.context, None, None, Some(timer_queue.clone()))
-        .expect("bind_web_apis failed");
+    bind_web_apis(
+        &mut runtime.context,
+        None,
+        None,
+        Some(timer_queue.clone()),
+        None,
+    )
+    .expect("bind_web_apis failed");
 
     runtime
         .eval("setTimeout(() => { return 42; }, 50);")
@@ -81,8 +87,14 @@ fn test_set_timeout_ids_unique_and_clear_timeout_removes() {
         web_api::TimerState::default(),
     ));
 
-    bind_web_apis(&mut runtime.context, None, None, Some(timer_queue.clone()))
-        .expect("bind_web_apis failed");
+    bind_web_apis(
+        &mut runtime.context,
+        None,
+        None,
+        Some(timer_queue.clone()),
+        None,
+    )
+    .expect("bind_web_apis failed");
 
     runtime
         .eval("const id1 = setTimeout(() => 1, 10); const id2 = setTimeout(() => 2, 20);")
@@ -116,7 +128,7 @@ fn test_dom_query_selector_and_class_list_manipulation() {
     let doc = Arc::new(Mutex::new(parse_html(html)));
 
     let mut runtime = JsRuntime::new();
-    bind_web_apis(&mut runtime.context, Some(doc.clone()), None, None)
+    bind_web_apis(&mut runtime.context, Some(doc.clone()), None, None, None)
         .expect("bind_web_apis failed");
 
     let js = r"
@@ -151,7 +163,7 @@ fn test_dom_set_get_remove_attribute() {
     let doc = Arc::new(Mutex::new(parse_html(html)));
 
     let mut runtime = JsRuntime::new();
-    bind_web_apis(&mut runtime.context, Some(doc.clone()), None, None)
+    bind_web_apis(&mut runtime.context, Some(doc.clone()), None, None, None)
         .expect("bind_web_apis failed");
 
     let js = r"

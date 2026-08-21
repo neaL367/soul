@@ -1,6 +1,6 @@
 //! `TreeSink` implementation translating `html5ever` parser events into an arena `Document`.
 
-use dom::{Document, DocumentTypeData, ElementData, MAX_NODES, NodeData, NodeId};
+use dom::{Document, DocumentTypeData, ElementData, MAX_NODES, NodeData, NodeId, ShadowRootMode};
 use html5ever::tendril::StrTendril;
 use html5ever::tree_builder::{ElementFlags, NodeOrText, QuirksMode, TreeSink};
 use html5ever::{Attribute, ExpandedName, QualName, local_name, namespace_url, ns};
@@ -15,6 +15,8 @@ pub struct HtmlTreeSink {
     pub quirks_mode: QuirksMode,
     /// Qualified names stored per element handle.
     pub qual_names: HashMap<NodeId, QualName>,
+    /// Maps each `<template>` element `NodeId` to its `DocumentFragment` content host.
+    pub template_contents: HashMap<NodeId, NodeId>,
     /// Name returned for sentinel handles whose allocation was refused.
     fallback_name: QualName,
 }
@@ -33,6 +35,7 @@ impl HtmlTreeSink {
             document: Document::new(),
             quirks_mode: QuirksMode::NoQuirks,
             qual_names: HashMap::new(),
+            template_contents: HashMap::new(),
             fallback_name: QualName::new(None, ns!(html), local_name!("")),
         }
     }
@@ -87,7 +90,7 @@ impl TreeSink for HtmlTreeSink {
             return self.document.root_id();
         }
         let mut attributes = HashMap::new();
-        for attr in attrs {
+        for attr in &attrs {
             attributes.insert(attr.name.local.to_string(), attr.value.to_string());
         }
 
@@ -95,6 +98,36 @@ impl TreeSink for HtmlTreeSink {
         let element_data = ElementData::new(&tag_name, attributes);
         let node_id = self.document.alloc_node(NodeData::Element(element_data));
         self.qual_names.insert(node_id, name);
+
+        // For `<template>` elements, allocate a DocumentFragment as the
+        // content host per WHATWG HTML §4.12.3.
+        if tag_name == "template" {
+            // Detect Declarative Shadow DOM: `shadowrootmode="open"|"closed"`
+            let shadow_mode = attrs.iter().find_map(|a| {
+                if a.name.local.as_ref() == "shadowrootmode" {
+                    match a.value.as_ref() {
+                        "open" => Some(ShadowRootMode::Open),
+                        "closed" => Some(ShadowRootMode::Closed),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            });
+
+            let content_id = if let Some(mode) = shadow_mode {
+                self.document.alloc_node(NodeData::ShadowRoot(mode))
+            } else {
+                self.document.alloc_node(NodeData::DocumentFragment)
+            };
+
+            // Record the host relationship.
+            if let Some(n) = self.document.get_node_mut(content_id) {
+                n.host = Some(node_id);
+            }
+            self.template_contents.insert(node_id, content_id);
+        }
+
         node_id
     }
 
@@ -220,7 +253,13 @@ impl TreeSink for HtmlTreeSink {
     }
 
     fn get_template_contents(&mut self, target: &Self::Handle) -> Self::Handle {
-        *target
+        // Return the allocated DocumentFragment content host if one exists,
+        // otherwise fall back to the element itself (should not happen for
+        // well-formed trees, but prevents a panic on malformed input).
+        self.template_contents
+            .get(target)
+            .copied()
+            .unwrap_or(*target)
     }
 
     fn remove_from_parent(&mut self, target: &Self::Handle) {

@@ -31,6 +31,12 @@ impl DomInspector {
                 "DOCUMENT_TYPE_NODE",
                 Vec::new(),
             ),
+            NodeData::DocumentFragment => (
+                "#document-fragment".to_string(),
+                "DOCUMENT_FRAGMENT_NODE",
+                Vec::new(),
+            ),
+            NodeData::ShadowRoot(_) => ("#shadow-root".to_string(), "SHADOW_ROOT", Vec::new()),
         };
 
         let child_ids = doc.children(root_id);
