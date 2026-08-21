@@ -111,7 +111,39 @@ pub fn create_element_wrapper(
         },
     );
 
-    ObjectInitializer::new(ctx)
+    let maybe_canvas_get_context = if tag_name == "CANVAS" {
+        let canvas_ctx = media::Canvas2DContext::new(300, 150)
+            .unwrap_or_else(|_| media::Canvas2DContext::new(1, 1).expect("1x1 fallback canvas"));
+        let shared_ctx = Arc::new(Mutex::new(canvas_ctx));
+        let canvas_holder = crate::canvas_binding::CanvasHolder(shared_ctx);
+
+        let get_context_fn = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                |_this, args, caps, ctx| {
+                    let context_id = args
+                        .get_or_undefined(0)
+                        .to_string(ctx)?
+                        .to_std_string_escaped();
+                    if context_id.eq_ignore_ascii_case("2d") {
+                        let ctx2d_obj =
+                            crate::canvas_binding::create_canvas_context_2d(ctx, caps.clone())?;
+                        Ok(JsValue::from(ctx2d_obj))
+                    } else {
+                        Ok(JsValue::null())
+                    }
+                },
+                canvas_holder,
+            ),
+        )
+        .build();
+        Some(get_context_fn)
+    } else {
+        None
+    };
+
+    let mut builder = ObjectInitializer::new(ctx);
+    builder
         .property(
             js_string!("tagName"),
             js_string!(tag_name),
@@ -146,8 +178,19 @@ pub fn create_element_wrapper(
             js_string!("classList"),
             JsValue::from(class_list_obj),
             Attribute::READONLY | Attribute::ENUMERABLE,
-        )
-        .build()
+        );
+
+    if let Some(get_context_fn) = maybe_canvas_get_context {
+        builder.property(
+            js_string!("getContext"),
+            JsValue::from(get_context_fn),
+            Attribute::WRITABLE | Attribute::CONFIGURABLE | Attribute::ENUMERABLE,
+        );
+        builder.property(js_string!("width"), 300.0, Attribute::all());
+        builder.property(js_string!("height"), 150.0, Attribute::all());
+    }
+
+    builder.build()
 }
 
 #[allow(clippy::too_many_lines)]

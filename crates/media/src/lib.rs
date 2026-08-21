@@ -7,7 +7,7 @@ pub mod error;
 pub mod mf_player;
 pub mod pipeline;
 
-pub use canvas::Canvas2DContext;
+pub use canvas::{Canvas2DContext, TextMetrics};
 pub use error::MediaError;
 pub use mf_player::{MediaContainerFormat, MediaStreamDescriptor, MfContext, MfPlayer};
 pub use pipeline::{MediaPipeline, MediaPlaybackState};

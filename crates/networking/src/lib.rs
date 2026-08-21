@@ -1,5 +1,6 @@
 //! Networking subsystem providing HTTP/1.1, TLS, CORS, CSP evaluation, and out-of-process `NetworkService`.
 
+pub mod cache_validator;
 pub mod client;
 pub mod cors;
 pub mod csp;
@@ -13,6 +14,7 @@ pub mod streaming;
 pub mod types;
 pub mod websocket;
 
+pub use cache_validator::CacheValidator;
 pub use client::{HttpClient, HttpClientConfig};
 pub use cors::CorsEvaluator;
 pub use csp::{CspDirective, CspPolicy, CspSource, CspViolationReport};

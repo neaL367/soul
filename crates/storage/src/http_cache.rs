@@ -33,9 +33,10 @@ pub struct CacheEntry {
 
 /// SQLite-backed RFC 9111 HTTP cache store.
 pub struct HttpCacheStore {
-    conn: Connection,
+    conn: std::sync::Mutex<Connection>,
 }
 
+#[allow(clippy::significant_drop_tightening)]
 impl HttpCacheStore {
     /// Opens (or creates) the cache database at `db_path` with WAL mode.
     ///
@@ -58,7 +59,9 @@ impl HttpCacheStore {
                  body             BLOB NOT NULL
              );",
         )?;
-        Ok(Self { conn })
+        Ok(Self {
+            conn: std::sync::Mutex::new(conn),
+        })
     }
 
     /// Looks up a cached entry for `url`.
@@ -68,7 +71,11 @@ impl HttpCacheStore {
     /// # Errors
     /// Returns `StorageError` on database access failure.
     pub fn lookup(&self, url: &str) -> Result<Option<CacheEntry>, StorageError> {
-        let mut stmt = self.conn.prepare(
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| StorageError::LockError("mutex lock poisoned".to_string()))?;
+        let mut stmt = conn.prepare(
             "SELECT url, etag, last_modified, max_age_secs, cached_at_unix,
                     status_code, mime_type, body
              FROM http_cache WHERE url = ?1",
@@ -125,7 +132,11 @@ impl HttpCacheStore {
         let max_age_secs = parse_max_age(headers);
         let cached_at_unix = unix_now().cast_signed();
 
-        self.conn.execute(
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| StorageError::LockError("mutex lock poisoned".to_string()))?;
+        conn.execute(
             "INSERT OR REPLACE INTO http_cache
              (url, etag, last_modified, max_age_secs, cached_at_unix,
               status_code, mime_type, body)
@@ -157,7 +168,11 @@ impl HttpCacheStore {
         max_age_secs: u64,
     ) -> Result<(), StorageError> {
         let now = unix_now().cast_signed();
-        self.conn.execute(
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| StorageError::LockError("mutex lock poisoned".to_string()))?;
+        conn.execute(
             "UPDATE http_cache
              SET cached_at_unix = ?1, etag = COALESCE(?2, etag),
                  max_age_secs   = ?3

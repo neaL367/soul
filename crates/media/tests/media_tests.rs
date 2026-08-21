@@ -125,3 +125,49 @@ fn test_canvas_2d_draw_pixel_buffer_and_image_data() {
     assert_eq!(pixels[0], 255); // R at (0,0)
     assert_eq!(pixels[1], 0);
 }
+
+#[test]
+fn test_canvas_2d_arc_rect_and_transform() {
+    let mut ctx = Canvas2DContext::new(100, 100).expect("create canvas");
+
+    // Test rect and rotate
+    ctx.rotate(std::f32::consts::FRAC_PI_2);
+    ctx.scale(2.0, 2.0);
+    ctx.translate(10.0, 10.0);
+
+    ctx.begin_path();
+    ctx.rect(0.0, 0.0, 20.0, 20.0);
+    ctx.fill();
+
+    // Test circular arc
+    ctx.begin_path();
+    ctx.arc(50.0, 50.0, 25.0, 0.0, std::f32::consts::PI, false);
+    ctx.stroke();
+
+    // Test Bezier and Quadratic curves
+    ctx.begin_path();
+    ctx.move_to(0.0, 0.0);
+    ctx.quadratic_curve_to(20.0, 50.0, 40.0, 0.0);
+    ctx.bezier_curve_to(50.0, 30.0, 70.0, 30.0, 80.0, 0.0);
+    ctx.stroke();
+}
+
+#[test]
+fn test_canvas_2d_text_measurement_and_rendering() {
+    let mut ctx = Canvas2DContext::new(200, 100).expect("create canvas");
+    ctx.set_font_size(20.0);
+    assert!((ctx.font_size() - 20.0).abs() < f32::EPSILON);
+
+    let metrics = ctx.measure_text("Hello Soul");
+    assert!(metrics.width > 0.0);
+    assert!(metrics.actual_bounding_box_ascent > 0.0);
+    assert!(metrics.actual_bounding_box_descent > 0.0);
+
+    ctx.set_fill_style(0.0, 0.0, 1.0, 1.0);
+    ctx.fill_text("Hello Soul", 10.0, 40.0, Some(150.0));
+    ctx.stroke_text("Hello Soul", 10.0, 80.0, None);
+
+    let buf = ctx.to_pixel_buffer();
+    assert_eq!(buf.width, 200);
+    assert_eq!(buf.height, 100);
+}

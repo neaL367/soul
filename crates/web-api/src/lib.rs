@@ -1,6 +1,7 @@
 //! Web APIs implementation including DOM, Console, Timers, Web Storage, Fetch,
 //! Workers, `EventTarget`, and `MutationObserver`.
 
+pub mod canvas_binding;
 pub mod console;
 pub mod dom_bindings;
 pub mod event_binding;
@@ -13,6 +14,7 @@ pub mod websocket_binding;
 pub mod window_bindings;
 pub mod worker;
 
+pub use canvas_binding::{create_canvas_context_2d, create_canvas_element, register_canvas};
 pub use console::register_console;
 pub use dom_bindings::register_dom;
 pub use event_binding::{CallbackStore, create_event_target, register_custom_event};
@@ -39,7 +41,7 @@ use dom::Document;
 use std::sync::{Arc, Mutex};
 
 /// Registers common Web APIs (`console`, `timers`, `document`, `CustomEvent`,
-/// `MutationObserver`, `WebSocket`) into a Boa `Context`.
+/// `MutationObserver`, `WebSocket`, `HTMLCanvasElement`) into a Boa `Context`.
 ///
 /// # Errors
 ///
@@ -68,6 +70,7 @@ pub fn bind_web_apis(
     }
 
     register_websocket(context, None)?;
+    register_canvas(context)?;
 
     Ok(())
 }

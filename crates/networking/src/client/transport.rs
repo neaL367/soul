@@ -125,7 +125,13 @@ pub(crate) async fn execute_request(
             .await
             .map_err(|e| NetworkError::TlsError(format!("TLS handshake failed: {e}")))?;
 
-        execute_http1(TokioIo::new(tls_stream), request, host, user_agent).await
+        let is_h2 = tls_stream.get_ref().1.alpn_protocol() == Some(b"h2");
+        if is_h2 {
+            crate::client::http2::execute_http2(TokioIo::new(tls_stream), request, host, user_agent)
+                .await
+        } else {
+            execute_http1(TokioIo::new(tls_stream), request, host, user_agent).await
+        }
     } else {
         execute_http1(TokioIo::new(tcp_stream), request, host, user_agent).await
     }

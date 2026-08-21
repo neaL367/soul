@@ -1,9 +1,11 @@
-//! HTTP/1.1 and TLS 1.2/1.3 client implementation using Hyper, Tokio, and Rustls.
+//! HTTP/1.1, HTTP/2, and TLS 1.2/1.3 client implementation using Hyper, Tokio, and Rustls.
 
+pub mod http2;
 pub mod transport;
 
 pub(crate) use transport::RawResponse;
 
+use crate::cache_validator::CacheValidator;
 use crate::cors::CorsEvaluator;
 use crate::dns::DnsResolver;
 use crate::error::NetworkError;
@@ -36,12 +38,13 @@ impl Default for HttpClientConfig {
     }
 }
 
-/// Asynchronous HTTP/1.1 client supporting plain TCP, asynchronous DNS caching, and TLS 1.2/1.3.
+/// Asynchronous HTTP client supporting plain TCP, HTTP/1.1, HTTP/2 multiplexing, DNS caching, and TLS 1.2/1.3.
 #[derive(Clone)]
 pub struct HttpClient {
     config: HttpClientConfig,
     tls_config: Arc<rustls::ClientConfig>,
     dns_resolver: DnsResolver,
+    cache_validator: CacheValidator,
 }
 
 impl Default for HttpClient {
@@ -65,7 +68,7 @@ impl HttpClient {
     #[must_use]
     pub fn new(config: HttpClientConfig) -> Self {
         let mut tls_config = create_default_tls_config();
-        tls_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
         let dns_resolver = DnsResolver::new(config.dns_ttl);
 
@@ -73,7 +76,15 @@ impl HttpClient {
             config,
             tls_config: Arc::new(tls_config),
             dns_resolver,
+            cache_validator: CacheValidator::default(),
         }
+    }
+
+    /// Attaches an `SQLite` RFC 9111 HTTP cache store to this client.
+    #[must_use]
+    pub fn with_cache_store(mut self, store: Arc<storage::HttpCacheStore>) -> Self {
+        self.cache_validator = CacheValidator::new(Some(store));
+        self
     }
 
     /// Returns a reference to the DNS resolver used by this client.
@@ -172,8 +183,13 @@ impl HttpClient {
         request: &HttpRequest,
         document_origin: Option<&Url>,
     ) -> Result<HttpResponse, NetworkError> {
-        let (response, final_url) = self.send_with_redirects(request, document_origin).await?;
-        self.collect_response(response, final_url).await
+        let mut req = request.clone();
+        if let Some(cached_resp) = self.cache_validator.prepare_request(&mut req) {
+            return Ok(cached_resp);
+        }
+        let (response, final_url) = self.send_with_redirects(&req, document_origin).await?;
+        let collected = self.collect_response(response, final_url).await?;
+        Ok(self.cache_validator.handle_response(&req, collected))
     }
 
     /// Follows redirects (up to [`MAX_REDIRECTS`]) and returns the final raw
