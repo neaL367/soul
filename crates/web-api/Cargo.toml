@@ -15,6 +15,7 @@ common = { path = "../common" }
 dom = { path = "../dom" }
 javascript = { path = "../javascript" }
 media = { path = "../media" }
+platform-windows = { path = "../platform-windows" }
 raster = { path = "../raster" }
 storage = { path = "../storage" }
 serde_json = "1.0"

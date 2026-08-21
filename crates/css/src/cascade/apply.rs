@@ -366,6 +366,15 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
         "transition" | "transition-property" | "transition-duration" => {
             style.transition_properties = parse_transitions(value);
         }
+        "content" => {
+            let trimmed = value.trim();
+            if trimmed == "none" || trimmed == "normal" {
+                style.content = None;
+            } else {
+                let unquoted = trimmed.trim_matches('"').trim_matches('\'');
+                style.content = Some(unquoted.to_string());
+            }
+        }
         _ => {}
     }
 }

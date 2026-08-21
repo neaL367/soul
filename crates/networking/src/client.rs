@@ -1,9 +1,7 @@
-//! HTTP/1.1, HTTP/2, and TLS 1.2/1.3 client implementation using Hyper, Tokio, and Rustls.
+//! High-level asynchronous HTTP client with connection pooling, TLS, HTTP/2, and redirect resolution.
 
 pub mod http2;
 pub mod transport;
-
-pub(crate) use transport::RawResponse;
 
 use crate::cache_validator::CacheValidator;
 use crate::cors::CorsEvaluator;
@@ -12,28 +10,36 @@ use crate::error::NetworkError;
 use crate::mixed_content::is_insecure_mixed_content;
 use crate::types::{HttpMethod, HttpRequest, HttpResponse};
 use std::sync::Arc;
+use std::time::Duration;
+pub(crate) use transport::RawResponse;
 use url::Url;
 
-/// Maximum redirect hops followed before failing with `NetworkError::TooManyRedirects`.
-pub const MAX_REDIRECTS: usize = 5;
+/// Maximum number of redirects followed before returning `NetworkError::TooManyRedirects`.
+pub const MAX_REDIRECTS: usize = 20;
 
-/// Client configuration for network and TLS settings.
-#[derive(Clone)]
+/// Default connect/read timeout for the HTTP client.
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Default DNS cache entry TTL.
+pub const DEFAULT_DNS_TTL: Duration = Duration::from_mins(5);
+
+/// Configuration parameters for `HttpClient`.
+#[derive(Debug, Clone)]
 pub struct HttpClientConfig {
-    /// User-Agent header value.
+    /// Overall request timeout.
+    pub timeout: Duration,
+    /// User-Agent string sent with outgoing requests.
     pub user_agent: String,
-    /// Request timeout duration.
-    pub timeout: std::time::Duration,
-    /// DNS cache TTL duration.
-    pub dns_ttl: std::time::Duration,
+    /// DNS cache entry time-to-live.
+    pub dns_ttl: Duration,
 }
 
 impl Default for HttpClientConfig {
     fn default() -> Self {
         Self {
-            user_agent: "Soul/0.1 (Windows NT 10.0; Win64; x64)".to_string(),
-            timeout: std::time::Duration::from_secs(30),
-            dns_ttl: std::time::Duration::from_mins(5),
+            timeout: DEFAULT_TIMEOUT,
+            user_agent: "Soul/0.1.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36".to_string(),
+            dns_ttl: DEFAULT_DNS_TTL,
         }
     }
 }
@@ -45,6 +51,7 @@ pub struct HttpClient {
     tls_config: Arc<rustls::ClientConfig>,
     dns_resolver: DnsResolver,
     cache_validator: CacheValidator,
+    hsts_store: Option<Arc<storage::HstsStore>>,
 }
 
 impl Default for HttpClient {
@@ -77,6 +84,7 @@ impl HttpClient {
             tls_config: Arc::new(tls_config),
             dns_resolver,
             cache_validator: CacheValidator::default(),
+            hsts_store: None,
         }
     }
 
@@ -84,6 +92,13 @@ impl HttpClient {
     #[must_use]
     pub fn with_cache_store(mut self, store: Arc<storage::HttpCacheStore>) -> Self {
         self.cache_validator = CacheValidator::new(Some(store));
+        self
+    }
+
+    /// Attaches an RFC 6797 HSTS persistent security store to this client.
+    #[must_use]
+    pub fn with_hsts_store(mut self, store: Arc<storage::HstsStore>) -> Self {
+        self.hsts_store = Some(store);
         self
     }
 
@@ -115,27 +130,21 @@ impl HttpClient {
         &self,
         url: &Url,
     ) -> Result<crate::streaming::StreamingResponse, NetworkError> {
-        let request = HttpRequest::get(url.clone());
-        let (response, final_url) = tokio::time::timeout(
+        let (raw, final_url) = tokio::time::timeout(
             self.config.timeout,
-            self.send_with_redirects(&request, None),
+            self.send_with_redirects(&HttpRequest::get(url.clone()), None),
         )
         .await
         .map_err(|_| NetworkError::Timeout)??;
-        Ok(crate::streaming::build_streaming_response(
-            response, final_url,
-        ))
+
+        Ok(crate::streaming::build_streaming_response(raw, final_url))
     }
 
-    /// Executes an HTTP request with document origin security checks (Mixed Content and CORS).
-    ///
-    /// Mixed-content enforcement runs at every redirect hop; CORS is evaluated
-    /// against the final response URL so cross-origin redirects cannot bypass it.
-    /// The entire operation is bounded by [`HttpClientConfig::timeout`].
+    /// Fetches a subresource request initiated by a document, verifying CORS policy.
     ///
     /// # Errors
-    /// Returns `NetworkError` if mixed content or CORS validation fails, or if
-    /// the timeout budget is exceeded.
+    /// Returns `NetworkError::CorsViolation` if the response headers forbid
+    /// access from `document_origin`.
     pub async fn fetch_with_security_context(
         &self,
         request: &HttpRequest,
@@ -158,14 +167,7 @@ impl HttpClient {
         Ok(response)
     }
 
-    /// Executes an arbitrary `HttpRequest` over HTTP/1.1, following redirects.
-    ///
-    /// Redirect policy: up to [`MAX_REDIRECTS`] hops; `Location` is resolved
-    /// against the current URL; 301/302/303 convert POST to GET per fetch spec;
-    /// 307/308 preserve the method. The final response carries the resolved URL.
-    ///
-    /// The entire operation (including redirects) is bounded by
-    /// [`HttpClientConfig::timeout`].
+    /// Executes an arbitrary `HttpRequest` over HTTP/1.1 or HTTP/2, following redirects.
     ///
     /// # Errors
     /// Returns `NetworkError` if connection, TLS handshake, protocol exchange,
@@ -184,19 +186,37 @@ impl HttpClient {
         document_origin: Option<&Url>,
     ) -> Result<HttpResponse, NetworkError> {
         let mut req = request.clone();
+
+        // RFC 6797 HSTS auto-upgrade from HTTP to HTTPS
+        if req.url.scheme() == "http"
+            && let Some(host) = req.url.host_str()
+            && let Some(hsts) = &self.hsts_store
+            && hsts.is_hsts_enforced(host).unwrap_or(false)
+        {
+            let _ = req.url.set_scheme("https");
+        }
+
         if let Some(cached_resp) = self.cache_validator.prepare_request(&mut req) {
             return Ok(cached_resp);
         }
         let (response, final_url) = self.send_with_redirects(&req, document_origin).await?;
-        let collected = self.collect_response(response, final_url).await?;
+        let collected = self.collect_response(response, final_url.clone()).await?;
+
+        // Record HSTS header if present
+        if final_url.scheme() == "https"
+            && let Some(host) = final_url.host_str()
+            && let Some(hsts_val) = collected.headers.get("strict-transport-security")
+            && let Some(hsts) = &self.hsts_store
+            && let Some((max_age, inc_sub)) = storage::HstsStore::parse_hsts_header(hsts_val)
+        {
+            let _ = hsts.record_hsts(host, max_age, inc_sub);
+        }
+
         Ok(self.cache_validator.handle_response(&req, collected))
     }
 
     /// Follows redirects (up to [`MAX_REDIRECTS`]) and returns the final raw
     /// response together with the URL it was actually served from.
-    ///
-    /// This never reads the response body, so callers can stream it (e.g. for
-    /// downloads) rather than buffering the whole transfer in memory.
     async fn send_with_redirects(
         &self,
         request: &HttpRequest,
@@ -219,18 +239,16 @@ impl HttpClient {
             let location = response
                 .headers()
                 .get(http::header::LOCATION)
-                .and_then(|v| v.to_str().ok())
-                .map(str::to_owned);
+                .and_then(|val| val.to_str().ok());
 
-            if (300..400).contains(&status)
+            if (300..=399).contains(&status)
                 && let Some(location) = location
             {
                 let next_url = current
                     .url
-                    .join(&location)
+                    .join(location)
                     .map_err(|e| NetworkError::InvalidRedirect(current.url.to_string(), e))?;
 
-                // 301/302/303 rewrite POST to GET; 307/308 preserve the method.
                 let method = if matches!(status, 301..=303) && current.method == HttpMethod::Post {
                     HttpMethod::Get
                 } else {
@@ -243,8 +261,6 @@ impl HttpClient {
                 };
 
                 tracing::info!(from = %current.url, to = %next_url, status, "Following redirect");
-                // Per the fetch spec's redirect handling, credentials and
-                // authorization must not leak to a different origin.
                 let cross_origin = next_url.origin() != current.url.origin();
                 let headers = if cross_origin {
                     current

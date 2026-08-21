@@ -127,6 +127,8 @@ pub struct ComputedStyle {
     pub background_gradient: Option<Gradient>,
     /// CSS transition property definitions.
     pub transition_properties: Vec<Transition>,
+    /// CSS `content` property for generated content / pseudo-elements.
+    pub content: Option<String>,
 }
 
 /// Single CSS `box-shadow` layer definition (CSS Backgrounds and Borders Level 3 §6.1).
@@ -212,6 +214,7 @@ impl ComputedStyle {
             transform_origin: (0.5, 0.5),
             background_gradient: None,
             transition_properties: Vec::new(),
+            content: None,
         }
     }
 

@@ -1,4 +1,7 @@
 # Fast linking and build settings for Windows MSVC
 
+[build]
+target-dir = "C:/Users/atich/.cargo/target/soul"
+
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "link-arg=/DEBUG:FASTLINK"]

@@ -123,8 +123,18 @@ pub fn build_box_tree_with_intrinsics<S: BuildHasher, S2: BuildHasher>(
                 Display::None => unreachable!(),
             };
 
-            let mut layout_box = LayoutBox::new(box_type, Some(style));
+            let mut layout_box = LayoutBox::new(box_type, Some(style.clone()));
             layout_box.intrinsic = intrinsics.get(&root_id).copied();
+
+            if let Some(ref generated_text) = style.content
+                && !generated_text.is_empty()
+            {
+                layout_box.children.push(LayoutBox::new(
+                    BoxType::TextNode(root_id, generated_text.clone()),
+                    None,
+                ));
+            }
+
             for child_id in document.children(root_id) {
                 if let Some(child_box) =
                     build_box_tree_with_intrinsics(document, child_id, styles, intrinsics)

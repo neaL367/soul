@@ -1,21 +1,25 @@
 //! Web APIs implementation including DOM, Console, Timers, Web Storage, Fetch,
-//! Workers, `EventTarget`, and `MutationObserver`.
+//! Workers, `EventTarget`, `MutationObserver`, Web Cryptography, URL, and Performance.
 
 pub mod canvas_binding;
 pub mod console;
+pub mod crypto_binding;
 pub mod dom_bindings;
 pub mod event_binding;
 pub mod fetch_binding;
 pub mod indexeddb_binding;
 pub mod mutation_observer;
+pub mod performance_binding;
 pub mod storage_binding;
 pub mod timers;
+pub mod url_binding;
 pub mod websocket_binding;
 pub mod window_bindings;
 pub mod worker;
 
 pub use canvas_binding::{create_canvas_context_2d, create_canvas_element, register_canvas};
 pub use console::register_console;
+pub use crypto_binding::register_crypto;
 pub use dom_bindings::register_dom;
 pub use event_binding::{CallbackStore, create_event_target, register_custom_event};
 pub use fetch_binding::{
@@ -27,8 +31,10 @@ pub use mutation_observer::{
     MutationObserverInit, MutationQueue, MutationRecord, MutationRecordType,
     register_mutation_observer,
 };
+pub use performance_binding::register_performance;
 pub use storage_binding::{register_local_storage, register_session_storage};
 pub use timers::{TimerQueue, TimerState, register_timers};
+pub use url_binding::{create_url_object, create_url_search_params_object, register_url};
 pub use websocket_binding::{
     CLOSED, CLOSING, CONNECTING, MockWebSocketSession, OPEN, WebSocketFactory, WebSocketSession,
     register_websocket,
@@ -41,7 +47,7 @@ use dom::Document;
 use std::sync::{Arc, Mutex};
 
 /// Registers common Web APIs (`console`, `timers`, `document`, `CustomEvent`,
-/// `MutationObserver`, `WebSocket`, `HTMLCanvasElement`) into a Boa `Context`.
+/// `MutationObserver`, `WebSocket`, `HTMLCanvasElement`, `crypto`, `URL`, `performance`) into a Boa `Context`.
 ///
 /// # Errors
 ///
@@ -71,6 +77,9 @@ pub fn bind_web_apis(
 
     register_websocket(context, None)?;
     register_canvas(context)?;
+    register_crypto(context);
+    register_url(context)?;
+    register_performance(context);
 
     Ok(())
 }

@@ -160,10 +160,13 @@ impl<'i> Parser<'i> for SoulParser {
         location: SourceLocation,
         name: CowRcStr<'i>,
     ) -> Result<SoulPseudoElement, ParseError<'i, SelectorParseErrorKind<'i>>> {
-        Err(
-            location.new_custom_error(SelectorParseErrorKind::UnsupportedPseudoClassOrElement(
-                name,
+        let lower = name.to_ascii_lowercase();
+        match lower.as_str() {
+            "before" | "after" | "placeholder" | "marker" | "selection" | "first-line"
+            | "first-letter" => Ok(SoulPseudoElement(lower)),
+            _ => Err(location.new_custom_error(
+                SelectorParseErrorKind::UnsupportedPseudoClassOrElement(name),
             )),
-        )
+        }
     }
 }

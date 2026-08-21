@@ -1,4 +1,4 @@
-//! RFC 9110 HTTP payload decompression (`gzip`, `deflate`).
+//! RFC 9110 HTTP payload decompression (`gzip`, `deflate`, `br`, `zstd`).
 
 use crate::error::NetworkError;
 use flate2::read::{GzDecoder, ZlibDecoder};
@@ -55,6 +55,27 @@ pub fn decompress_payload(
                 .map_err(|e| NetworkError::DecompressionFailed(format!("deflate error: {e}")))?;
             check_size_limit(&raw_decompressed)?;
             Ok(raw_decompressed)
+        }
+        "br" => {
+            let mut decoder =
+                brotli::Decompressor::new(raw_bytes, 4096).take(MAX_DECOMPRESSED_BYTES as u64 + 1);
+            let mut decompressed = Vec::new();
+            decoder
+                .read_to_end(&mut decompressed)
+                .map_err(|e| NetworkError::DecompressionFailed(format!("brotli error: {e}")))?;
+            check_size_limit(&decompressed)?;
+            Ok(decompressed)
+        }
+        "zstd" => {
+            let mut decoder = zstd::stream::Decoder::new(raw_bytes)
+                .map_err(|e| NetworkError::DecompressionFailed(format!("zstd init error: {e}")))?
+                .take(MAX_DECOMPRESSED_BYTES as u64 + 1);
+            let mut decompressed = Vec::new();
+            decoder
+                .read_to_end(&mut decompressed)
+                .map_err(|e| NetworkError::DecompressionFailed(format!("zstd error: {e}")))?;
+            check_size_limit(&decompressed)?;
+            Ok(decompressed)
         }
         "identity" | "" => Ok(raw_bytes.to_vec()),
         other => {

@@ -180,7 +180,7 @@ where
             http::header::ACCEPT,
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         )
-        .header(http::header::ACCEPT_ENCODING, "gzip, deflate");
+        .header(http::header::ACCEPT_ENCODING, "gzip, deflate, br, zstd");
 
     for (key, val) in &request.headers {
         builder = builder.header(key.as_str(), val.as_str());
