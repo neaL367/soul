@@ -1,12 +1,16 @@
 //! CSS property declaration parsing and application to `ComputedStyle`.
 
 pub mod shadow;
+pub mod transform;
 pub mod values;
 pub mod var;
 
 pub use var::resolve_var_references;
 
 use self::shadow::parse_box_shadows;
+use self::transform::{
+    parse_gradient, parse_transform_list, parse_transform_origin, parse_transitions,
+};
 use self::values::{
     apply_border_shorthand, parse_4_edges, parse_4_edges_non_negative, parse_font_family,
     parse_grid_tracks, parse_non_negative_px, parse_percent, parse_px,
@@ -64,8 +68,15 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "background-color" | "background" => {
-            if let Some(c) = Color::parse(value) {
+            if let Some(g) = parse_gradient(value) {
+                style.background_gradient = Some(g);
+            } else if let Some(c) = Color::parse(value) {
                 style.background_color = c;
+            }
+        }
+        "background-image" => {
+            if let Some(g) = parse_gradient(value) {
+                style.background_gradient = Some(g);
             }
         }
         "opacity" => {
@@ -345,6 +356,15 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             if let Some(shadows) = parse_box_shadows(value) {
                 style.box_shadow = shadows;
             }
+        }
+        "transform" => {
+            style.transform = parse_transform_list(value);
+        }
+        "transform-origin" => {
+            style.transform_origin = parse_transform_origin(value);
+        }
+        "transition" | "transition-property" | "transition-duration" => {
+            style.transition_properties = parse_transitions(value);
         }
         _ => {}
     }

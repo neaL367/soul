@@ -2,6 +2,7 @@
 
 pub mod color;
 pub mod enums;
+pub mod transform;
 
 use std::collections::HashMap;
 
@@ -10,6 +11,7 @@ pub use enums::{
     AlignItems, AlignSelf, BoxSizing, Display, FlexDirection, FlexWrap, FontStyle, FontWeight,
     GridTrack, JustifyContent, Length, Position, TextAlign, TextDecoration,
 };
+pub use transform::{ColorStop, Gradient, TimingFunction, Transform2D, TransformOp, Transition};
 
 /// Fully resolved computed styles for a single DOM element.
 #[derive(Debug, Clone, PartialEq)]
@@ -117,6 +119,14 @@ pub struct ComputedStyle {
     pub custom_properties: HashMap<String, String>,
     /// CSS `box-shadow` layer definitions.
     pub box_shadow: Vec<BoxShadow>,
+    /// CSS 2D transform operations list (CSS Transforms Module Level 1 §3).
+    pub transform: Vec<TransformOp>,
+    /// Transform origin coordinate in percentage `(x, y)` from 0.0 to 1.0 (default `(0.5, 0.5)`).
+    pub transform_origin: (f32, f32),
+    /// CSS linear or radial background gradient (CSS Images Module Level 3 §3).
+    pub background_gradient: Option<Gradient>,
+    /// CSS transition property definitions.
+    pub transition_properties: Vec<Transition>,
 }
 
 /// Single CSS `box-shadow` layer definition (CSS Backgrounds and Borders Level 3 §6.1).
@@ -198,6 +208,10 @@ impl ComputedStyle {
             grid_gap: 0.0,
             custom_properties: HashMap::new(),
             box_shadow: Vec::new(),
+            transform: Vec::new(),
+            transform_origin: (0.5, 0.5),
+            background_gradient: None,
+            transition_properties: Vec::new(),
         }
     }
 

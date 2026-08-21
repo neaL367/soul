@@ -12,9 +12,9 @@ pub use cascade::{CascadeResolver, apply_declaration, resolve_var_references};
 pub use media::{ColorScheme, MediaCondition};
 pub use parser::parse_stylesheet;
 pub use properties::{
-    AlignItems, AlignSelf, BoxShadow, BoxSizing, Color, ComputedStyle, Display, FlexDirection,
-    FlexWrap, FontStyle, FontWeight, GridTrack, JustifyContent, Length, Position, TextAlign,
-    TextDecoration,
+    AlignItems, AlignSelf, BoxShadow, BoxSizing, Color, ColorStop, ComputedStyle, Display,
+    FlexDirection, FlexWrap, FontStyle, FontWeight, Gradient, GridTrack, JustifyContent, Length,
+    Position, TextAlign, TextDecoration, TimingFunction, Transform2D, TransformOp, Transition,
 };
 pub use rule::{Declaration, Origin, Rule, Selector, Specificity, StyleSheet};
 pub use selector_impl::{DomElement, SoulParser, SoulSelectorImpl};

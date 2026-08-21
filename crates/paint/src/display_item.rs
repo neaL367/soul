@@ -1,6 +1,6 @@
 //! Display list items, drawing commands, clipping, and opacity primitives.
 
-use css::{BoxShadow, Color};
+use css::{BoxShadow, Color, Gradient, Transform2D};
 use layout::{EdgeSizes, Rect};
 
 /// Atomic display list drawing and state commands emitted by the paint phase.
@@ -19,6 +19,13 @@ pub enum DisplayItem {
         rect: Rect,
         /// Fill color.
         color: Color,
+    },
+    /// Fills a rectangle with a CSS linear or radial gradient.
+    DrawGradient {
+        /// Bounding box rectangle to fill.
+        rect: Rect,
+        /// Gradient definition (linear or radial).
+        gradient: Gradient,
     },
     /// Draws four-sided box borders with specified widths and color.
     DrawBorder {
@@ -69,6 +76,15 @@ pub enum DisplayItem {
     },
     /// Pops the most recently pushed opacity factor.
     PopOpacity,
+    /// Pushes a 2D affine transform matrix with a transformation origin point onto the transform stack.
+    PushTransform {
+        /// 2D transformation matrix.
+        transform: Transform2D,
+        /// Transformation origin coordinate in pixels `(x, y)`.
+        origin: (f32, f32),
+    },
+    /// Pops the most recently pushed transform matrix.
+    PopTransform,
 }
 
 impl DisplayItem {
@@ -77,6 +93,7 @@ impl DisplayItem {
     pub fn bounds(&self) -> Option<Rect> {
         match self {
             Self::DrawRect { rect, .. }
+            | Self::DrawGradient { rect, .. }
             | Self::DrawBorder { rect, .. }
             | Self::DrawText { rect, .. }
             | Self::DrawImage { rect, .. }
@@ -97,7 +114,11 @@ impl DisplayItem {
                 }
                 Some(b)
             }
-            Self::PopClip | Self::PushOpacity { .. } | Self::PopOpacity => None,
+            Self::PopClip
+            | Self::PushOpacity { .. }
+            | Self::PopOpacity
+            | Self::PushTransform { .. }
+            | Self::PopTransform => None,
         }
     }
 }

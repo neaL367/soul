@@ -89,6 +89,18 @@ impl DisplayListBuilder {
             return;
         };
 
+        let has_transform =
+            !style.transform.is_empty() && layout_box.dimensions.border_box().is_finite();
+        if has_transform {
+            let bbox = layout_box.dimensions.border_box();
+            let origin = (
+                style.transform_origin.0.mul_add(bbox.width, bbox.x),
+                style.transform_origin.1.mul_add(bbox.height, bbox.y),
+            );
+            let transform = css::Transform2D::from_operations(&style.transform);
+            list.push(DisplayItem::PushTransform { transform, origin });
+        }
+
         // Paint box shadows (behind background)
         if !style.box_shadow.is_empty() && layout_box.dimensions.border_box().is_finite() {
             list.push(DisplayItem::DrawBoxShadow {
@@ -97,8 +109,15 @@ impl DisplayListBuilder {
             });
         }
 
-        // Paint background rectangle
-        if style.background_color != Color::TRANSPARENT
+        // Paint background gradient or solid rectangle
+        if let Some(ref gradient) = style.background_gradient {
+            if layout_box.dimensions.padding_box().is_finite() {
+                list.push(DisplayItem::DrawGradient {
+                    rect: layout_box.dimensions.padding_box(),
+                    gradient: gradient.clone(),
+                });
+            }
+        } else if style.background_color != Color::TRANSPARENT
             && layout_box.dimensions.padding_box().is_finite()
         {
             list.push(DisplayItem::DrawRect {
@@ -130,6 +149,10 @@ impl DisplayListBuilder {
                 height: image.height,
                 pixels: image.rgba_pixels.clone(),
             });
+        }
+
+        if has_transform {
+            list.push(DisplayItem::PopTransform);
         }
     }
 
