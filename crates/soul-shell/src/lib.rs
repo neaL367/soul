@@ -14,5 +14,10 @@ pub mod navigation_driver;
 pub(crate) mod script_execution;
 pub mod updater;
 
-pub use crash_reporter::CrashReport;
-pub use updater::{UpdateChannel, UpdateManifest, check_for_update, is_newer_version};
+pub use crash_reporter::{BreadcrumbTracker, CrashReport, prune_old_reports};
+pub use diagnostics::SystemDiagnostics;
+pub use updater::{
+    UpdateChannel, UpdateError, UpdateManifest, apply_staged_update, check_for_update,
+    compute_sha256, is_newer_version, stage_update_payload, verify_manifest_signature,
+    verify_payload_checksum,
+};
