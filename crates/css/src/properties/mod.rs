@@ -3,6 +3,8 @@
 pub mod color;
 pub mod enums;
 
+use std::collections::HashMap;
+
 pub use color::Color;
 pub use enums::{
     AlignItems, AlignSelf, BoxSizing, Display, FlexDirection, FlexWrap, FontStyle, FontWeight,
@@ -111,6 +113,27 @@ pub struct ComputedStyle {
     pub grid_template_rows: Vec<GridTrack>,
     /// Grid gap (both row and column).
     pub grid_gap: f32,
+    /// CSS Custom Properties (`--name: value`) mapped for variable substitution.
+    pub custom_properties: HashMap<String, String>,
+    /// CSS `box-shadow` layer definitions.
+    pub box_shadow: Vec<BoxShadow>,
+}
+
+/// Single CSS `box-shadow` layer definition (CSS Backgrounds and Borders Level 3 §6.1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoxShadow {
+    /// Horizontal shadow offset (positive right, negative left).
+    pub offset_x: f32,
+    /// Vertical shadow offset (positive down, negative up).
+    pub offset_y: f32,
+    /// Blur radius in pixels (must be non-negative).
+    pub blur_radius: f32,
+    /// Spread distance in pixels (positive expands, negative shrinks).
+    pub spread_radius: f32,
+    /// Shadow color.
+    pub color: Color,
+    /// `true` if inset shadow.
+    pub inset: bool,
 }
 
 impl Default for ComputedStyle {
@@ -173,6 +196,8 @@ impl ComputedStyle {
             grid_template_columns: Vec::new(),
             grid_template_rows: Vec::new(),
             grid_gap: 0.0,
+            custom_properties: HashMap::new(),
+            box_shadow: Vec::new(),
         }
     }
 
@@ -188,5 +213,6 @@ impl ComputedStyle {
         self.line_height = parent.line_height;
         self.letter_spacing = parent.letter_spacing;
         self.word_spacing = parent.word_spacing;
+        self.custom_properties.clone_from(&parent.custom_properties);
     }
 }

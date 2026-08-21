@@ -89,6 +89,14 @@ impl DisplayListBuilder {
             return;
         };
 
+        // Paint box shadows (behind background)
+        if !style.box_shadow.is_empty() && layout_box.dimensions.border_box().is_finite() {
+            list.push(DisplayItem::DrawBoxShadow {
+                rect: layout_box.dimensions.border_box(),
+                shadows: style.box_shadow.clone(),
+            });
+        }
+
         // Paint background rectangle
         if style.background_color != Color::TRANSPARENT
             && layout_box.dimensions.padding_box().is_finite()

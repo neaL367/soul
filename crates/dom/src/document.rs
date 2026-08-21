@@ -1,5 +1,8 @@
 //! Flat arena-based DOM document containing node storage, pointer updates, and tree traversal.
 
+pub mod mutation;
+pub mod query;
+
 use crate::node::{InvalidationFlags, Node, NodeData, NodeId};
 
 /// Hard ceiling on arena size.
@@ -18,9 +21,9 @@ pub const MAX_DOM_DEPTH: usize = 512;
 /// Arena-based DOM document holding all nodes in a flat contiguous vector.
 #[derive(Debug, Clone)]
 pub struct Document {
-    nodes: Vec<Node>,
-    root_id: NodeId,
-    doctype_id: Option<NodeId>,
+    pub(crate) nodes: Vec<Node>,
+    pub(crate) root_id: NodeId,
+    pub(crate) doctype_id: Option<NodeId>,
 }
 
 impl Default for Document {
@@ -103,40 +106,36 @@ impl Document {
             if steps > MAX_DOM_DEPTH {
                 return false;
             }
-            cur = self.get_node(id).and_then(|n| n.parent);
+            cur = self.nodes.get(id.0).and_then(|n| n.parent);
         }
         false
     }
 
-    /// Returns true if appending under `parent_id` keeps the tree within
-    /// `MAX_DOM_DEPTH` levels (root = depth 0). Also bounded so it terminates
-    /// on corrupt chains.
+    /// Returns true if `parent_id` is within `MAX_DOM_DEPTH` of the root.
     fn depth_ok(&self, parent_id: NodeId) -> bool {
-        let mut hops = 0;
-        let mut cur = self.get_node(parent_id).and_then(|n| n.parent);
+        let mut depth = 0;
+        let mut cur = Some(parent_id);
         while let Some(id) = cur {
-            hops += 1;
-            if hops >= MAX_DOM_DEPTH {
+            depth += 1;
+            if depth > MAX_DOM_DEPTH {
                 return false;
             }
-            cur = self.get_node(id).and_then(|n| n.parent);
+            cur = self.nodes.get(id.0).and_then(|n| n.parent);
         }
         true
     }
 
-    /// Appends a child node to the end of the specified parent node's children list.
+    /// Appends `child_id` as the last child of `parent_id`.
     ///
-    /// No-ops (rather than panicking or corrupting the tree) when ids are
-    /// invalid, when the append would create an ancestor cycle, or when the
-    /// depth or arena limits would be exceeded.
+    /// Refuses to attach the root node, avoids self-attachment, prevents cyclic
+    /// parent chains, and enforces the `MAX_DOM_DEPTH` limit.
     pub fn append_child(&mut self, parent_id: NodeId, child_id: NodeId) {
-        if parent_id == child_id {
+        if child_id == self.root_id || child_id == parent_id {
             return;
         }
         if self.get_node(parent_id).is_none() || self.get_node(child_id).is_none() {
             return;
         }
-        // Reject cycles: `child` must not be an ancestor of `parent`.
         if self.is_ancestor(child_id, parent_id) {
             return;
         }
@@ -144,58 +143,46 @@ impl Document {
             return;
         }
 
-        // Remove from existing parent if any
         if let Some(old_parent) = self.nodes[child_id.0].parent {
             self.remove_child(old_parent, child_id);
         }
 
-        let last_child_id = self.nodes[parent_id.0].last_child;
+        let old_last = self.nodes[parent_id.0].last_child;
 
         self.nodes[child_id.0].parent = Some(parent_id);
-        self.nodes[child_id.0].prev_sibling = last_child_id;
+        self.nodes[child_id.0].prev_sibling = old_last;
         self.nodes[child_id.0].next_sibling = None;
 
-        if let Some(last_id) = last_child_id {
+        if let Some(last_id) = old_last {
             self.nodes[last_id.0].next_sibling = Some(child_id);
         } else {
             self.nodes[parent_id.0].first_child = Some(child_id);
         }
-
         self.nodes[parent_id.0].last_child = Some(child_id);
         self.nodes[parent_id.0].dirty_flags = InvalidationFlags::all();
     }
 
-    /// Inserts a child node before a designated sibling node under a parent.
+    /// Inserts `child_id` immediately before the `before` sibling node.
     ///
-    /// No-ops when ids are invalid, when `before` is not a direct child of
-    /// `parent`, or when the insert would create a cycle or exceed the limits.
-    pub fn insert_before(
-        &mut self,
-        parent_id: NodeId,
-        child_id: NodeId,
-        before_id: Option<NodeId>,
-    ) {
-        let Some(before) = before_id else {
+    /// If `before` is `None`, `child_id` is appended as the last child.
+    pub fn insert_before(&mut self, parent_id: NodeId, child_id: NodeId, before: Option<NodeId>) {
+        let Some(before_id) = before else {
             self.append_child(parent_id, child_id);
             return;
         };
 
-        if before == child_id || parent_id == child_id {
+        if child_id == self.root_id || child_id == parent_id || child_id == before_id {
             return;
         }
-
-        // `before` must actually be a child of `parent`, otherwise the sibling
-        // chain would be corrupted.
-        if self
-            .get_node(before)
-            .is_none_or(|n| n.parent != Some(parent_id))
+        if self.get_node(parent_id).is_none()
+            || self.get_node(child_id).is_none()
+            || self.get_node(before_id).is_none()
         {
             return;
         }
-        if self.get_node(parent_id).is_none() || self.get_node(child_id).is_none() {
+        if self.nodes[before_id.0].parent != Some(parent_id) {
             return;
         }
-        // Reject cycles: `child` must not be an ancestor of `parent`.
         if self.is_ancestor(child_id, parent_id) {
             return;
         }
@@ -207,13 +194,13 @@ impl Document {
             self.remove_child(old_parent, child_id);
         }
 
-        let prev = self.nodes[before.0].prev_sibling;
+        let prev = self.nodes[before_id.0].prev_sibling;
 
         self.nodes[child_id.0].parent = Some(parent_id);
         self.nodes[child_id.0].prev_sibling = prev;
-        self.nodes[child_id.0].next_sibling = Some(before);
+        self.nodes[child_id.0].next_sibling = Some(before_id);
 
-        self.nodes[before.0].prev_sibling = Some(child_id);
+        self.nodes[before_id.0].prev_sibling = Some(child_id);
 
         if let Some(prev_id) = prev {
             self.nodes[prev_id.0].next_sibling = Some(child_id);
@@ -266,148 +253,6 @@ impl Document {
             self.remove_child(old_parent, child_id);
             self.append_child(new_parent, child_id);
             current = next;
-        }
-    }
-
-    /// Appends text to a text node or creates a new text child if the last child isn't text.
-    pub fn append_text(&mut self, parent_id: NodeId, text: &str) {
-        if self.get_node(parent_id).is_none() {
-            return;
-        }
-        let last_child_id = self.nodes[parent_id.0].last_child;
-        if let Some(last_child_id) = last_child_id
-            && let Some(node) = self.get_node_mut(last_child_id)
-            && let NodeData::Text(ref mut existing) = node.data
-        {
-            existing.push_str(text);
-            node.dirty_flags = InvalidationFlags::all();
-            return;
-        }
-        let text_node_id = self.alloc_node(NodeData::Text(text.to_string()));
-        self.append_child(parent_id, text_node_id);
-    }
-
-    /// Returns a list of direct children `NodeId`s for the specified node.
-    #[must_use]
-    pub fn children(&self, node_id: NodeId) -> Vec<NodeId> {
-        let mut list = Vec::new();
-        let mut current = match self.get_node(node_id) {
-            Some(node) => node.first_child,
-            None => return list,
-        };
-        while let Some(id) = current {
-            list.push(id);
-            current = self.get_node(id).and_then(|n| n.next_sibling);
-        }
-        list
-    }
-
-    /// Returns a list of all descendant `NodeId`s in depth-first pre-order.
-    #[must_use]
-    pub fn descendants(&self, node_id: NodeId) -> Vec<NodeId> {
-        let mut list = Vec::new();
-        let mut stack = self.children(node_id);
-        stack.reverse();
-
-        while let Some(current) = stack.pop() {
-            list.push(current);
-            let mut children = self.children(current);
-            children.reverse();
-            stack.extend(children);
-        }
-        list
-    }
-
-    /// Returns the concatenated text content of a node and all its descendants.
-    #[must_use]
-    pub fn text_content(&self, node_id: NodeId) -> String {
-        let mut result = String::new();
-        for id in std::iter::once(node_id).chain(self.descendants(node_id)) {
-            if let NodeData::Text(ref text) = self.nodes[id.0].data {
-                result.push_str(text);
-            }
-        }
-        result
-    }
-
-    /// Finds the first element in the document with the matching `id` attribute.
-    #[must_use]
-    pub fn get_element_by_id(&self, id: &str) -> Option<NodeId> {
-        self.descendants(self.root_id).into_iter().find(|&node_id| {
-            self.nodes[node_id.0]
-                .as_element()
-                .and_then(|elem| elem.id.as_deref())
-                == Some(id)
-        })
-    }
-
-    /// Finds all elements matching the given tag name (case-insensitive).
-    #[must_use]
-    pub fn get_elements_by_tag_name(&self, tag: &str) -> Vec<NodeId> {
-        let lower = tag.to_ascii_lowercase();
-        self.descendants(self.root_id)
-            .into_iter()
-            .filter(|&node_id| {
-                self.nodes[node_id.0]
-                    .as_element()
-                    .is_some_and(|elem| elem.tag_name == lower)
-            })
-            .collect()
-    }
-
-    /// Finds all elements containing the given CSS class.
-    #[must_use]
-    pub fn get_elements_by_class_name(&self, class_name: &str) -> Vec<NodeId> {
-        self.descendants(self.root_id)
-            .into_iter()
-            .filter(|&node_id| {
-                self.nodes[node_id.0]
-                    .as_element()
-                    .is_some_and(|elem| elem.has_class(class_name))
-            })
-            .collect()
-    }
-
-    /// Creates a new element node in the arena with the given tag name.
-    pub fn create_element(&mut self, tag_name: &str) -> NodeId {
-        let elem_data = crate::node::ElementData::new(tag_name, std::collections::HashMap::new());
-        self.alloc_node(NodeData::Element(elem_data))
-    }
-
-    /// Sets an attribute on an element and invalidates style/layout dirty flags.
-    pub fn set_attribute(&mut self, node_id: NodeId, name: &str, value: &str) {
-        if let Some(node) = self.get_node_mut(node_id)
-            && let NodeData::Element(ref mut elem) = node.data
-        {
-            elem.set_attribute(name, value);
-            node.dirty_flags.style = true;
-            node.dirty_flags.layout = true;
-        }
-    }
-
-    /// Removes an attribute from an element and invalidates style/layout dirty flags.
-    pub fn remove_attribute(&mut self, node_id: NodeId, name: &str) {
-        if let Some(node) = self.get_node_mut(node_id)
-            && let NodeData::Element(ref mut elem) = node.data
-        {
-            elem.remove_attribute(name);
-            node.dirty_flags.style = true;
-            node.dirty_flags.layout = true;
-        }
-    }
-
-    /// Sets the text content of an element, replacing its children with a single text node.
-    pub fn set_text_content(&mut self, node_id: NodeId, text: &str) {
-        let children = self.children(node_id);
-        for child_id in children {
-            self.remove_child(node_id, child_id);
-        }
-        let text_id = self.alloc_node(NodeData::Text(text.to_string()));
-        self.append_child(node_id, text_id);
-        if let Some(node) = self.get_node_mut(node_id) {
-            node.dirty_flags.style = true;
-            node.dirty_flags.layout = true;
-            node.dirty_flags.paint = true;
         }
     }
 }

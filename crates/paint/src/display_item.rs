@@ -1,11 +1,18 @@
 //! Display list items, drawing commands, clipping, and opacity primitives.
 
-use css::Color;
+use css::{BoxShadow, Color};
 use layout::{EdgeSizes, Rect};
 
 /// Atomic display list drawing and state commands emitted by the paint phase.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DisplayItem {
+    /// Draws one or more CSS box shadow layers around a rectangle.
+    DrawBoxShadow {
+        /// Outer border box rectangle.
+        rect: Rect,
+        /// Box shadow layer definitions.
+        shadows: Vec<BoxShadow>,
+    },
     /// Fills a solid rectangle with an RGBA color.
     DrawRect {
         /// Bounding box rectangle to fill.
@@ -67,13 +74,29 @@ pub enum DisplayItem {
 impl DisplayItem {
     /// Returns the spatial bounding rectangle of this display item if it is a visual drawing item.
     #[must_use]
-    pub const fn bounds(&self) -> Option<Rect> {
+    pub fn bounds(&self) -> Option<Rect> {
         match self {
             Self::DrawRect { rect, .. }
             | Self::DrawBorder { rect, .. }
             | Self::DrawText { rect, .. }
             | Self::DrawImage { rect, .. }
             | Self::PushClip { rect } => Some(*rect),
+            Self::DrawBoxShadow { rect, shadows } => {
+                let mut b = *rect;
+                for s in shadows {
+                    if !s.inset {
+                        let expand = s.spread_radius + s.blur_radius;
+                        let s_rect = Rect::new(
+                            rect.x + s.offset_x - expand,
+                            rect.y + s.offset_y - expand,
+                            expand.mul_add(2.0, rect.width),
+                            expand.mul_add(2.0, rect.height),
+                        );
+                        b = b.union(&s_rect);
+                    }
+                }
+                Some(b)
+            }
             Self::PopClip | Self::PushOpacity { .. } | Self::PopOpacity => None,
         }
     }

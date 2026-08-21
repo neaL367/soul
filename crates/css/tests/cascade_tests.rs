@@ -462,3 +462,4 @@ fn test_at_rule_body_is_not_misparsed() {
     let p = doc.get_elements_by_class_name("outside")[0];
     assert_eq!(styles.get(&p).unwrap().color, Color::rgb(0, 255, 0));
 }
+

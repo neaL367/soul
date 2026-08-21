@@ -253,3 +253,47 @@ fn test_non_finite_root_bounds_are_sanitized() {
 
     assert!(display_list.bounds.is_finite());
 }
+
+#[test]
+fn test_box_shadow_emitted_in_display_list() {
+    let html = r#"<html><body>
+        <div id="card">Shadow Card</div>
+    </body></html>"#;
+    let doc = parse_html(html);
+
+    let css = r"
+        #card {
+            width: 100px;
+            height: 100px;
+            background-color: #ffffff;
+            box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.25);
+        }
+    ";
+    let author_sheet = parse_stylesheet(css, Origin::Author);
+    let resolver = CascadeResolver::new(&doc, &[&author_sheet]);
+    let styles = resolver.resolve_all();
+
+    let card_id = doc.get_element_by_id("card").unwrap();
+    let mut layout_box = build_box_tree(&doc, card_id, &styles).unwrap();
+    let viewport = Dimensions {
+        content: Rect::new(0.0, 0.0, 800.0, 600.0),
+        ..Default::default()
+    };
+    layout_block(&mut layout_box, &viewport);
+
+    let display_list = DisplayListBuilder::build(&layout_box, &std::collections::HashMap::new());
+
+    let mut found_shadow = false;
+    for item in &display_list.items {
+        if let DisplayItem::DrawBoxShadow { shadows, .. } = item {
+            assert_eq!(shadows.len(), 1);
+            assert!((shadows[0].offset_y - 4.0).abs() < f32::EPSILON);
+            assert!((shadows[0].blur_radius - 8.0).abs() < f32::EPSILON);
+            found_shadow = true;
+        }
+    }
+    assert!(
+        found_shadow,
+        "DrawBoxShadow display item must be emitted in display list"
+    );
+}

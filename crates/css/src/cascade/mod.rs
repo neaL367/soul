@@ -3,9 +3,10 @@
 pub mod apply;
 mod matching;
 
-pub use apply::apply_declaration;
+pub use apply::{apply_declaration, resolve_var_references};
 use matching::matches_selector;
 
+use crate::media::ColorScheme;
 use crate::properties::ComputedStyle;
 use crate::rule::{Declaration, Origin, Specificity, StyleSheet};
 use crate::ua::user_agent_stylesheet;
@@ -25,18 +26,30 @@ struct MatchedDecl<'a> {
 pub struct CascadeResolver<'a> {
     document: &'a Document,
     stylesheets: Vec<&'a StyleSheet>,
+    color_scheme: ColorScheme,
 }
 
 impl<'a> CascadeResolver<'a> {
     /// Creates a new `CascadeResolver` for the given document and author stylesheets.
     #[must_use]
     pub fn new(document: &'a Document, author_sheets: &[&'a StyleSheet]) -> Self {
+        Self::new_with_scheme(document, author_sheets, ColorScheme::Light)
+    }
+
+    /// Creates a new `CascadeResolver` for the given document, author stylesheets, and color scheme preference.
+    #[must_use]
+    pub fn new_with_scheme(
+        document: &'a Document,
+        author_sheets: &[&'a StyleSheet],
+        color_scheme: ColorScheme,
+    ) -> Self {
         let mut stylesheets = vec![user_agent_stylesheet()];
         stylesheets.extend_from_slice(author_sheets);
 
         Self {
             document,
             stylesheets,
+            color_scheme,
         }
     }
 
@@ -69,6 +82,11 @@ impl<'a> CascadeResolver<'a> {
 
             for sheet in &self.stylesheets {
                 for rule in &sheet.rules {
+                    if let Some(ref media) = rule.media
+                        && !media.matches(self.color_scheme)
+                    {
+                        continue;
+                    }
                     for selector in &rule.selectors {
                         if matches_selector(self.document, node_id, selector) {
                             let spec = selector.specificity();

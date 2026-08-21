@@ -121,7 +121,9 @@ impl Declaration {
     }
 }
 
-/// Single CSS style rule with selectors, declarations, and origin.
+use crate::media::MediaCondition;
+
+/// Single CSS style rule with selectors, declarations, origin, and optional media condition.
 #[derive(Debug, Clone)]
 pub struct Rule {
     /// List of comma-separated selectors for this rule.
@@ -130,6 +132,8 @@ pub struct Rule {
     pub declarations: Vec<Declaration>,
     /// Stylesheet origin.
     pub origin: Origin,
+    /// Optional media condition restricting when this rule applies.
+    pub media: Option<MediaCondition>,
 }
 
 impl PartialEq for Rule {
@@ -137,6 +141,7 @@ impl PartialEq for Rule {
         self.selectors == other.selectors
             && self.declarations == other.declarations
             && self.origin == other.origin
+            && self.media == other.media
     }
 }
 

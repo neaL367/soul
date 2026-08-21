@@ -1,5 +1,16 @@
 //! CSS property declaration parsing and application to `ComputedStyle`.
 
+pub mod shadow;
+pub mod values;
+pub mod var;
+
+pub use var::resolve_var_references;
+
+use self::shadow::parse_box_shadows;
+use self::values::{
+    apply_border_shorthand, parse_4_edges, parse_4_edges_non_negative, parse_font_family,
+    parse_grid_tracks, parse_non_negative_px, parse_percent, parse_px,
+};
 use crate::properties::{
     AlignItems, AlignSelf, BoxSizing, Color, ComputedStyle, Display, FlexDirection, FlexWrap,
     FontStyle, FontWeight, GridTrack, JustifyContent, Length, Position, TextAlign, TextDecoration,
@@ -9,8 +20,23 @@ use crate::rule::Declaration;
 /// Applies a parsed CSS `Declaration` to a `ComputedStyle`.
 #[allow(clippy::too_many_lines)]
 pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
+    if decl.property.starts_with("--") {
+        let resolved_value = resolve_var_references(&decl.value, &style.custom_properties);
+        style
+            .custom_properties
+            .insert(decl.property.clone(), resolved_value);
+        return;
+    }
+
+    let resolved_val = if decl.value.contains("var(") {
+        resolve_var_references(&decl.value, &style.custom_properties)
+    } else {
+        decl.value.clone()
+    };
+    let value = resolved_val.as_str();
+
     match decl.property.as_str() {
-        "display" => match decl.value.as_str() {
+        "display" => match value {
             "block" => style.display = Display::Block,
             "inline" => style.display = Display::Inline,
             "inline-block" => style.display = Display::InlineBlock,
@@ -19,7 +45,7 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             "none" => style.display = Display::None,
             _ => {}
         },
-        "position" => match decl.value.as_str() {
+        "position" => match value {
             "static" => style.position = Position::Static,
             "relative" => style.position = Position::Relative,
             "absolute" => style.position = Position::Absolute,
@@ -27,72 +53,72 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             "sticky" => style.position = Position::Sticky,
             _ => {}
         },
-        "box-sizing" => match decl.value.as_str() {
+        "box-sizing" => match value {
             "border-box" => style.box_sizing = BoxSizing::BorderBox,
             "content-box" => style.box_sizing = BoxSizing::ContentBox,
             _ => {}
         },
         "color" => {
-            if let Some(c) = Color::parse(&decl.value) {
+            if let Some(c) = Color::parse(value) {
                 style.color = c;
             }
         }
         "background-color" | "background" => {
-            if let Some(c) = Color::parse(&decl.value) {
+            if let Some(c) = Color::parse(value) {
                 style.background_color = c;
             }
         }
         "opacity" => {
-            if let Ok(val) = decl.value.parse::<f32>()
+            if let Ok(val) = value.parse::<f32>()
                 && val.is_finite()
             {
                 style.opacity = val.clamp(0.0, 1.0);
             }
         }
         "font-size" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.font_size = px;
             }
         }
         "font-family" => {
-            if let Some(family) = parse_font_family(&decl.value) {
+            if let Some(family) = parse_font_family(value) {
                 style.font_family = family;
             }
         }
         "letter-spacing" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_px(value) {
                 style.letter_spacing = px;
             }
         }
         "word-spacing" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_px(value) {
                 style.word_spacing = px;
             }
         }
-        "font-weight" => match decl.value.as_str() {
+        "font-weight" => match value {
             "bold" | "700" => style.font_weight = FontWeight::Bold,
             "normal" | "400" => style.font_weight = FontWeight::Normal,
             _ => {
-                if let Ok(w) = decl.value.parse::<u16>()
+                if let Ok(w) = value.parse::<u16>()
                     && (1..=1000).contains(&w)
                 {
                     style.font_weight = FontWeight::Number(w);
                 }
             }
         },
-        "font-style" => match decl.value.as_str() {
+        "font-style" => match value {
             "italic" => style.font_style = FontStyle::Italic,
             "oblique" => style.font_style = FontStyle::Oblique,
             "normal" => style.font_style = FontStyle::Normal,
             _ => {}
         },
-        "text-decoration" => match decl.value.as_str() {
+        "text-decoration" => match value {
             "underline" => style.text_decoration = TextDecoration::Underline,
             "line-through" => style.text_decoration = TextDecoration::LineThrough,
             "none" => style.text_decoration = TextDecoration::None,
             _ => {}
         },
-        "text-align" => match decl.value.as_str() {
+        "text-align" => match value {
             "left" => style.text_align = TextAlign::Left,
             "right" => style.text_align = TextAlign::Right,
             "center" => style.text_align = TextAlign::Center,
@@ -100,9 +126,9 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             _ => {}
         },
         "line-height" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.line_height = Some(px);
-            } else if let Ok(factor) = decl.value.trim().parse::<f32>()
+            } else if let Ok(factor) = value.trim().parse::<f32>()
                 && factor.is_finite()
                 && factor > 0.0
             {
@@ -110,7 +136,7 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "margin" => {
-            if let Some((t, r, b, l)) = parse_4_edges(&decl.value) {
+            if let Some((t, r, b, l)) = parse_4_edges(value) {
                 style.margin_top = t;
                 style.margin_right = r;
                 style.margin_bottom = b;
@@ -118,27 +144,27 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "margin-top" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_px(value) {
                 style.margin_top = px;
             }
         }
         "margin-bottom" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_px(value) {
                 style.margin_bottom = px;
             }
         }
         "margin-left" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_px(value) {
                 style.margin_left = px;
             }
         }
         "margin-right" => {
-            if let Some(px) = parse_px(&decl.value) {
+            if let Some(px) = parse_px(value) {
                 style.margin_right = px;
             }
         }
         "padding" => {
-            if let Some((t, r, b, l)) = parse_4_edges_non_negative(&decl.value) {
+            if let Some((t, r, b, l)) = parse_4_edges_non_negative(value) {
                 style.padding_top = t;
                 style.padding_right = r;
                 style.padding_bottom = b;
@@ -146,30 +172,30 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "padding-top" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.padding_top = px;
             }
         }
         "padding-bottom" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.padding_bottom = px;
             }
         }
         "padding-left" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.padding_left = px;
             }
         }
         "padding-right" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.padding_right = px;
             }
         }
         "border" => {
-            apply_border_shorthand(style, &decl.value);
+            apply_border_shorthand(style, value);
         }
         "border-width" => {
-            if let Some((t, r, b, l)) = parse_4_edges_non_negative(&decl.value) {
+            if let Some((t, r, b, l)) = parse_4_edges_non_negative(value) {
                 style.border_top_width = t;
                 style.border_right_width = r;
                 style.border_bottom_width = b;
@@ -177,7 +203,7 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "border-color" => {
-            if let Some(c) = Color::parse(&decl.value) {
+            if let Some(c) = Color::parse(value) {
                 style.border_top_color = c;
                 style.border_right_color = c;
                 style.border_bottom_color = c;
@@ -185,7 +211,7 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "border-radius" => {
-            if let Some((tl, tr, br, bl)) = parse_4_edges_non_negative(&decl.value) {
+            if let Some((tl, tr, br, bl)) = parse_4_edges_non_negative(value) {
                 style.border_radius_top_left = tl;
                 style.border_radius_top_right = tr;
                 style.border_radius_bottom_right = br;
@@ -193,58 +219,58 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             }
         }
         "border-top-width" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.border_top_width = px;
             }
         }
         "border-right-width" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.border_right_width = px;
             }
         }
         "border-bottom-width" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.border_bottom_width = px;
             }
         }
         "border-left-width" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.border_left_width = px;
             }
         }
         "z-index" => {
-            if let Ok(z) = decl.value.trim().parse::<i32>() {
+            if let Ok(z) = value.trim().parse::<i32>() {
                 style.z_index = Some(z);
             }
         }
         "width" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.width = Length::Px(px);
-            } else if let Some(pct) = parse_percent(&decl.value) {
+            } else if let Some(pct) = parse_percent(value) {
                 style.width = Length::Percent(pct);
             }
         }
         "height" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.height = Length::Px(px);
-            } else if let Some(pct) = parse_percent(&decl.value) {
+            } else if let Some(pct) = parse_percent(value) {
                 style.height = Length::Percent(pct);
             }
         }
-        "flex-direction" => match decl.value.as_str() {
+        "flex-direction" => match value {
             "row" => style.flex_direction = FlexDirection::Row,
             "row-reverse" => style.flex_direction = FlexDirection::RowReverse,
             "column" => style.flex_direction = FlexDirection::Column,
             "column-reverse" => style.flex_direction = FlexDirection::ColumnReverse,
             _ => {}
         },
-        "flex-wrap" => match decl.value.as_str() {
+        "flex-wrap" => match value {
             "nowrap" => style.flex_wrap = FlexWrap::NoWrap,
             "wrap" => style.flex_wrap = FlexWrap::Wrap,
             "wrap-reverse" => style.flex_wrap = FlexWrap::WrapReverse,
             _ => {}
         },
-        "justify-content" => match decl.value.as_str() {
+        "justify-content" => match value {
             "flex-start" => style.justify_content = JustifyContent::FlexStart,
             "flex-end" => style.justify_content = JustifyContent::FlexEnd,
             "center" => style.justify_content = JustifyContent::Center,
@@ -253,7 +279,7 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             "space-evenly" => style.justify_content = JustifyContent::SpaceEvenly,
             _ => {}
         },
-        "align-items" => match decl.value.as_str() {
+        "align-items" => match value {
             "stretch" => style.align_items = AlignItems::Stretch,
             "flex-start" => style.align_items = AlignItems::FlexStart,
             "flex-end" => style.align_items = AlignItems::FlexEnd,
@@ -261,7 +287,7 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             "baseline" => style.align_items = AlignItems::Baseline,
             _ => {}
         },
-        "align-self" => match decl.value.as_str() {
+        "align-self" => match value {
             "auto" => style.align_self = AlignSelf::Auto,
             "stretch" => style.align_self = AlignSelf::Stretch,
             "flex-start" => style.align_self = AlignSelf::FlexStart,
@@ -271,191 +297,55 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             _ => {}
         },
         "flex-grow" => {
-            if let Ok(v) = decl.value.trim().parse::<f32>()
+            if let Ok(v) = value.trim().parse::<f32>()
                 && v.is_finite()
             {
                 style.flex_grow = v.max(0.0);
             }
         }
         "flex-shrink" => {
-            if let Ok(v) = decl.value.trim().parse::<f32>()
+            if let Ok(v) = value.trim().parse::<f32>()
                 && v.is_finite()
             {
                 style.flex_shrink = v.max(0.0);
             }
         }
         "flex-basis" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.flex_basis = Length::Px(px);
-            } else if let Some(pct) = parse_percent(&decl.value) {
+            } else if let Some(pct) = parse_percent(value) {
                 style.flex_basis = Length::Percent(pct);
             }
         }
         "grid-template-columns" => {
-            if let Some(tracks) = parse_grid_tracks(&decl.value) {
+            if let Some(tracks) = parse_grid_tracks(value) {
                 style.grid_template_columns = tracks;
             }
         }
         "grid-template-rows" => {
-            if let Some(tracks) = parse_grid_tracks(&decl.value) {
+            if let Some(tracks) = parse_grid_tracks(value) {
                 style.grid_template_rows = tracks;
             }
         }
         "gap" | "grid-gap" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.grid_gap = px;
             } else if let Some(GridTrack::Px(px)) =
-                parse_grid_tracks(&decl.value).and_then(|t| t.into_iter().next())
+                parse_grid_tracks(value).and_then(|t| t.into_iter().next())
             {
                 style.grid_gap = px;
             }
         }
         "row-gap" | "grid-row-gap" | "column-gap" | "grid-column-gap" => {
-            if let Some(px) = parse_non_negative_px(&decl.value) {
+            if let Some(px) = parse_non_negative_px(value) {
                 style.grid_gap = px;
+            }
+        }
+        "box-shadow" => {
+            if let Some(shadows) = parse_box_shadows(value) {
+                style.box_shadow = shadows;
             }
         }
         _ => {}
     }
-}
-
-fn parse_font_family(value: &str) -> Option<String> {
-    let first = value.split(',').next()?.trim();
-    let unquoted = first
-        .strip_prefix('"')
-        .and_then(|s| s.strip_suffix('"'))
-        .or_else(|| first.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
-        .unwrap_or(first);
-    if unquoted.is_empty() {
-        None
-    } else {
-        Some(unquoted.to_string())
-    }
-}
-
-fn apply_border_shorthand(style: &mut ComputedStyle, value: &str) {
-    for part in value.split_whitespace() {
-        if let Some(px) = parse_non_negative_px(part) {
-            style.border_top_width = px;
-            style.border_right_width = px;
-            style.border_bottom_width = px;
-            style.border_left_width = px;
-        } else if let Some(color) = Color::parse(part) {
-            style.border_top_color = color;
-            style.border_right_color = color;
-            style.border_bottom_color = color;
-            style.border_left_color = color;
-        }
-    }
-}
-
-fn parse_percent(value: &str) -> Option<f32> {
-    let trimmed = value.trim();
-    let num = trimmed.strip_suffix('%')?.trim().parse::<f32>().ok()?;
-    if num.is_finite() { Some(num) } else { None }
-}
-
-fn parse_px(value: &str) -> Option<f32> {
-    let trimmed = value.trim();
-    trimmed.strip_suffix("px").map_or_else(
-        || {
-            if trimmed == "0" || trimmed == "0.0" {
-                Some(0.0)
-            } else {
-                None
-            }
-        },
-        |num| {
-            let num = num.trim().parse::<f32>().ok()?;
-            if num.is_finite() { Some(num) } else { None }
-        },
-    )
-}
-
-/// Parses a length in `px`, rejecting negative values.
-///
-/// Negative lengths are invalid for most properties (width, height, padding,
-/// border widths, font-size); they remain legal for margin and letter/word
-/// spacing, which keep using `parse_px` directly.
-fn parse_non_negative_px(value: &str) -> Option<f32> {
-    parse_px(value).filter(|v| *v >= 0.0)
-}
-
-/// Parses 1–4 edge lengths, rejecting the whole declaration if any edge is negative.
-fn parse_4_edges_non_negative(value: &str) -> Option<(f32, f32, f32, f32)> {
-    parse_4_edges(value).filter(|(t, r, b, l)| *t >= 0.0 && *r >= 0.0 && *b >= 0.0 && *l >= 0.0)
-}
-
-fn parse_4_edges(value: &str) -> Option<(f32, f32, f32, f32)> {
-    let parts: Vec<&str> = value.split_whitespace().collect();
-    match parts.len() {
-        1 => {
-            let v = parse_px(parts[0])?;
-            Some((v, v, v, v))
-        }
-        2 => {
-            let tb = parse_px(parts[0])?;
-            let rl = parse_px(parts[1])?;
-            Some((tb, rl, tb, rl))
-        }
-        3 => {
-            let top = parse_px(parts[0])?;
-            let rl = parse_px(parts[1])?;
-            let bottom = parse_px(parts[2])?;
-            Some((top, rl, bottom, rl))
-        }
-        4 => {
-            let top = parse_px(parts[0])?;
-            let right = parse_px(parts[1])?;
-            let bottom = parse_px(parts[2])?;
-            let left = parse_px(parts[3])?;
-            Some((top, right, bottom, left))
-        }
-        _ => None,
-    }
-}
-
-fn parse_grid_tracks(value: &str) -> Option<Vec<GridTrack>> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let mut tracks = Vec::new();
-    for part in trimmed.split_whitespace() {
-        // Handle repeat() and minmax() by skipping them for MVP - treat as auto
-        if part.contains('(') {
-            tracks.push(GridTrack::Auto);
-            continue;
-        }
-        {
-            let track = parse_grid_track(part)?;
-            tracks.push(track);
-        }
-    }
-    if tracks.is_empty() {
-        None
-    } else {
-        Some(tracks)
-    }
-}
-
-fn parse_grid_track(value: &str) -> Option<GridTrack> {
-    let lower = value.to_ascii_lowercase();
-    if lower == "auto" {
-        return Some(GridTrack::Auto);
-    }
-    if let Some(fr_str) = lower.strip_suffix("fr")
-        && let Ok(v) = fr_str.trim().parse::<f32>()
-        && v.is_finite()
-        && v >= 0.0
-    {
-        return Some(GridTrack::Fr(v));
-    }
-    if let Some(px) = parse_non_negative_px(value) {
-        return Some(GridTrack::Px(px));
-    }
-    if let Some(pct) = parse_percent(value) {
-        return Some(GridTrack::Percent(pct));
-    }
-    None
 }

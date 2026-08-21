@@ -3,6 +3,7 @@
 #![allow(clippy::pedantic)]
 #![allow(clippy::nursery)]
 
+use crate::media::parse_media_condition;
 use crate::rule::{Declaration, Origin, Rule, Selector, StyleSheet};
 use crate::selector_impl::SoulParser;
 use cssparser::{Parser as CssParser, ParserInput, ToCss};
@@ -16,12 +17,28 @@ pub fn parse_stylesheet(css: &str, origin: Origin) -> StyleSheet {
 
     for (selector_start, brace_idx, body_end) in spans {
         let selector_text = clean_css[selector_start..brace_idx].trim();
-        // At-rules (`@media`, `@import`, ...) are not supported yet: skip their
-        // bodies instead of misparsing their contents as style rules.
+        let body_text = &clean_css[brace_idx + 1..body_end];
+
         if selector_text.starts_with('@') {
+            if let Some(condition) = parse_media_condition(selector_text) {
+                let (sub_clean, sub_spans) = scan_css(body_text);
+                for (sub_start, sub_brace, sub_end) in sub_spans {
+                    let sub_sel_text = sub_clean[sub_start..sub_brace].trim();
+                    let sub_body = &sub_clean[sub_brace + 1..sub_end];
+                    let selectors = parse_selectors(sub_sel_text);
+                    let declarations = parse_declarations(sub_body);
+                    if !selectors.is_empty() && !declarations.is_empty() {
+                        sheet.rules.push(Rule {
+                            selectors,
+                            declarations,
+                            origin,
+                            media: Some(condition.clone()),
+                        });
+                    }
+                }
+            }
             continue;
         }
-        let body_text = &clean_css[brace_idx + 1..body_end];
 
         let selectors = parse_selectors(selector_text);
         let declarations = parse_declarations(body_text);
@@ -31,6 +48,7 @@ pub fn parse_stylesheet(css: &str, origin: Origin) -> StyleSheet {
                 selectors,
                 declarations,
                 origin,
+                media: None,
             });
         }
     }

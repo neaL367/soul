@@ -1,29 +1,19 @@
 //! HTTP/1.1 and TLS 1.2/1.3 client implementation using Hyper, Tokio, and Rustls.
 
+pub mod transport;
+
+pub(crate) use transport::RawResponse;
+
 use crate::cors::CorsEvaluator;
-use crate::decompression::MAX_DECOMPRESSED_BYTES;
+use crate::dns::DnsResolver;
 use crate::error::NetworkError;
 use crate::mixed_content::is_insecure_mixed_content;
 use crate::types::{HttpMethod, HttpRequest, HttpResponse};
-use bytes::Bytes;
-use http_body_util::combinators::BoxBody;
-use http_body_util::{BodyExt, Full};
-use hyper::client::conn::http1;
-use hyper_util::rt::TokioIo;
-use rustls::pki_types::ServerName;
-use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::net::TcpStream;
-use tokio_rustls::TlsConnector;
 use url::Url;
-
-use crate::dns::DnsResolver;
 
 /// Maximum redirect hops followed before failing with `NetworkError::TooManyRedirects`.
 pub const MAX_REDIRECTS: usize = 5;
-
-/// A raw HTTP response whose body is still streamable, before any collection.
-pub(crate) type RawResponse = http::Response<BoxBody<Bytes, hyper::Error>>;
 
 /// Client configuration for network and TLS settings.
 #[derive(Clone)]
@@ -265,171 +255,21 @@ impl HttpClient {
         Err(NetworkError::TooManyRedirects(current.url.to_string()))
     }
 
-    /// Collects a raw streaming response into an in-memory [`HttpResponse`],
-    /// bounding the wire body and applying content decoding.
     async fn collect_response(
         &self,
         response: RawResponse,
         final_url: Url,
     ) -> Result<HttpResponse, NetworkError> {
-        let status_code = response.status().as_u16();
-
-        let mut headers = HashMap::new();
-        let mut mime_type = "text/html".to_string();
-        let mut set_cookies = Vec::new();
-
-        for val in response.headers().get_all(http::header::SET_COOKIE) {
-            if let Ok(str_val) = val.to_str() {
-                set_cookies.push(str_val.to_string());
-            }
-        }
-
-        for (name, value) in response.headers() {
-            if let Ok(str_val) = value.to_str() {
-                headers.insert(name.as_str().to_ascii_lowercase(), str_val.to_string());
-                if name == http::header::CONTENT_TYPE {
-                    let mime = str_val.split(';').next().unwrap_or(str_val);
-                    mime_type = mime.trim().to_string();
-                }
-            }
-        }
-
-        // Bound the transferred body so a hostile or broken server cannot
-        // exhaust memory; a separate cap applies after decompression.
-        let collected = http_body_util::Limited::new(response.into_body(), MAX_DECOMPRESSED_BYTES)
-            .collect()
-            .await
-            .map_err(|e| NetworkError::Other(format!("response body read failed: {e}")))?;
-        let raw_payload = collected.to_bytes();
-        let content_encoding = headers.get("content-encoding").map(String::as_str);
-        let decompressed_body =
-            crate::decompression::decompress_payload(&raw_payload, content_encoding)?;
-
-        Ok(HttpResponse {
-            url: final_url,
-            status_code,
-            headers,
-            set_cookies,
-            body: decompressed_body.into(),
-            mime_type,
-        })
+        transport::collect_response(response, final_url).await
     }
 
-    /// Executes a single HTTP request without redirect handling.
     async fn execute_request(&self, request: &HttpRequest) -> Result<RawResponse, NetworkError> {
-        let scheme = request.url.scheme();
-        let is_tls = match scheme {
-            "http" => false,
-            "https" => true,
-            _ => return Err(NetworkError::UnsupportedScheme(scheme.to_string())),
-        };
-
-        let host = request
-            .url
-            .host_str()
-            .ok_or_else(|| NetworkError::MissingHost(request.url.to_string()))?;
-
-        let port = request
-            .url
-            .port_or_known_default()
-            .unwrap_or(if is_tls { 443 } else { 80 });
-
-        tracing::info!(host, port, is_tls, url = %request.url, "Resolving and connecting to host");
-
-        let ips = self.dns_resolver.resolve(host).await.unwrap_or_default();
-        let mut tcp_stream = None;
-        let mut last_err = None;
-
-        for ip in ips {
-            match TcpStream::connect((ip, port)).await {
-                Ok(stream) => {
-                    tcp_stream = Some(stream);
-                    break;
-                }
-                Err(err) => {
-                    last_err = Some(err);
-                }
-            }
-        }
-
-        let tcp_stream = match tcp_stream {
-            Some(stream) => stream,
-            None => TcpStream::connect((host, port)).await.map_err(|e| {
-                NetworkError::ConnectionFailed(format!("{host}:{port}"), last_err.unwrap_or(e))
-            })?,
-        };
-
-        if is_tls {
-            let server_name = ServerName::try_from(host.to_string())
-                .map_err(|e| NetworkError::TlsError(format!("Invalid server name: {e}")))?;
-
-            let connector = TlsConnector::from(Arc::clone(&self.tls_config));
-            let tls_stream = connector
-                .connect(server_name, tcp_stream)
-                .await
-                .map_err(|e| NetworkError::TlsError(format!("TLS handshake failed: {e}")))?;
-
-            self.execute_http1(TokioIo::new(tls_stream), request, host)
-                .await
-        } else {
-            self.execute_http1(TokioIo::new(tcp_stream), request, host)
-                .await
-        }
-    }
-
-    async fn execute_http1<T>(
-        &self,
-        io: TokioIo<T>,
-        request: &HttpRequest,
-        host: &str,
-    ) -> Result<RawResponse, NetworkError>
-    where
-        T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
-    {
-        let (mut sender, conn) = http1::handshake(io).await?;
-
-        tokio::spawn(async move {
-            if let Err(err) = conn.await {
-                tracing::debug!(%err, "HTTP connection closed with error");
-            }
-        });
-
-        let mut path_and_query = request.url.path().to_string();
-        if let Some(query) = request.url.query() {
-            path_and_query.push('?');
-            path_and_query.push_str(query);
-        }
-        if path_and_query.is_empty() {
-            path_and_query = "/".to_string();
-        }
-
-        let hyper_method = match request.method {
-            HttpMethod::Get => http::Method::GET,
-            HttpMethod::Post => http::Method::POST,
-            HttpMethod::Head => http::Method::HEAD,
-            HttpMethod::Put => http::Method::PUT,
-            HttpMethod::Delete => http::Method::DELETE,
-        };
-
-        let mut builder = http::Request::builder()
-            .method(hyper_method)
-            .uri(path_and_query)
-            .header(http::header::HOST, host)
-            .header(http::header::USER_AGENT, &self.config.user_agent)
-            .header(
-                http::header::ACCEPT,
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            )
-            .header(http::header::ACCEPT_ENCODING, "gzip, deflate");
-
-        for (key, val) in &request.headers {
-            builder = builder.header(key.as_str(), val.as_str());
-        }
-
-        let body_bytes = request.body.clone().unwrap_or_default();
-        let req = builder.body(Full::new(body_bytes))?;
-
-        let response = sender.send_request(req).await?;
-        Ok(response.map(http_body_util::BodyExt::boxed))
+        transport::execute_request(
+            request,
+            &self.config.user_agent,
+            &self.tls_config,
+            &self.dns_resolver,
+        )
+        .await
     }
 }
