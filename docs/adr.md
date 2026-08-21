@@ -1,7 +1,7 @@
 # Architecture Decision Records & Dependency Strategy
 
 This document contains **Dependency Strategy** (§25) and all **Architecture Decision Records (ADRs)** (§30) for the Soul Browser Engine.
-For the main architecture index and milestone status, see [`docs/architecture-plan.md`](file:///d:/Hobby/soul/docs/architecture-plan.md).
+For the main architecture index and milestone status, see [`docs/architecture-plan.md`](architecture-plan.md).
 
 ---
 
@@ -10,7 +10,7 @@ For the main architecture index and milestone status, see [`docs/architecture-pl
 | Subsystem | Decision | Crate(s) |
 |---|---|---|
 | TLS/crypto | **Reuse — never hand-roll** | `rustls` (+ `aws-lc-rs` or `ring` provider) |
-| DNS | Reuse | `hickory-resolver` |
+| DNS | Reuse | `hickory-resolver` / `tokio::net` |
 | HTTP/1.1, HTTP/2 | Reuse | `hyper`, `h2` |
 | HTTP/3, QUIC | Reuse | `quinn`, `h3` |
 | HTML tokenizing/parsing | Reuse | `html5ever` |
@@ -27,7 +27,7 @@ For the main architecture index and milestone status, see [`docs/architecture-pl
 | JavaScript engine | Reuse (pure-Rust) | `boa_engine` |
 | WebAssembly (Phase 3+) | Reuse | `wasmtime` |
 | DOM/JS bindings, event loop, layout engine internals | **Build from scratch** | — differentiator code |
-| Compression | Reuse | `flate2`, `brotli` |
+| Compression | Reuse | `flate2`, `brotli`, `zstd` |
 | Cookie parsing | Reuse (matching logic ours) | `cookie` |
 | Storage/database | Reuse | `rusqlite` (+ `r2d2`/`deadpool`) |
 | Async runtime | Reuse | `tokio` (networking/storage/IO); GPUI's own executor for UI-thread tasks |

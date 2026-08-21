@@ -1,7 +1,7 @@
 # Subsystems: Core & Process Architecture
 
 This document contains detailed architecture specifications for **Browser Core, Process Model, Threading, IPC, GPUI, and Navigation** (§6–§11) of the Soul Browser Engine.
-For the main architecture index and milestone status, see [`docs/architecture-plan.md`](file:///d:/Hobby/soul/docs/architecture-plan.md).
+For the main architecture index and milestone status, see [`docs/architecture-plan.md`](architecture-plan.md).
 
 ---
 

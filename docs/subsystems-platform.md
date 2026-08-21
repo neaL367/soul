@@ -1,7 +1,7 @@
 # Subsystems: Platform, Networking, Storage & Security
 
 This document contains detailed architecture specifications for **Networking, Storage, GPU Architecture, Windows Platform Layer, and Security Architecture** (§19–§23) of the Soul Browser Engine.
-For the main architecture index and milestone status, see [`docs/architecture-plan.md`](file:///d:/Hobby/soul/docs/architecture-plan.md).
+For the main architecture index and milestone status, see [`docs/architecture-plan.md`](architecture-plan.md).
 
 ---
 
@@ -10,22 +10,21 @@ For the main architecture index and milestone status, see [`docs/architecture-pl
 ```text
 URL → url crate (parsing, per WHATWG URL spec)
     → Proxy resolution (system proxy settings via WinHTTP/registry, or manual config)
-    → DNS (hickory-resolver, with its own cache; *implementation note 2026-08-18: currently the platform resolver via `tokio::net::lookup_host` — see ADR-19*)
+    → DNS (tokio async resolver with internal cache; hickory-resolver planned)
     → Connection: TCP (std/tokio) for HTTP/1.1 & HTTP/2, or QUIC (quinn) for HTTP/3
     → TLS (rustls, with rustls-native-certs or webpki-roots for the trust store)
     → HTTP/1.1 (hyper) / HTTP/2 (hyper + h2) / HTTP/3 (h3 + quinn)
     → Redirect handling (bounded hop count, method/body semantics per fetch spec)
-    → Decompression (flate2 for gzip/deflate, brotli crate, zstd optional)
+    → Decompression (flate2 for gzip/deflate, brotli crate for br, zstd crate for zstd)
+    → HSTS Enforcement (storage crate HstsStore: RFC 6797 auto-upgrade http:// -> https://)
     → HTTP cache (storage crate: freshness via Cache-Control/Expires, validation via ETag/Last-Modified)
-    → Cookie jar (storage crate; parsed/matched per RFC 6265bis rules — reuse `cookie` crate for parsing,
-      write matching/storage logic against this project's storage layer)
-    → Response handed to renderer (as a byte stream, so HTML parsing can begin before the full body arrives —
-      streaming parse is an MVP requirement, not an optimization, for perceived load performance)
+    → Cookie jar (storage crate; parsed/matched per RFC 6265bis rules)
+    → Response handed to renderer (as a byte stream, so HTML parsing can begin before the full body arrives)
 ```
 
 **Reuse, do not reinvent:** TLS/crypto (`rustls`, backed by `aws-lc-rs` or `ring` as its crypto provider), DNS resolution, HTTP/1.1/2/3 protocol implementations, QUIC. These are security-critical, extensively fuzzed, and re-implementing them is both a security risk and a waste of the project's differentiation budget. This is a hard rule, not a preference (see §25 dependency policy).
 
-**MVP:** HTTP/1.1 + HTTP/2 over TLS 1.2/1.3, DNS resolution with caching, redirects, gzip/br decompression, basic cookie jar, `Cache-Control` HTTP caching, CORS enforcement for `fetch`/XHR (simple + preflight), Same-Origin Policy enforcement at the fetch layer.
+**MVP:** HTTP/1.1 + HTTP/2 over TLS 1.2/1.3, DNS resolution with caching, redirects, gzip/deflate/br/zstd decompression, RFC 6797 HSTS policy enforcement, basic cookie jar, `Cache-Control` HTTP caching, CORS enforcement for `fetch`/XHR (simple + preflight), Same-Origin Policy enforcement at the fetch layer.
 
 **Phase 2:** HTTP/3 + QUIC, connection pooling tuned per-origin, proxy support (system + manual), CSP parsing/enforcement (`script-src`, `connect-src` at minimum), mixed-content blocking, private-browsing network isolation (separate cookie jar/cache, not just "don't persist").
 
@@ -40,11 +39,13 @@ URL → url crate (parsing, per WHATWG URL spec)
 | Cookies | SQLite (`rusqlite`) | Matches Chromium's approach; gives ACID + easy expiry queries "for free". |
 | History | SQLite | Full-text search on titles/URLs is a `FTS5` virtual table — reused, not built. |
 | Bookmarks | SQLite | Simple relational tree (parent_id/order columns). |
+| HSTS Policies | SQLite (`hsts_policies` table) | RFC 6797 max-age, includeSubDomains, created_at timestamps. |
 | LocalStorage | SQLite (one table, origin-partitioned key/value) | Synchronous API contract from JS is satisfied by an in-memory write-through cache over SQLite. |
 | SessionStorage | In-memory only, per tab, per origin | Never touches disk — correctness requirement, not a perf shortcut. |
-| IndexedDB | SQLite-backed, Phase 3 | IndexedDB's transactional/versioned-schema semantics map reasonably onto SQLite transactions; this is still a substantial spec surface (cursors, key ranges, indexes). |
+| IndexedDB | SQLite-backed (`IndexedDbStore`) | IndexedDB's transactional/versioned-schema semantics backed by SQLite tables. |
 | Cache Storage (`fetch` API) | Blob files on disk + SQLite index | Large binary bodies don't belong in SQLite rows. |
 | HTTP cache | Blob files on disk + SQLite index | Same pattern as Cache Storage; keyed by request hash. |
+| Secret Vault | Windows DPAPI (`DpapiVault`) | Master key encryption via `CryptProtectData`/`CryptUnprotectData` with AES-256-GCM. |
 | Profiles | Directory-per-profile under `%LOCALAPPDATA%` | Private browsing = an in-memory-only profile variant of the same schema, discarded on window close. |
 
 - **Concurrency**: SQLite in WAL mode, one writer connection per store owned by the storage thread/task, reads via connection pool (`r2d2`/`deadpool` + `rusqlite`).

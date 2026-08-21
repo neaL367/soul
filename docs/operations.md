@@ -1,79 +1,72 @@
 # Operations: Feature Matrix, Testing, Performance & Risks
 
 This document contains **Feature Matrix, Testing Architecture, Performance Budgets, and the Risk Register** (§26–§29) for the Soul Browser Engine.
-For the main architecture index and milestone status, see [`docs/architecture-plan.md`](file:///d:/Hobby/soul/docs/architecture-plan.md).
+For the main architecture index and milestone status, see [`docs/architecture-plan.md`](architecture-plan.md).
 
 ---
 
 ## 26. Feature Matrix
 
-Legend: **M**=MVP, **R**=Required (ships shortly after MVP), **L**=Later/Phase 2-3, **A**=Advanced, **X**=Extremely Difficult, **O**=Optional/may never ship.
+Legend: **M**=MVP, **R**=Required (ships shortly after MVP), **L**=Later/Phase 2-3, **A**=Advanced, **X**=Extremely Difficult, **O**=Optional/may never ship, **✓**=Implemented & Verified.
 
 ### Browser Core
 | Feature | Class | Feature | Class |
 |---|---|---|---|
-| Tabs (open/close/switch) | M | Session restore | R |
-| Windows (multi-window) | M | Bookmarks | R |
-| Navigation (URL bar, back/fwd) | M | Downloads | R |
-| Search (omnibox → search engine) | M | Tab freeze/discard (memory tiering) | R |
-| History | M | Sync / multi-device | O |
+| Tabs (open/close/switch) | ✓ | Session restore | ✓ |
+| Windows (multi-window) | ✓ | Bookmarks | ✓ |
+| Navigation (URL bar, back/fwd) | ✓ | Downloads (resumable + MOTW) | ✓ |
+| Search (omnibox → search engine) | ✓ | Tab freeze/discard (memory tiering) | ✓ |
+| History | ✓ | Sync / multi-device | O |
 
 ### HTML
 | Feature | Class | Feature | Class |
 |---|---|---|---|
-| Parser (html5ever) | M | Forms (basic inputs) | M |
-| DOM tree | M | Tables (structural) | M |
-| Links/navigation | M | Custom elements (parse-level) | L |
-| Images | M | Shadow DOM | A |
-| Metadata (`<meta>`, `<title>`) | M | Full table layout algorithm | A |
+| Parser (html5ever) | ✓ | Forms (basic inputs) | ✓ |
+| DOM tree (NodeId arena) | ✓ | Tables (structural) | ✓ |
+| Links/navigation | ✓ | Custom elements (parse-level) | L |
+| Images | ✓ | Shadow DOM | A |
+| Metadata (`<meta>`, `<title>`) | ✓ | Full table layout algorithm | A |
 
 ### CSS
 | Feature | Class | Feature | Class |
 |---|---|---|---|
-| Selectors (basic + combinators) | M | Grid | L |
-| Cascade/specificity | M | Media queries | L |
-| Box model | M | Transforms (2D) | L |
-| Positioning (static/relative/absolute/fixed) | M | Transitions | L |
-| Flexbox | R | Animations (`@keyframes`) | A |
+| Selectors (basic + combinators) | ✓ | Grid | L |
+| Cascade/specificity | ✓ | Media queries | L |
+| Box model | ✓ | Transforms (2D) | L |
+| Positioning (static/relative) | ✓ | Transitions | L |
+| Flexbox (taffy) | ✓ | Custom Properties (`var()`) | ✓ |
+| Pseudo-Elements (`::before`, `::after`, `content`) | ✓ | Animations (`@keyframes`) | A |
 | `:has()`, container queries | A | Print/pagination CSS | X |
 
-### JavaScript
+### JavaScript & Web APIs
 | Feature | Class | Feature | Class |
 |---|---|---|---|
-| ECMAScript core (via boa) | M | Web Workers | L |
-| Basic DOM APIs | M | WebAssembly | A |
-| Events | M | Service Workers | X |
-| `fetch` (basic) | R | Shared memory/Atomics | X |
-| Promises/async-await | R | JIT compilation | X (only if profiling demands) |
+| ECMAScript core (via boa) | ✓ | Web Workers (2nd VM + mpsc) | ✓ |
+| Basic DOM APIs | ✓ | IndexedDB (`window.indexedDB`) | ✓ |
+| Events & Event Loop | ✓ | Canvas 2D (`CanvasRenderingContext2D`) | ✓ |
+| `fetch` (rich Headers/Request/Response) | ✓ | WebSockets (`WebSocket`) | ✓ |
+| Promises/async-await | ✓ | Web Crypto (`randomUUID`, `getRandomValues`) | ✓ |
+| WHATWG `URL` & `URLSearchParams` | ✓ | High-Res Time (`performance.now`, `rAF`) | ✓ |
+| `MutationObserver` | ✓ | WebAssembly | A |
+| LocalStorage & SessionStorage | ✓ | Service Workers | X |
 
-### Storage
+### Storage & Security
 | Feature | Class | Feature | Class |
 |---|---|---|---|
-| Cookies | M | IndexedDB | L |
-| LocalStorage | R | Cache Storage | L |
-| SessionStorage | R | Quota management | L |
-
-### Media
-| Feature | Class | Feature | Class |
-|---|---|---|---|
-| Images | M | Web Audio | A |
-| Audio/Video elements (basic) | L | Media Source Extensions | X |
-| Canvas element + 2D context | L | WebGL/WebGPU in canvas | X |
-
-### Security
-| Feature | Class | Feature | Class |
-|---|---|---|---|
-| HTTPS/TLS | M | Sandboxing (reduced) | L |
-| Same-Origin Policy | M | Site isolation | X |
-| CORS | M | Full sandbox parity w/ Chromium | X (likely never) |
-| CSP | L | Secure storage (DPAPI) | R (production) |
+| Cookies | ✓ | HTTPS/TLS (rustls) | ✓ |
+| LocalStorage | ✓ | Same-Origin Policy & CORS | ✓ |
+| SessionStorage (in-memory) | ✓ | Brotli & Zstd Decompression | ✓ |
+| IndexedDB | ✓ | RFC 6797 HSTS Policies | ✓ |
+| HTTP cache | ✓ | DPAPI Vault (`CryptProtectData`) | ✓ |
+| Sandboxing (Job Objects + Tokens) | L | Full Chromium sandbox parity | X |
 
 ### Developer Tools
 | Feature | Class | Feature | Class |
 |---|---|---|---|
-| Console (basic) | L | Sources/debugger | A |
-| Elements inspector | L | Performance profiler | A |
-| Network panel | L | Storage inspector | L |
+| Chrome DevTools Protocol (CDP) | ✓ | Sources/debugger | A |
+| Console domain | ✓ | Performance profiler | A |
+| Elements / DOM domain | ✓ | Storage inspector | L |
+| Network domain | ✓ | | |
 
 ---
 

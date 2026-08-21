@@ -1,7 +1,7 @@
 # Subsystems: Rendering Engine & Scripting
 
 This document contains detailed architecture specifications for the **HTML Engine, DOM, CSS Engine, Layout, Paint, Compositor, and JavaScript Engine** (§12–§18) of the Soul Browser Engine.
-For the main architecture index and milestone status, see [`docs/architecture-plan.md`](file:///d:/Hobby/soul/docs/architecture-plan.md).
+For the main architecture index and milestone status, see [`docs/architecture-plan.md`](architecture-plan.md).
 
 ---
 
@@ -18,7 +18,7 @@ Bytes → Encoding sniff (BOM/meta charset/HTTP header, via `encoding_rs`)
 
 **MVP HTML coverage:** parsing, DOM tree construction, `<head>`/`<body>`, text nodes, attributes, `<a>`, `<img>`, `<div>`/`<span>`/block & inline elements, `<table>` (structure only, not full layout initially), `<form>` + basic input types, `<script>`/`<style>` extraction (execution/application handled by JS/CSS subsystems), `<meta charset>`/`<meta viewport>`.
 
-**Phase 2:** `<canvas>` element (backing store, not the 2D API itself yet), `<video>`/`<audio>` elements (element + basic playback via Media Foundation, not MSE), `<iframe>` (same-process, same-origin only), custom elements registry (parse-level support, not full Custom Elements v1 lifecycle).
+**Phase 2:** `<canvas>` element (backing store + 2D rendering context), `<video>`/`<audio>` elements (element + basic playback via Media Foundation, not MSE), `<iframe>` (same-process, same-origin only), custom elements registry (parse-level support, not full Custom Elements v1 lifecycle).
 
 **Phase 3 / Advanced:** full `<iframe>` isolation, Shadow DOM, `<template>`, declarative Shadow DOM, full table layout algorithm (auto table layout is notoriously fiddly).
 
@@ -31,8 +31,8 @@ A from-scratch DOM crate, because layout, style, and JS bindings all need to wal
 - **Storage:** arena-allocated (`slotmap` or a hand-rolled generational arena) node pool, not `Rc<RefCell<Node>>` trees — avoids reference-cycle/borrow-checker pain and is dramatically more cache-friendly for layout traversal.
 - **Node identity:** `NodeId` (generational index) is the currency passed between HTML parser, style system, layout, and JS bindings — never raw pointers, keeping everything `Send` where needed for future multi-threaded style/layout.
 - **Mutation:** DOM mutations (from parsing *or* from JS) go through one mutation API that also records the invalidation needed for style/layout (dirty bits), so "JS calls `appendChild`" and "parser inserts a node" hit the same invalidation path — no special-casing that could get them out of sync.
-- **MVP:** element/text/comment/document nodes, attributes, basic tree mutation API (`appendChild`, `removeChild`, `setAttribute`), `querySelector`/`querySelectorAll` (via the `selectors` crate, shared with CSS matching — see §14).
-- **Phase 2:** `MutationObserver`-equivalent internal event stream (needed before JS `MutationObserver` API can exist), Shadow-DOM-aware tree walking.
+- **MVP:** element/text/comment/document nodes, attributes, basic tree mutation API (`appendChild`, `removeChild`, `setAttribute`), `querySelector`/`querySelectorAll`.
+- **Phase 2:** `MutationObserver`-equivalent internal event stream and full JS `MutationObserver` API, Shadow-DOM-aware tree walking.
 - **Advanced:** full Shadow DOM encapsulation semantics, slot assignment.
 
 ---
@@ -41,7 +41,7 @@ A from-scratch DOM crate, because layout, style, and JS bindings all need to wal
 
 **Decision: reuse `cssparser` + `selectors`** (both Servo-maintained, both genuinely low-level and reusable independent of Stylo) for tokenizing and selector matching. **Write the cascade, computed-value resolution, and layout tree from scratch**, tuned to this engine's DOM and to `taffy` (see §15) as the box-layout solver.
 
-> *Implementation status (2026-08-18):* the current `css` crate hand-rolls tokenizing/selector matching for the MVP property subset; `cssparser`/`selectors` reuse is deferred — see ADR-17.
+> *Implementation status (2026-08-21):* the current `css` crate hand-rolls tokenizing/selector matching for the MVP property subset; `cssparser`/`selectors` reuse is deferred — see ADR-17. Custom Properties (`var(--name)`) and pseudo-elements (`::before`, `::after`, `content`, `::placeholder`, `::marker`) are implemented and verified.
 
 ```text
 CSS bytes → cssparser Tokenizer → this project's rule/declaration parser → CSSOM (Stylesheet/Rule/Declaration)
@@ -55,7 +55,7 @@ DOM + CSSOM → selector matching (`selectors` crate against this project's DOM 
 
 **MVP CSS:** box model (content/padding/border/margin), `display: block/inline/inline-block/none`, normal flow + floats (basic), `position: static/relative/absolute/fixed`, colors, `font-*`, `text-align`, basic `background`, `border`, simple selectors + combinators (`.class`, `#id`, `tag`, descendant/child), `!important`, basic cascade/specificity, `overflow: visible/hidden/scroll` (scroll mechanics, not scrollbar theming), viewport meta handling.
 
-**Phase 2:** Flexbox (via `taffy`), CSS Grid (via `taffy`), `position: sticky`, z-index/stacking contexts (correctly — this is a common source of subtle bugs), transforms (2D), opacity, basic transitions, media queries (viewport-based), `calc()`, CSS custom properties (`--var`)/`var()`.
+**Phase 2:** Flexbox (via `taffy`), CSS Grid (via `taffy`), `position: sticky`, z-index/stacking contexts (correctly — this is a common source of subtle bugs), transforms (2D), opacity, basic transitions, media queries (viewport-based), `calc()`, CSS custom properties (`--var`)/`var()`, generated content (`::before`/`::after`/`content`).
 
 **Phase 3:** animations (`@keyframes`), 3D transforms, filters (`blur`, `drop-shadow` — GPU-shader-backed), `clip-path`, container queries, `:has()` (selector matching cost is real — needs a dedicated invalidation strategy, not naive re-matching).
 
@@ -162,8 +162,6 @@ JavaScript source
 
 **MVP JS:** running `<script>` (inline + external, synchronous), a hand-written **event loop** (task queue + microtask queue — this is this project's own code, sitting on top of `boa`'s VM, not provided by `boa` itself), `console.log` → devtools/stdout, `setTimeout`/`setInterval`, basic DOM API surface (`querySelector`, `addEventListener`, `classList`, `innerHTML` read/write, basic `fetch` bound to the networking crate).
 
-**Phase 2:** Promises/`async`/`await` (event-loop integration is the hard part, not the language feature — needs correct microtask-vs-macrotask ordering), `MutationObserver`, `history.pushState`, richer DOM API coverage, JSON, basic `localStorage`/`sessionStorage` bindings.
-
-**Phase 3:** Web Workers (a second `boa` VM instance per worker, message-passing via `postMessage`, no shared memory), `IndexedDB` bindings, more complete `fetch`/`Response`/`Request`/`Headers`.
+**Phase 2 / Completed:** Promises/`async`/`await`, `MutationObserver`, `history.pushState`, Web Cryptography API (`crypto.randomUUID()`, `crypto.getRandomValues()`), WHATWG `URL`/`URLSearchParams`, High-Resolution Time (`performance.now()`, `requestAnimationFrame()`), Web Workers (`WebWorker` thread + mpsc + 2nd VM), `IndexedDB` bindings, Canvas 2D (`CanvasRenderingContext2D`), WebSockets (`WebSocket`), full `fetch`/`Response`/`Request`/`Headers` (`text()`/`json()`/`arrayBuffer()`), `localStorage`/`sessionStorage` bindings.
 
 **Advanced / Extremely Difficult:** WebAssembly (a *third* execution engine — `wasmtime` embeds cleanly in Rust and is the right reuse choice, but wiring it into the DOM/JS interop model correctly is real work), `SharedArrayBuffer` + Atomics (has security implications — Spectre-class isolation requirements that real browsers solve with site isolation, which this project has explicitly deferred), Service Workers (needs a persistent background execution model + Cache Storage + fetch interception — a project-sized feature on its own).

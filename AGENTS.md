@@ -8,10 +8,14 @@ Section numbers below (`§N`) refer to `docs/architecture-plan.md` unless stated
 
 ## 0. Current Project State — read this first
 
-**This project may still be pre-code.** Before doing anything else, check whether `Cargo.toml` exists at the workspace root.
+**Active Development State (25 crates, 218 passing tests):**
+The workspace is fully scaffolded, compiled, and verified across all 25 crates under `crates/`. Single-crate GPUI isolation is enforced (`soul-backend-gpui` is the sole crate importing `gpui`), and full regression test coverage passes green in CI (218 unit and integration tests).
 
-- **If it does not exist:** the project is at or before **M0 (Project Foundation)**. Your task is almost certainly bootstrapping work. Do not invent a different structure — scaffold exactly the crate layout in §24, with each crate as an empty-but-compiling stub (`lib.rs` with a doc comment stating its future responsibility, no speculative code). Do not implement M5+ functionality inside an M0 task just because it seems natural to "get ahead" — see AGENTS.md §11 Change-Scope Discipline.
-- **Spike 0 status matters disproportionately.** Two architectural questions are load-bearing for everything downstream: (a) which GPUI integration path (ADR-1) — is `soul-ui`'s `SoulBackend` trait implemented against mainline GPUI or the `gpui-ce`/wgpu fork? (b) is Boa confirmed viable against the target-site JS corpus, or has a pivot to `rquickjs` already happened (ADR-4)? Both are resolved and recorded in `docs/architecture-plan.md` §31 and `docs/adr.md`. If you're asked to do JS-engine or GPUI-integration work, verify against those resolutions rather than guessing.
+- **Current Capabilities**: Live HTTP(S) navigation pipeline, WHATWG URL / URLSearchParams, Web Cryptography API (`crypto.randomUUID`, `crypto.getRandomValues`), High-Resolution Performance Time (`performance.now`, `requestAnimationFrame`), streaming decompression (`gzip`, `deflate`, `br`, `zstd`), persistent RFC 6797 HSTS policy auto-upgrades, CSS Custom Properties (`var()`), CSS Pseudo-Elements (`::before`, `::after`, `content`), IndexedDB, Web Workers, Canvas 2D, WebSockets, SQLite storage, DevTools CDP server, and Windows 11 GPUI desktop shell.
+- **Architectural Seams**:
+  - `SoulBackend` trait in `soul-ui` isolates GPUI exclusively to `soul-backend-gpui`.
+  - JS runtime in `javascript` embeds `boa_engine` with DOM/Web API bindings in `web-api`.
+  - Cross-subsystem communication is strictly command/event message-passing over `ipc`.
 
 ---
 

@@ -3,7 +3,7 @@
 
 > **Revision note:** this plan was reviewed after its first draft. The review correctly identified the original 12–18 month MVP timeline as optimistic, flagged the GPUI dependency as an under-weighted project-survival risk (not just a rendering-backend choice), argued the JS-engine compatibility spike needed to move earlier, and pushed for an accessibility semantic tree to be carried from early layout work rather than retrofitted. Memory targets were also revised to be more honest about what Rust actually buys (safety, not automatically-low memory).
 
-> **Implementation status note (2026-08-18):** this plan describes the target architecture; §31 carries the authoritative per-milestone **Status** annotation and status table verified against code. In short: M0–M13, M15, M17, M19, and M20 are **Complete**; M14, M16, M18, and M21–M23 are **Partial** (M14's IPC groundwork is done; the process split itself is deferred per the §31 decision note). Single-crate GPUI isolation is enforced and green CI passes 179 tests across 25 crates.
+> **Implementation status note (2026-08-21):** this plan describes the target architecture; §31 carries the authoritative per-milestone **Status** annotation and status table verified against code. In short: M0–M13, M15, M17, M19, and M20 are **Complete**; M14, M16, M18, and M21–M23 are **Partial** (M14's IPC groundwork is done; the process split itself is deferred per the §31 decision note). Single-crate GPUI isolation is enforced and green CI passes 218 tests across 25 crates.
 
 ---
 
@@ -22,12 +22,12 @@
   - [§34. Recommended Implementation Order](#34-recommended-implementation-order)
   - [§35. Final Architecture Diagram](#35-final-architecture-diagram)
 - **Subsystem Architecture Documents**:
-  - [**Core & Process Subsystems** (`docs/subsystems-core.md`)](file:///d:/Hobby/soul/docs/subsystems-core.md): §6 Process Model, §7 Threading Model, §8 IPC Architecture, §9 GPUI Architecture, §10 Browser Core, §11 Navigation System.
-  - [**Engine & Scripting Subsystems** (`docs/subsystems-engine.md`)](file:///d:/Hobby/soul/docs/subsystems-engine.md): §12 HTML Engine, §13 DOM, §14 CSS Engine, §15 Layout Engine & Text Shaping, §16 Paint System, §17 Compositor, §18 JavaScript Engine.
-  - [**Platform & Storage Subsystems** (`docs/subsystems-platform.md`)](file:///d:/Hobby/soul/docs/subsystems-platform.md): §19 Networking Stack, §20 Storage, §21 GPU Architecture, §22 Windows Platform Layer, §23 Security Architecture.
+  - [**Core & Process Subsystems** (`docs/subsystems-core.md`)](subsystems-core.md): §6 Process Model, §7 Threading Model, §8 IPC Architecture, §9 GPUI Architecture, §10 Browser Core, §11 Navigation System.
+  - [**Engine & Scripting Subsystems** (`docs/subsystems-engine.md`)](subsystems-engine.md): §12 HTML Engine, §13 DOM, §14 CSS Engine, §15 Layout Engine & Text Shaping, §16 Paint System, §17 Compositor, §18 JavaScript Engine.
+  - [**Platform & Storage Subsystems** (`docs/subsystems-platform.md`)](subsystems-platform.md): §19 Networking Stack, §20 Storage, §21 GPU Architecture, §22 Windows Platform Layer, §23 Security Architecture.
 - **Decisions, Testing & Operations**:
-  - [**ADRs & Dependency Strategy** (`docs/adr.md`)](file:///d:/Hobby/soul/docs/adr.md): §25 Dependency Strategy, §30 Architecture Decision Records (ADR-1 through ADR-16).
-  - [**Operations, Testing & Risks** (`docs/operations.md`)](file:///d:/Hobby/soul/docs/operations.md): §26 Feature Matrix, §27 Testing Architecture, §28 Performance Architecture, §29 Risk Register.
+  - [**ADRs & Dependency Strategy** (`docs/adr.md`)](adr.md): §25 Dependency Strategy, §30 Architecture Decision Records (ADR-1 through ADR-19).
+  - [**Operations, Testing & Risks** (`docs/operations.md`)](operations.md): §26 Feature Matrix, §27 Testing Architecture, §28 Performance Architecture, §29 Risk Register.
 
 ---
 
@@ -224,30 +224,30 @@ browser/
 | M1 GPUI shell | real window via `SoulBackend` | **Complete** |
 | M2 Window + input | OS input events, DPI | **Complete** |
 | M3 URL + navigation | nav state machine, stub fetch | **Complete** |
-| M4 Networking | HTTP(S), DNS, redirects, cookies | **Complete** |
+| M4 Networking | HTTP(S), DNS, redirects, cookies, Brotli/Zstd, HSTS | **Complete** — streaming decompression (`gzip`, `deflate`, `br`, `zstd`), persistent SQLite RFC 6797 HSTS policy auto-upgrades |
 | M5 HTML parser | html5ever → DOM | **Complete** |
-| M6 DOM API | NodeId arena, mutation, query | **Complete** |
-| M7 CSS + style | cascade, computed style | **Complete** — note: tokenizer/selector matching is hand-rolled rather than `cssparser`/`selectors` (ADR-17) |
-| M8 Layout | block/inline/flex + text shaping | **Partial** — block and inline layout are wired and tested; `display: flex` containers now dispatch to the flex algorithm (taffy) from the live pipeline (`layout_block`), including nested flex containers and anonymous flex items; remaining gaps: text renders as placeholder rectangles because shaping is a synthetic-advance stub with no glyph rasterization (ADR-18); em/rem widths fall back to auto; inline-block is treated as inline; absolute/fixed/sticky positions compute but are not laid out |
+| M6 DOM API | NodeId arena, mutation, query, MutationObserver | **Complete** |
+| M7 CSS + style | cascade, computed style, custom properties (`var()`), pseudo-elements | **Complete** — supports `var(--name)`, pseudo-elements (`::before`, `::after`, `::placeholder`, etc.), `content` property |
+| M8 Layout | block/inline/flex + text shaping | **Partial** — block and inline layout are wired and tested; `display: flex` containers dispatch to taffy; generated pseudo-element boxes (`style.content`) generate layout nodes; remaining gaps: text shaping uses synthetic-advance stub (ADR-18); em/rem/calc resolution; absolute/fixed positioning |
 | M9 Paint | display list | **Complete** |
 | M9.5 A11y skeleton | semantic data in fragment tree | **Complete** |
 | M10a Software raster | CPU pixels on screen | **Complete** |
 | M10b GPU compositor | wgpu compositor | **Complete** |
 | M11 Basic JS | boa + event loop + DOM bindings | **Complete** |
-| M12 Web APIs | fetch, timers, Promises | **Complete** |
-| M13 Storage | SQLite persistence | **Complete** |
+| M12 Web APIs | fetch, timers, Promises, Crypto, URL, Performance | **Complete** — Web Crypto (`crypto.randomUUID()`, `crypto.getRandomValues()`), WHATWG `URL`/`URLSearchParams`, High-Res Time (`performance.now()`, `requestAnimationFrame()`) |
+| M13 Storage | SQLite persistence, HSTS, DPAPI | **Complete** |
 | M14 GPU split + IPC | GPU process, real IPC | **Partial** — IPC transport (in-memory + named pipe), framing codec, and message contracts are complete and tested; the GPU-process split itself remains deferred (see note below) |
 | M15 Network split | networking over IPC | **Complete** — the live browser path (`soul-shell` navigation driver) routes all network traffic through `BrowserToNetworkMsg`/`NetworkToBrowserMsg` via a pluggable `NetworkClient` over the in-memory transport, with mixed-content/CORS enforcement in the network service, request cancellation on both transports, per-request timeouts, and the named-pipe transport proven end-to-end; the cross-process flip is now a constructor change |
 | M16 Sandboxing | renderer process, Job Objects | **Partial** |
-| M17 Advanced Web APIs | Workers, IndexedDB, richer fetch | **Complete** — `WebWorker` (thread + mpsc + 2nd VM), SQLite `IndexedDbStore`, Boa `window.indexedDB`, and rich `fetch` (`Headers`, `Request`, `Response`, body readers `text()`/`json()`/`arrayBuffer()`) |
+| M17 Advanced Web APIs | Workers, IndexedDB, richer fetch, Canvas 2D, WebSockets | **Complete** — `WebWorker` (thread + mpsc + 2nd VM), SQLite `IndexedDbStore`, Boa `window.indexedDB`, rich `fetch` (`Headers`, `Request`, `Response`, body readers `text()`/`json()`/`arrayBuffer()`), Canvas 2D, WebSockets |
 | M18 Media | MF playback + Canvas 2D | **Partial** |
-| M19 DevTools | inspector/console/network | **Complete** |
+| M19 DevTools | inspector/console/network CDP | **Complete** |
 | M20 Downloads | download manager + MOTW | **Complete** |
 | M21 Compositor + perf | damage/layers, benchmark harness | **Partial** |
-| M22 Security | CSP, DPAPI, private browsing | **Partial** |
+| M22 Security | CSP, DPAPI, HSTS, private browsing | **Partial** |
 | M23 Production | signed installer, updates, crash reporting | **Partial** |
 
-**Known deviations from plan intent (audit 2026-08-18, tracked in ADR-17..19):**
+**Known deviations from plan intent (audit 2026-08-21, tracked in ADR-17..19):**
 - Text is drawn as placeholder solid rectangles — no glyph shaping or rasterization yet (M8 Partial).
 - CSS tokenizer/selector matching is hand-rolled; `cssparser`/`selectors` reuse deferred (ADR-17).
 - Text shaping is a synthetic-advance stub; `cosmic-text`/`rustybuzz` integration outstanding (ADR-18).
@@ -259,26 +259,27 @@ browser/
 
 ---
 
-### Next Steps (as of 2026-08-18)
+### Next Steps (as of 2026-08-21)
 
-Seven milestones remain Partial or re-flagged: **M8** (Layout), **M14**, **M16**, **M18**, **M21**, **M22**, **M23**.
+Seven milestones remain Partial or re-flagged: **M8** (Layout & Text Shaping), **M14**, **M16**, **M18**, **M21**, **M22**, **M23**.
 
-**M14/M15 decision (made 2026-08-18):** keep explicit single-process execution in `soul-shell` while hardening the message-shaped core. Rationale: the engine is still evolving (M18/M21/M22/M23), the named-pipe transport is already proven, and flipping the boundary now would add process-lifecycle failure modes on top of active engine work. The hardening work (M15) is done: the IPC network contract is complete (bodies, security context, final URL, set-cookies), the service enforces mixed content/CORS and honors cancellation on both transports, and `soul-shell`'s live browser path runs through `NetworkClient` over the in-memory transport — the process split is now a transport-swap (ADR-2/ADR-5). The remaining M14 work is the GPU-process split (shared-texture interop), which stays deferred.
+**M14/M15 decision:** keep explicit single-process execution in `soul-shell` while hardening the message-shaped core. Rationale: the engine is still evolving (M18/M21/M22/M23), the named-pipe transport is already proven, and flipping the boundary now would add process-lifecycle failure modes on top of active engine work. The hardening work (M15) is done: the IPC network contract is complete (bodies, security context, final URL, set-cookies), the service enforces mixed content/CORS and honors cancellation on both transports, and `soul-shell`'s live browser path runs through `NetworkClient` over the in-memory transport — the process split is now a transport-swap (ADR-2/ADR-5). The remaining M14 work is the GPU-process split (shared-texture interop), which stays deferred.
 
-**Verified Ground Truth Baseline (Completed 2026-08-18, re-verified after M15):**
+**Verified Ground Truth Baseline (Completed 2026-08-21):**
 ```
-cargo fmt --all -- --check                       # CLEAN (0 diffs)
-cargo clippy --workspace --all-targets -- -D warnings # CLEAN (0 warnings across all 25 crates)
-cargo test --workspace -j 2                      # CLEAN (179 passed, 0 failed)
+cargo fmt --all -- --check                             # CLEAN (0 diffs)
+cargo clippy --workspace --all-targets -- -D warnings   # CLEAN (0 warnings across all 25 crates)
+cargo test --workspace                                # CLEAN (218 passed, 0 failed)
 ```
 Single-crate GPUI boundary verified: `soul-backend-gpui` is the only workspace crate depending on `gpui` (upstream `gpui_*` subcrates of the zed git dependency excluded).
 
 **Milestone Execution Sequence:**
-1. **M21** — run the benchmark harness and check results against §28's numeric targets.
-2. **M22** — verify CSP directive enforcement actively blocks non-compliant resource loads in addition to reporting violations.
-3. **M16** — apply `RestrictedToken` to spawned processes and launch a live child into `JobObject`.
+1. **M8 / M10** — implement real glyph shaping and rasterization via `cosmic-text`/`rustybuzz` and DirectWrite system fonts.
+2. **M8** — implement CSS relative units (`em`, `rem`, `vw`, `vh`, `calc()`) and `position: absolute`/`fixed` layout.
+3. **M22** — implement private/incognito ephemeral storage profile isolation and full CSP directive enforcement.
 4. **M18** — implement real Media Foundation decode in `crates/media/src/` via COM `IMFSourceReader`.
-5. **M23** — implement update manifest fetching, binary download, signature verification against `DpapiVault`/public keys, and real installer.
+5. **M16** — apply `RestrictedToken` to spawned processes and launch a live child into `JobObject`.
+6. **M23** — implement update manifest fetching, binary download, signature verification against `DpapiVault`/public keys, and real installer.
 
 ---
 
