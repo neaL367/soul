@@ -1,0 +1,4 @@
+# Fast linking and build settings for Windows MSVC
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/DEBUG:FASTLINK"]
