@@ -124,3 +124,54 @@ fn test_non_finite_max_width_does_not_break_soft_wrapping() {
         assert!(line.width.is_finite());
     }
 }
+
+#[test]
+fn test_font_metrics_from_database() {
+    let db = FontDatabase::global();
+    let metrics = FontMetrics::from_database(db, "Arial", 16.0);
+    assert!(metrics.ascent > 0.0);
+    assert!(metrics.descent >= 0.0);
+    assert!(metrics.line_height >= 16.0);
+
+    let mono_metrics = FontMetrics::from_database(db, "monospace", 20.0);
+    assert!(mono_metrics.line_height >= 20.0);
+}
+
+#[test]
+fn test_complex_unicode_and_ligature_shaping() {
+    let shaper = TextShaper::new();
+
+    // Arabic and Thai multi-character clusters
+    let unicode_text = "สวัสดี / مرحبا / 🦀";
+    let run = shaper.shape_text(unicode_text, "sans-serif", 16.0, false);
+    assert!(run.advance_width > 0.0);
+    assert!(!run.glyphs.is_empty());
+
+    // Ligature test: "office" with OpenType advanced shaping
+    let ligature_run = shaper.shape_text("office", "serif", 16.0, false);
+    assert!(ligature_run.advance_width > 0.0);
+}
+
+#[test]
+fn test_rasterize_text_to_callback() {
+    use text_shaping::rasterize_text_to_callback;
+
+    let mut pixel_count = 0;
+    rasterize_text_to_callback(
+        "A",
+        "sans-serif",
+        24.0,
+        false,
+        (255, 0, 0, 255),
+        |_x, _y, w, h, color| {
+            if w > 0 && h > 0 && color.a() > 0 {
+                pixel_count += 1;
+            }
+        },
+    );
+
+    assert!(
+        pixel_count > 0,
+        "Glyph 'A' should generate rasterized pixels"
+    );
+}

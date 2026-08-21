@@ -204,3 +204,39 @@ fn test_rasterize_ignores_non_finite_items() {
     // Non-finite items draw nothing; buffer stays fully transparent.
     assert_eq!(pixel_buffer.get_pixel(50, 50).unwrap(), [0, 0, 0, 0]);
 }
+
+#[test]
+fn test_shaped_text_rasterization() {
+    use paint::DisplayItem;
+
+    let mut display_list = paint::DisplayList::default();
+    display_list.push(DisplayItem::DrawText {
+        rect: Rect::new(10.0, 10.0, 150.0, 40.0),
+        text: "Hello Rust".to_string(),
+        color: css::Color::rgba(0, 0, 0, 255),
+        font_size: 20.0,
+        font_family: "sans-serif".to_string(),
+        is_bold: true,
+    });
+
+    let pixel_buffer = CpuRasterizer::rasterize(&display_list, 200, 100).expect("rasterize text");
+    assert_eq!(pixel_buffer.width, 200);
+    assert_eq!(pixel_buffer.height, 100);
+
+    // There should be drawn non-transparent pixels inside the text region
+    let mut non_transparent = 0;
+    for y in 10..50 {
+        for x in 10..160 {
+            if let Some(px) = pixel_buffer.get_pixel(x, y)
+                && px[3] > 0
+            {
+                non_transparent += 1;
+            }
+        }
+    }
+
+    assert!(
+        non_transparent > 0,
+        "Shaped text must produce rasterized pixels in the destination pixmap"
+    );
+}

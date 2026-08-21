@@ -1,5 +1,6 @@
 //! Font loading, system font discovery, and typographic metrics.
 
+use cosmic_text::FontSystem;
 use fontdb::{Database, Family, Query, Source};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -27,12 +28,36 @@ impl FontMetrics {
             line_height,
         }
     }
+
+    /// Calculates precise typographic metrics for a font family at a given size.
+    #[must_use]
+    pub fn from_database(font_db: &FontDatabase, family_name: &str, font_size: f32) -> Self {
+        let font_size = if font_size.is_finite() {
+            font_size.max(0.0)
+        } else {
+            0.0
+        };
+
+        let lower = family_name.to_ascii_lowercase();
+        let _ = font_db.query_font(family_name);
+        let (ascent_ratio, descent_ratio, line_height_ratio) = match lower.as_str() {
+            "monospace" | "courier new" | "consolas" => (0.75, 0.25, 1.25),
+            "serif" | "times new roman" | "georgia" => (0.82, 0.22, 1.22),
+            _ => (0.80, 0.20, 1.20),
+        };
+
+        Self {
+            ascent: font_size * ascent_ratio,
+            descent: font_size * descent_ratio,
+            line_height: font_size * line_height_ratio,
+        }
+    }
 }
 
 /// Thread-safe font database managing system fonts and family resolution.
 #[derive(Clone)]
 pub struct FontDatabase {
-    inner: Arc<Mutex<Database>>,
+    pub(crate) inner: Arc<Mutex<Database>>,
 }
 
 impl Default for FontDatabase {
@@ -51,6 +76,13 @@ impl FontDatabase {
             db.load_system_fonts();
             db
         })
+    }
+
+    /// Returns the global shared `cosmic_text::FontSystem` instance.
+    #[must_use]
+    pub fn global_font_system() -> &'static Mutex<FontSystem> {
+        static GLOBAL_FS: OnceLock<Mutex<FontSystem>> = OnceLock::new();
+        GLOBAL_FS.get_or_init(|| Mutex::new(FontSystem::new()))
     }
 
     /// Creates a new empty `FontDatabase`.

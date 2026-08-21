@@ -1,6 +1,8 @@
-//! Text shaping and glyph advance calculation.
+//! Text shaping and glyph advance calculation using OpenType font engines.
 
 use crate::font::{FontDatabase, FontMetrics};
+use cosmic_text::{Attrs, Buffer, Color, Family, Metrics, Shaping, SwashCache, Weight};
+use std::sync::{Mutex, OnceLock};
 
 /// Positioned glyph within a shaped text run.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -32,6 +34,13 @@ pub struct ShapedRun {
     pub text: String,
     /// Typographic vertical metrics for this run.
     pub metrics: FontMetrics,
+}
+
+/// Returns the global shared `cosmic_text::SwashCache` instance.
+#[must_use]
+pub fn global_swash_cache() -> &'static Mutex<SwashCache> {
+    static SWASH_CACHE: OnceLock<Mutex<SwashCache>> = OnceLock::new();
+    SWASH_CACHE.get_or_init(|| Mutex::new(SwashCache::new()))
 }
 
 /// Text shaping engine that converts UTF-8 strings into measured, positioned glyph runs.
@@ -68,6 +77,7 @@ impl TextShaper {
     }
 
     /// Shapes a text string into a `ShapedRun` applying CSS letter-spacing and word-spacing.
+    #[allow(clippy::significant_drop_tightening)]
     #[must_use]
     pub fn shape_text_with_spacing(
         &self,
@@ -94,39 +104,87 @@ impl TextShaper {
             0.0
         };
 
-        let metrics = FontMetrics::for_size(font_size);
-        let _font_id = self.font_db.query_font(font_family);
+        let metrics = FontMetrics::from_database(&self.font_db, font_family, font_size);
 
-        let mut glyphs = Vec::with_capacity(text.len());
-        let mut total_advance = 0.0;
-
-        for (idx, ch) in text.char_indices() {
-            let base_advance = character_advance_width(ch, font_size, font_family);
-            let bold_adjusted = if is_bold {
-                base_advance * 1.05
-            } else {
-                base_advance
+        if text.is_empty() || font_size <= 0.0 {
+            return ShapedRun {
+                glyphs: Vec::new(),
+                advance_width: 0.0,
+                font_size,
+                text: text.to_string(),
+                metrics,
             };
+        }
 
-            let spacing = if ch == ' ' || ch == '\u{00A0}' {
-                letter_spacing + word_spacing
-            } else {
-                letter_spacing
-            };
+        let family_lower = font_family.to_ascii_lowercase();
+        let family = match family_lower.as_str() {
+            "sans-serif" => Family::SansSerif,
+            "serif" => Family::Serif,
+            "monospace" => Family::Monospace,
+            name => Family::Name(name),
+        };
 
-            let char_advance = (bold_adjusted + spacing).max(0.0);
+        let weight = if is_bold {
+            Weight::BOLD
+        } else {
+            Weight::NORMAL
+        };
 
-            #[allow(clippy::cast_possible_truncation)]
-            glyphs.push(GlyphPosition {
-                glyph_id: ch as u32,
-                x_offset: total_advance,
-                y_offset: 0.0,
-                x_advance: char_advance,
-                y_advance: 0.0,
-                cluster: idx as u32,
-            });
+        let mut font_system = FontDatabase::global_font_system()
+            .lock()
+            .expect("font system lock poisoned");
 
-            total_advance += char_advance;
+        let cosmic_metrics = Metrics::new(font_size, metrics.line_height);
+        let mut buffer = Buffer::new(&mut font_system, cosmic_metrics);
+        let attrs = Attrs::new().family(family).weight(weight);
+
+        buffer.set_text(&mut font_system, text, &attrs, Shaping::Advanced);
+        buffer.shape_until_scroll(&mut font_system, false);
+
+        let mut glyphs = Vec::new();
+        let mut total_advance: f32 = 0.0;
+
+        for run in buffer.layout_runs() {
+            for glyph in run.glyphs {
+                let is_space = text
+                    .get(glyph.start..glyph.end)
+                    .is_some_and(|s| s.chars().all(|c| c == ' ' || c == '\u{00A0}'));
+
+                let spacing = if is_space {
+                    letter_spacing + word_spacing
+                } else {
+                    letter_spacing
+                };
+
+                let advance = (glyph.w + spacing).max(0.0);
+                #[allow(clippy::cast_possible_truncation)]
+                glyphs.push(GlyphPosition {
+                    glyph_id: u32::from(glyph.glyph_id),
+                    x_offset: total_advance,
+                    y_offset: glyph.y,
+                    x_advance: advance,
+                    y_advance: 0.0,
+                    cluster: glyph.start as u32,
+                });
+                total_advance += advance;
+            }
+        }
+
+        // If buffer layout had no glyphs (e.g. whitespace-only), synthesize whitespace advances
+        if glyphs.is_empty() {
+            let space_advance = (font_size * 0.3 + letter_spacing + word_spacing).max(0.0);
+            for (idx, ch) in text.char_indices() {
+                #[allow(clippy::cast_possible_truncation)]
+                glyphs.push(GlyphPosition {
+                    glyph_id: ch as u32,
+                    x_offset: total_advance,
+                    y_offset: 0.0,
+                    x_advance: space_advance,
+                    y_advance: 0.0,
+                    cluster: idx as u32,
+                });
+                total_advance += space_advance;
+            }
         }
 
         ShapedRun {
@@ -139,19 +197,55 @@ impl TextShaper {
     }
 }
 
-fn character_advance_width(ch: char, font_size: f32, family: &str) -> f32 {
-    if family.eq_ignore_ascii_case("monospace") || family.eq_ignore_ascii_case("courier new") {
-        return font_size * 0.6;
+/// Rasterizes a text run using the global font system and `SwashCache`, invoking a callback for each pixel/sub-rect.
+#[allow(clippy::significant_drop_tightening)]
+pub fn rasterize_text_to_callback(
+    text: &str,
+    font_family: &str,
+    font_size: f32,
+    is_bold: bool,
+    color_rgba: (u8, u8, u8, u8),
+    mut draw_fn: impl FnMut(i32, i32, u32, u32, Color),
+) {
+    if text.is_empty() || font_size <= 0.0 {
+        return;
     }
 
-    match ch {
-        ' ' | '\t' | '\u{00A0}' | 'i' | 'l' | 'j' | '!' | '.' | ',' | ':' | ';' | '\'' | '|' => {
-            font_size * 0.28
-        }
-        'f' | 'r' | 't' | '(' | ')' | '[' | ']' | '{' | '}' => font_size * 0.35,
-        'm' | 'w' | 'M' | 'W' => font_size * 0.85,
-        'A'..='Z' => font_size * 0.65,
-        '0'..='9' => font_size * 0.55,
-        _ => font_size * 0.52,
-    }
+    let family_lower = font_family.to_ascii_lowercase();
+    let family = match family_lower.as_str() {
+        "sans-serif" => Family::SansSerif,
+        "serif" => Family::Serif,
+        "monospace" => Family::Monospace,
+        name => Family::Name(name),
+    };
+
+    let weight = if is_bold {
+        Weight::BOLD
+    } else {
+        Weight::NORMAL
+    };
+
+    let mut font_system = FontDatabase::global_font_system()
+        .lock()
+        .expect("font system lock poisoned");
+    let mut swash_cache = global_swash_cache()
+        .lock()
+        .expect("swash cache lock poisoned");
+
+    let metrics = Metrics::new(font_size, font_size * 1.2);
+    let mut buffer = Buffer::new(&mut font_system, metrics);
+    let attrs = Attrs::new().family(family).weight(weight);
+
+    buffer.set_text(&mut font_system, text, &attrs, Shaping::Advanced);
+    buffer.shape_until_scroll(&mut font_system, false);
+
+    let text_color = Color::rgba(color_rgba.0, color_rgba.1, color_rgba.2, color_rgba.3);
+    buffer.draw(
+        &mut font_system,
+        &mut swash_cache,
+        text_color,
+        |x, y, w, h, c| {
+            draw_fn(x, y, w, h, c);
+        },
+    );
 }

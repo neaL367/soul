@@ -80,9 +80,27 @@ impl CpuRasterizer {
                         active_clip,
                     );
                 }
-                DisplayItem::DrawText { rect, color, .. } => {
-                    paint_text_placeholder(&mut pixmap, *rect, *color, active_opacity, active_clip);
+                DisplayItem::DrawText {
+                    rect,
+                    text,
+                    color,
+                    font_size,
+                    font_family,
+                    is_bold,
+                } => {
+                    let placement = TextPlacement {
+                        rect: *rect,
+                        text,
+                        color: *color,
+                        font_size: *font_size,
+                        font_family,
+                        is_bold: *is_bold,
+                        opacity: active_opacity,
+                        clip: active_clip,
+                    };
+                    paint_shaped_text(&mut pixmap, &placement);
                 }
+
                 DisplayItem::DrawImage {
                     rect,
                     width,
@@ -215,7 +233,91 @@ fn paint_border(
     }
 }
 
-/// Draws a subtle placeholder for text glyph runs.
+/// Text rendering layout and style placement descriptor.
+struct TextPlacement<'a> {
+    rect: Rect,
+    text: &'a str,
+    color: css::Color,
+    font_size: f32,
+    font_family: &'a str,
+    is_bold: bool,
+    opacity: f32,
+    clip: Option<SkiaRect>,
+}
+
+/// Rasterizes shaped text content onto the pixmap using cosmic-text glyph rasterization.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+fn paint_shaped_text(pixmap: &mut Pixmap, placement: &TextPlacement<'_>) {
+    let eff_a = effective_alpha(placement.color, placement.opacity);
+    if eff_a == 0 || placement.text.is_empty() || placement.font_size <= 0.0 {
+        return;
+    }
+
+    let origin_x = placement.rect.x;
+    let origin_y = placement.rect.y;
+    let pixmap_w = pixmap.width() as i32;
+    let pixmap_h = pixmap.height() as i32;
+
+    let mut glyph_rendered = false;
+
+    text_shaping::rasterize_text_to_callback(
+        placement.text,
+        placement.font_family,
+        placement.font_size,
+        placement.is_bold,
+        (
+            placement.color.r,
+            placement.color.g,
+            placement.color.b,
+            eff_a,
+        ),
+        |gx, gy, gw, gh, gcolor| {
+            glyph_rendered = true;
+            let dest_x = (origin_x as i32) + gx;
+            let dest_y = (origin_y as i32) + gy;
+
+            if dest_x >= pixmap_w || dest_y >= pixmap_h || gw == 0 || gh == 0 {
+                return;
+            }
+
+            let Some(sub_rect) =
+                SkiaRect::from_xywh(dest_x as f32, dest_y as f32, gw as f32, gh as f32)
+            else {
+                return;
+            };
+
+            let final_rect = if let Some(clip_rect) = placement.clip {
+                let Some(r) = intersect_rect(sub_rect, clip_rect) else {
+                    return;
+                };
+                r
+            } else {
+                sub_rect
+            };
+
+            let mut paint = Paint::default();
+            paint.set_color_rgba8(gcolor.r(), gcolor.g(), gcolor.b(), gcolor.a());
+            pixmap.fill_rect(final_rect, &paint, Transform::identity(), None);
+        },
+    );
+
+    if !glyph_rendered {
+        paint_text_placeholder(
+            pixmap,
+            placement.rect,
+            placement.color,
+            placement.opacity,
+            placement.clip,
+        );
+    }
+}
+
+/// Draws a subtle placeholder for text glyph runs when no font face is matched.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn paint_text_placeholder(
     pixmap: &mut Pixmap,
