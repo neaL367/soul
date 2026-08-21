@@ -1,6 +1,12 @@
 //! CSS tokenization and stylesheet parser.
 
-use crate::rule::{Combinator, Declaration, Origin, Rule, Selector, SimpleSelector, StyleSheet};
+#![allow(clippy::pedantic)]
+#![allow(clippy::nursery)]
+
+use crate::rule::{Declaration, Origin, Rule, Selector, StyleSheet};
+use crate::selector_impl::SoulParser;
+use cssparser::{Parser as CssParser, ParserInput, ToCss};
+use selectors::parser::{ParseRelative, SelectorList};
 
 /// Parses a CSS string into a structured `StyleSheet`.
 #[must_use]
@@ -115,84 +121,47 @@ fn scan_css(css: &str) -> (String, Vec<(usize, usize, usize)>) {
 }
 
 fn parse_selectors(input: &str) -> Vec<Selector> {
-    input
-        .split(',')
-        .filter_map(|s| {
-            let trimmed = s.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                parse_single_selector(trimmed)
-            }
-        })
-        .collect()
-}
+    // Use `selectors` crate for robust parsing. Handle comma-separated selector list.
+    // If the full list fails, try forgiving per-selector fallback to preserve valid selectors.
+    let mut input_owned = ParserInput::new(input);
+    let mut parser = CssParser::new(&mut input_owned);
+    let soul_parser = SoulParser;
 
-fn parse_single_selector(input: &str) -> Option<Selector> {
-    let mut sequence = Vec::new();
-    let tokens = tokenize_selector(input);
-
-    for (combinator, token) in tokens {
-        let simple = if token == "*" {
-            SimpleSelector::Universal
-        } else if let Some(id) = token.strip_prefix('#') {
-            SimpleSelector::Id(id.to_string())
-        } else if let Some(class) = token.strip_prefix('.') {
-            SimpleSelector::Class(class.to_string())
-        } else {
-            SimpleSelector::Tag(token.to_ascii_lowercase())
-        };
-        sequence.push((combinator, simple));
-    }
-
-    if sequence.is_empty() {
-        None
-    } else {
-        Some(Selector { sequence })
-    }
-}
-
-fn tokenize_selector(input: &str) -> Vec<(Option<Combinator>, String)> {
-    let mut tokens = Vec::new();
-
-    // Split on whitespace, then on embedded '>' so that "div>p" and "div > p"
-    // both tokenize as `div` CHILD `p`.
-    let mut raw_tokens: Vec<&str> = Vec::new();
-    for part in input.split_whitespace() {
-        let mut rest = part;
-        while let Some(idx) = rest.find('>') {
-            let before = &rest[..idx];
-            if !before.is_empty() {
-                raw_tokens.push(before);
-            }
-            raw_tokens.push(">");
-            rest = &rest[idx + 1..];
-        }
-        if !rest.is_empty() {
-            raw_tokens.push(rest);
+    match SelectorList::parse(&soul_parser, &mut parser, ParseRelative::No) {
+        Ok(list) => list
+            .slice()
+            .iter()
+            .map(|s| {
+                let mut out = String::new();
+                s.to_css(&mut out).unwrap();
+                Selector {
+                    inner: s.clone(),
+                    source: out,
+                }
+            })
+            .collect(),
+        Err(_) => {
+            // Forgiving fallback: split manually on commas and keep individually valid selectors.
+            input
+                .split(',')
+                .filter_map(|part| {
+                    let trimmed = part.trim();
+                    if trimmed.is_empty() {
+                        return None;
+                    }
+                    let mut pi = ParserInput::new(trimmed);
+                    let mut p = CssParser::new(&mut pi);
+                    match SelectorList::parse(&soul_parser, &mut p, ParseRelative::No) {
+                        Ok(list) if !list.slice().is_empty() => Some(Selector {
+                            inner: list.slice()[0].clone(),
+                            source: trimmed.to_string(),
+                        }),
+                        _ => None,
+                    }
+                })
+                .collect()
         }
     }
-
-    let mut prev_was_child = false;
-    for (i, part) in raw_tokens.iter().enumerate() {
-        if *part == ">" {
-            prev_was_child = true;
-            continue;
-        }
-
-        let combinator = if i == 0 {
-            None
-        } else if prev_was_child {
-            prev_was_child = false;
-            Some(Combinator::Child)
-        } else {
-            Some(Combinator::Descendant)
-        };
-
-        tokens.push((combinator, (*part).to_string()));
-    }
-
-    tokens
 }
 
 fn parse_declarations(input: &str) -> Vec<Declaration> {

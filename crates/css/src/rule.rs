@@ -1,5 +1,11 @@
 //! CSS stylesheet, rules, selectors, specificity, and declaration models.
 
+#![allow(clippy::pedantic)]
+#![allow(clippy::nursery)]
+
+use crate::selector_impl::SoulSelectorImpl;
+use selectors::parser::Selector as GenericSelector;
+
 /// Specificity 4-tuple: (inline, ID, class/attribute/pseudo-class, tag/pseudo-element).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Specificity {
@@ -24,6 +30,15 @@ impl Specificity {
             tags,
         }
     }
+
+    /// Decodes packed `u32` specificity from `selectors` crate.
+    #[must_use]
+    pub fn from_packed(packed: u32) -> Self {
+        let ids = (packed >> 20) & 0x3FF;
+        let classes = (packed >> 10) & 0x3FF;
+        let tags = packed & 0x3FF;
+        Self::new(0, ids, classes, tags)
+    }
 }
 
 /// Cascade origin of a stylesheet per CSS Cascade Level 4.
@@ -36,7 +51,7 @@ pub enum Origin {
     Author,
 }
 
-/// Atomic selector unit matching a single aspect of an element.
+/// Atomic selector unit matching a single aspect of an element (deprecated: kept for API compat).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SimpleSelector {
     /// Universal selector `*`.
@@ -49,7 +64,7 @@ pub enum SimpleSelector {
     Class(String),
 }
 
-/// Relationship between selectors in a complex selector sequence.
+/// Relationship between selectors (deprecated: kept for API compat).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Combinator {
     /// Descendant combinator (whitespace).
@@ -58,33 +73,30 @@ pub enum Combinator {
     Child,
 }
 
-/// Compound selector sequence consisting of simple selectors linked by combinators.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Compound selector sequence — now backed by `selectors` crate.
+#[derive(Debug, Clone)]
 pub struct Selector {
-    /// List of simple selectors with their leading combinator.
-    pub sequence: Vec<(Option<Combinator>, SimpleSelector)>,
+    /// Inner `selectors` crate selector.
+    pub inner: GenericSelector<SoulSelectorImpl>,
+    /// Original source text for debugging/equality.
+    pub source: String,
 }
 
 impl Selector {
     /// Computes the CSS specificity of this selector.
     #[must_use]
     pub fn specificity(&self) -> Specificity {
-        let mut ids = 0;
-        let mut classes = 0;
-        let mut tags = 0;
-
-        for (_, simple) in &self.sequence {
-            match simple {
-                SimpleSelector::Id(_) => ids += 1,
-                SimpleSelector::Class(_) => classes += 1,
-                SimpleSelector::Tag(_) => tags += 1,
-                SimpleSelector::Universal => {}
-            }
-        }
-
-        Specificity::new(0, ids, classes, tags)
+        Specificity::from_packed(self.inner.specificity())
     }
 }
+
+impl PartialEq for Selector {
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source && self.specificity() == other.specificity()
+    }
+}
+
+impl Eq for Selector {}
 
 /// Single CSS property-value declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,7 +122,7 @@ impl Declaration {
 }
 
 /// Single CSS style rule with selectors, declarations, and origin.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Rule {
     /// List of comma-separated selectors for this rule.
     pub selectors: Vec<Selector>,
@@ -119,6 +131,16 @@ pub struct Rule {
     /// Stylesheet origin.
     pub origin: Origin,
 }
+
+impl PartialEq for Rule {
+    fn eq(&self, other: &Self) -> bool {
+        self.selectors == other.selectors
+            && self.declarations == other.declarations
+            && self.origin == other.origin
+    }
+}
+
+impl Eq for Rule {}
 
 /// Parsed CSS stylesheet containing ordered style rules.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

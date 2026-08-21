@@ -10,7 +10,11 @@ workspace = true
 
 [dependencies]
 common = { path = "../common" }
+cssparser = "0.34"
 dom = { path = "../dom" }
+precomputed-hash = "0.1"
+selectors = "0.26"
+smallvec = "1"
 thiserror.workspace = true
 tracing.workspace = true
 
