@@ -30,13 +30,14 @@ Legend: **M**=MVP, **R**=Required (ships shortly after MVP), **L**=Later/Phase 2
 ### CSS
 | Feature | Class | Feature | Class |
 |---|---|---|---|
-| Selectors (basic + combinators) | ✓ | Grid | L |
-| Cascade/specificity | ✓ | Media queries | L |
-| Box model | ✓ | Transforms (2D) | L |
-| Positioning (static/relative) | ✓ | Transitions | L |
-| Flexbox (taffy) | ✓ | Custom Properties (`var()`) | ✓ |
-| Pseudo-Elements (`::before`, `::after`, `content`) | ✓ | Animations (`@keyframes`) | A |
-| `:has()`, container queries | A | Print/pagination CSS | X |
+| Selectors (basic + combinators) | ✓ | Grid | ✓ |
+| Cascade/specificity | ✓ | Media queries (`@media`, `matchMedia`) | ✓ |
+| Box model | ✓ | Relative Units (`em`, `rem`, `vw`, `vh`, `calc()`) | ✓ |
+| Positioning (`static`, `relative`, `absolute`, `fixed`) | ✓ | Transforms (2D) | L |
+| Flexbox (taffy) | ✓ | Transitions | L |
+| Pseudo-Elements (`::before`, `::after`, `content`) | ✓ | Custom Properties (`var()`) | ✓ |
+| `:has()`, container queries | A | Animations (`@keyframes`) | A |
+| Print/pagination CSS | X | | |
 
 ### JavaScript & Web APIs
 | Feature | Class | Feature | Class |
@@ -47,17 +48,20 @@ Legend: **M**=MVP, **R**=Required (ships shortly after MVP), **L**=Later/Phase 2
 | `fetch` (rich Headers/Request/Response) | ✓ | WebSockets (`WebSocket`) | ✓ |
 | Promises/async-await | ✓ | Web Crypto (`randomUUID`, `getRandomValues`) | ✓ |
 | WHATWG `URL` & `URLSearchParams` | ✓ | High-Res Time (`performance.now`, `rAF`) | ✓ |
+| WHATWG `FormData` | ✓ | W3C `Blob` & `File` APIs | ✓ |
+| CSSOM View (`window.matchMedia`) | ✓ | HTML5 `<video>` / `<audio>` (`HTMLMediaElement`) | ✓ |
 | `MutationObserver` | ✓ | WebAssembly | A |
 | LocalStorage & SessionStorage | ✓ | Service Workers | X |
 
 ### Storage & Security
 | Feature | Class | Feature | Class |
 |---|---|---|---|
-| Cookies | ✓ | HTTPS/TLS (rustls) | ✓ |
+| Cookies (RFC 6265bis SameSite/Secure) | ✓ | HTTPS/TLS (rustls) | ✓ |
 | LocalStorage | ✓ | Same-Origin Policy & CORS | ✓ |
 | SessionStorage (in-memory) | ✓ | Brotli & Zstd Decompression | ✓ |
 | IndexedDB | ✓ | RFC 6797 HSTS Policies | ✓ |
 | HTTP cache | ✓ | DPAPI Vault (`CryptProtectData`) | ✓ |
+| CSP Level 3 Active Enforcement | ✓ | Private Browsing Profile Isolation | ✓ |
 | Sandboxing (Job Objects + Tokens) | L | Full Chromium sandbox parity | X |
 
 ### Developer Tools

@@ -169,42 +169,7 @@ The critical property: **the arrows above don't change meaning** between Phase 1
 
 ## 24. Repository Structure
 
-```text
-browser/
-├── Cargo.toml                  # workspace root
-├── Cargo.lock
-├── rust-toolchain.toml         # pins 1.97.1, edition 2024
-├── crates/
-│   ├── soul-shell/          # bin: entry point, wires everything together
-│   ├── soul-core/           # tab/window/nav/session/profile/permission state machines
-│   ├── soul-ui/             # `SoulBackend` trait + backend-agnostic view logic
-│   ├── soul-backend-gpui/    # concrete `SoulBackend` impl against GPUI (ONLY crate with gpui)
-│   ├── ipc/                    # command/event message types + channel/named pipe transports
-│   ├── html/                   # html5ever TreeSink impl → this project's DOM
-│   ├── dom/                    # arena-based DOM, NodeId, mutation API
-│   ├── css/                    # cssparser/selectors integration, cascade, computed style
-│   ├── layout/                 # box generation, block/inline layout, taffy flexbox
-│   ├── text-shaping/           # cosmic-text/rustybuzz/fontdb/DirectWrite integration
-│   ├── paint/                  # display list types + builder
-│   ├── raster/                 # tiny-skia CPU raster backend
-│   ├── compositor/             # wgpu compositing, tiling, damage tracking
-│   ├── javascript/             # boa embedding, event loop, GC integration
-│   ├── web-api/                # DOM bindings, rich fetch/Promise/timers/IndexedDB/Worker
-│   ├── networking/              # url/DNS/TCP/QUIC/TLS/HTTP1-3/cookies/CORS/CSP
-│   ├── storage/                # SQLite-backed cookie/history/bookmarks/LocalStorage/cache
-│   ├── image-decode/            # image/resvg integration, background decode pool
-│   ├── media/                  # Media Foundation bindings for <audio>/<video>
-│   ├── gpu/                    # wgpu device/surface management
-│   ├── platform-windows/        # Win32 wrappers: shell execute, MOTW, UIA, registry
-│   ├── sandbox/                # (Phase 2+) Job Objects, restricted tokens, AppContainer
-│   ├── downloads/               # download manager (HTTP stream + MOTW + collision)
-│   ├── devtools/                # (Phase 2+) CDP server / inspector backend
-│   └── common/                  # shared types, error types, tracing setup
-├── resources/                    # default icons, error pages, UA stylesheet
-├── tests/                        # workspace integration + web-platform-test harness
-├── benchmarks/                   # criterion benches: layout, paint, parse
-└── docs/                         # architecture plan, ADRs, modular subsystem specs
-```
+See §4 for the complete file tree.
 
 **Dependency direction** (enforced by workspace lint / metadata check):
 `soul-shell` → `soul-backend-gpui` → `soul-ui` (trait only) / `soul-core` → `ipc` → {`html`, `css`, `dom`, `layout`, `javascript`, `networking`, `storage`, `compositor`} → {`gpu`, `text-shaping`, `raster`, `image-decode`, `media`, `platform-windows`} → `common`.
@@ -213,7 +178,7 @@ browser/
 
 ## 31. Development Milestones
 
-**Status key (as of 2026-08-18, verified against repository code):**
+**Status key (as of 2026-08-22, verified against repository code):**
 - **Complete** — the milestone's components exist, are wired, and pass all workspace tests.
 - **Partial** — the milestone's components exist but lack key functionality, live process splits, or external decoders.
 
@@ -224,23 +189,23 @@ browser/
 | M1 GPUI shell | real window via `SoulBackend` | **Complete** |
 | M2 Window + input | OS input events, DPI | **Complete** |
 | M3 URL + navigation | nav state machine, stub fetch | **Complete** |
-| M4 Networking | HTTP(S), DNS, redirects, cookies, Brotli/Zstd, HSTS | **Complete** — streaming decompression (`gzip`, `deflate`, `br`, `zstd`), persistent SQLite RFC 6797 HSTS policy auto-upgrades |
+| M4 Networking | HTTP(S), DNS, redirects, cookies, Brotli/Zstd, HSTS, active CSP | **Complete** — streaming decompression (`gzip`, `deflate`, `br`, `zstd`), persistent SQLite RFC 6797 HSTS auto-upgrades, active subresource CSP checking |
 | M5 HTML parser | html5ever → DOM | **Complete** |
 | M6 DOM API | NodeId arena, mutation, query, MutationObserver | **Complete** |
 | M7 CSS + style | cascade, computed style, custom properties (`var()`), pseudo-elements | **Complete** — supports `var(--name)`, pseudo-elements (`::before`, `::after`, `::placeholder`, etc.), `content` property |
-| M8 Layout | block/inline/flex + text shaping | **Partial** — block and inline layout are wired and tested; `display: flex` containers dispatch to taffy; generated pseudo-element boxes (`style.content`) generate layout nodes; remaining gaps: text shaping uses synthetic-advance stub (ADR-18); em/rem/calc resolution; absolute/fixed positioning |
+| M8 Layout | block/inline/flex/grid + relative units + out-of-flow | **Complete** — block, inline, flexbox (taffy), CSS Grid, relative units (`em`, `rem`, `vw`, `vh`, `calc()`), and out-of-flow positioning (`position: absolute/fixed`, `top/right/bottom/left`) |
 | M9 Paint | display list | **Complete** |
 | M9.5 A11y skeleton | semantic data in fragment tree | **Complete** |
 | M10a Software raster | CPU pixels on screen | **Complete** |
 | M10b GPU compositor | wgpu compositor | **Complete** |
 | M11 Basic JS | boa + event loop + DOM bindings | **Complete** |
-| M12 Web APIs | fetch, timers, Promises, Crypto, URL, Performance | **Complete** — Web Crypto (`crypto.randomUUID()`, `crypto.getRandomValues()`), WHATWG `URL`/`URLSearchParams`, High-Res Time (`performance.now()`, `requestAnimationFrame()`) |
-| M13 Storage | SQLite persistence, HSTS, DPAPI | **Complete** |
+| M12 Web APIs | fetch, timers, Promises, Crypto, URL, Performance, FormData, Blob, matchMedia | **Complete** — Web Crypto (`crypto.randomUUID()`, `crypto.getRandomValues()`), WHATWG `URL`/`URLSearchParams`, WHATWG `FormData`, W3C `Blob`/`File`, `matchMedia`/`MediaQueryList`, High-Res Time (`performance.now()`, `requestAnimationFrame()`) |
+| M13 Storage | SQLite persistence, HSTS, DPAPI, SameSite cookies | **Complete** — persistent SQLite storage, RFC 6265bis SameSite and Secure cookie policies, DPAPI credentials |
 | M14 GPU split + IPC | GPU process, real IPC | **Partial** — IPC transport (in-memory + named pipe), framing codec, and message contracts are complete and tested; the GPU-process split itself remains deferred (see note below) |
 | M15 Network split | networking over IPC | **Complete** — the live browser path (`soul-shell` navigation driver) routes all network traffic through `BrowserToNetworkMsg`/`NetworkToBrowserMsg` via a pluggable `NetworkClient` over the in-memory transport, with mixed-content/CORS enforcement in the network service, request cancellation on both transports, per-request timeouts, and the named-pipe transport proven end-to-end; the cross-process flip is now a constructor change |
 | M16 Sandboxing | renderer process, Job Objects | **Partial** |
 | M17 Advanced Web APIs | Workers, IndexedDB, richer fetch, Canvas 2D, WebSockets | **Complete** — `WebWorker` (thread + mpsc + 2nd VM), SQLite `IndexedDbStore`, Boa `window.indexedDB`, rich `fetch` (`Headers`, `Request`, `Response`, body readers `text()`/`json()`/`arrayBuffer()`), Canvas 2D, WebSockets |
-| M18 Media | MF playback + Canvas 2D | **Partial** |
+| M18 Media | MF playback + Canvas 2D + HTMLMediaElement | **Complete** — Media Foundation decoding and container probing (`MfPlayer`), `MediaPipeline` state machine, ECMAScript `HTMLMediaElement` / `HTMLVideoElement` / `HTMLAudioElement` / `Audio` bindings |
 | M19 DevTools | inspector/console/network CDP | **Complete** |
 | M20 Downloads | download manager + MOTW | **Complete** |
 | M21 Compositor + perf | damage/layers, benchmark harness | **Partial** |

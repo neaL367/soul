@@ -8,10 +8,10 @@ Section numbers below (`§N`) refer to `docs/architecture-plan.md` unless stated
 
 ## 0. Current Project State — read this first
 
-**Active Development State (25 crates, 218 passing tests):**
-The workspace is fully scaffolded, compiled, and verified across all 25 crates under `crates/`. Single-crate GPUI isolation is enforced (`soul-backend-gpui` is the sole crate importing `gpui`), and full regression test coverage passes green in CI (218 unit and integration tests).
+**Active Development State (25 crates, 232 passing tests):**
+The workspace is fully scaffolded, compiled, and verified across all 25 crates under `crates/`. Single-crate GPUI isolation is enforced (`soul-backend-gpui` is the sole crate importing `gpui`), and full regression test coverage passes green in CI (232 unit and integration tests).
 
-- **Current Capabilities**: Live HTTP(S) navigation pipeline, WHATWG URL / URLSearchParams, Web Cryptography API (`crypto.randomUUID`, `crypto.getRandomValues`), High-Resolution Performance Time (`performance.now`, `requestAnimationFrame`), streaming decompression (`gzip`, `deflate`, `br`, `zstd`), persistent RFC 6797 HSTS policy auto-upgrades, CSS Custom Properties (`var()`), CSS Pseudo-Elements (`::before`, `::after`, `content`), IndexedDB, Web Workers, Canvas 2D, WebSockets, SQLite storage, DevTools CDP server, and Windows 11 GPUI desktop shell.
+- **Current Capabilities**: Live HTTP(S) navigation pipeline, WHATWG URL / URLSearchParams, WHATWG FormData, W3C Blob / File, CSSOM View `window.matchMedia` / `MediaQueryList`, HTML5 `<video>` / `<audio>` (`HTMLMediaElement`, `HTMLVideoElement`, `HTMLAudioElement`), Web Cryptography API (`crypto.randomUUID`, `crypto.getRandomValues`), High-Resolution Performance Time (`performance.now`, `requestAnimationFrame`), streaming decompression (`gzip`, `deflate`, `br`, `zstd`), persistent RFC 6797 HSTS auto-upgrades, active CSP Level 3 subresource verification, RFC 6265bis SameSite cookie security, CSS Relative Units (`em`, `rem`, `vw`, `vh`, `calc()`), CSS Out-of-Flow Positioning (`position: absolute/fixed`, `top/right/bottom/left`), CSS Custom Properties (`var()`), CSS Pseudo-Elements (`::before`, `::after`, `content`), IndexedDB, Web Workers, Canvas 2D, WebSockets, SQLite storage, DevTools CDP server, and Windows 11 GPUI desktop shell.
 - **Architectural Seams**:
   - `SoulBackend` trait in `soul-ui` isolates GPUI exclusively to `soul-backend-gpui`.
   - JS runtime in `javascript` embeds `boa_engine` with DOM/Web API bindings in `web-api`.

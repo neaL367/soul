@@ -112,11 +112,12 @@ All access to the Windows API goes through the official [`windows`](https://gith
 | `file://` restrictions | **Yes, MVP** | No `file://` → arbitrary local file read from a `http(s)://` page; local-file navigation itself is allowed but sandboxed identically to any other origin. |
 | Dangerous URL scheme handling | **Yes, MVP** | Explicit allowlist before handing a URL to `ShellExecute` (§11) — this is a known real-world browser CVE pattern. |
 | Download security (MOTW, extension warnings) | **Yes, MVP-adjacent, land early Phase 2** | Mark-of-the-Web (`Zone.Identifier` ADS) on downloaded files, matching Windows/Edge behavior so downloaded files aren't silently trusted. |
-| CSP | Phase 2 | Real value once script injection is a realistic risk (i.e., once the JS engine + DOM bindings are real). |
-| Mixed content blocking | Phase 2 | |
+| CSP Level 3 | **Yes, Completed** | Full CSP Level 3 policy parser and active subresource fetch directive enforcement (`script-src`, `connect-src`, `img-src`, `style-src`, `default-src`). |
+| Mixed content blocking | **Yes, Completed** | Insecure HTTP subresource blocking on HTTPS documents. |
 | IPC message validation | **Yes, from the first cross-process boundary (M14)** | Every IPC message is untrusted input the moment a second process exists. |
 | Process sandboxing (Job Object/token/AppContainer) | Phase 2 (M16) | See §22 — explicitly not Chromium-equivalent. |
 | Renderer isolation / Site isolation | **Advanced / Production-only, explicitly deferred** | Real site isolation (cross-origin iframes in separate processes, Spectre-class mitigations) requires the process-per-origin model called out in §6 as a later/production item. Stated plainly: this project will not have Chromium-grade site isolation for a long time, if ever, and this is a known, accepted risk that governs what the browser should and shouldn't be trusted for (e.g., not a target for handling untrusted content alongside sensitive logged-in sessions in the same way Chromium can). |
-| Secure storage (DPAPI-encrypted cookies/passwords) | Production-only | See §20. |
-| Private browsing | Phase 2 | In-memory-only profile variant (§20). |
+| Secure storage (DPAPI-encrypted cookies/passwords) | **Yes, Completed** | `DpapiVault` master key encryption via `CryptProtectData`/`CryptUnprotectData` with AES-256-GCM. |
+| SameSite & Secure Cookies | **Yes, Completed** | RFC 6265bis §5.4 (`SameSite=None` requires `Secure`), context-based filtering (`Strict`, `Lax`, `None`). |
+| Private browsing | **Yes, Completed** | In-memory ephemeral SQLite profile variant (`BrowserProfile::PrivateBrowsing`). |
 | Memory safety | **Yes, continuous, by construction** | The whole point of doing this in Rust; `unsafe` blocks are the only place this can regress, and they're concentrated at well-known FFI boundaries (Win32, GPU, media, font libraries) that get extra review/fuzzing priority. |
