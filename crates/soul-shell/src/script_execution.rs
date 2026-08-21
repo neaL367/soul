@@ -17,14 +17,15 @@ use web_api::{
 fn create_shell_fetch_handler(
     client: NetworkClient,
     doc_url: Url,
-    csp: Option<CspPolicy>,
+    csp: Vec<CspPolicy>,
 ) -> RichFetchHandler {
     Arc::new(move |req: &FetchRequest| {
         let target_url = doc_url.join(&req.url).map_err(|e| e.to_string())?;
 
         // Enforce Content Security Policy (connect-src) on outgoing fetch requests.
-        if let Some(policy) = &csp
-            && !policy.allows(CspDirective::ConnectSrc, &target_url, &doc_url)
+        if csp
+            .iter()
+            .any(|p| !p.allows(CspDirective::ConnectSrc, &target_url, &doc_url))
         {
             return Err(format!(
                 "fetch to {target_url} blocked by Content Security Policy (connect-src)"
@@ -96,12 +97,13 @@ fn create_shell_fetch_handler(
 /// # Errors
 ///
 /// Returns `NavigationError` only if the in-process DOM handoff fails.
+#[allow(dead_code)]
 pub fn execute_inline_scripts(
     document: Document,
     document_url: Option<&Url>,
     client: Option<&NetworkClient>,
 ) -> Result<Document, NavigationError> {
-    execute_scripts(document, document_url, client, None, None)
+    execute_scripts(document, document_url, client, None, &[])
 }
 
 /// Executes all scripts (both inline and external) in document order.
@@ -114,7 +116,7 @@ pub fn execute_scripts(
     document_url: Option<&Url>,
     client: Option<&NetworkClient>,
     external_scripts: Option<&HashMap<NodeId, String>>,
-    csp: Option<&CspPolicy>,
+    csp: &[CspPolicy],
 ) -> Result<Document, NavigationError> {
     let mut scripts: Vec<String> = Vec::new();
     for script_id in document.get_elements_by_tag_name("script") {
@@ -125,7 +127,9 @@ pub fn execute_scripts(
         } else {
             let inline_text = document.text_content(script_id);
             if !inline_text.trim().is_empty() {
-                let allowed = csp.is_none_or(|policy| {
+                let allowed = if csp.is_empty() {
+                    true
+                } else {
                     let node = document.get_node(script_id);
                     let nonce = node.and_then(|n| {
                         if let dom::NodeData::Element(e) = &n.data {
@@ -135,10 +139,13 @@ pub fn execute_scripts(
                         }
                     });
                     nonce.map_or_else(
-                        || policy.allows_inline(CspDirective::ScriptSrc),
-                        |nonce_val| policy.allows_nonce(CspDirective::ScriptSrc, nonce_val),
+                        || csp.iter().all(|p| p.allows_inline(CspDirective::ScriptSrc)),
+                        |nonce_val| {
+                            csp.iter()
+                                .all(|p| p.allows_nonce(CspDirective::ScriptSrc, nonce_val))
+                        },
                     )
-                });
+                };
 
                 if allowed {
                     scripts.push(inline_text);
@@ -172,7 +179,7 @@ pub fn execute_scripts(
 
     if let (Some(client), Some(doc_url)) = (client, document_url) {
         let fetch_handler =
-            create_shell_fetch_handler(client.clone(), doc_url.clone(), csp.cloned());
+            create_shell_fetch_handler(client.clone(), doc_url.clone(), csp.to_vec());
         let _ = register_rich_fetch(&mut runtime.context, fetch_handler);
     }
 

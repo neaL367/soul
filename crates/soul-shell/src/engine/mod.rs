@@ -10,7 +10,7 @@ pub use pipeline_types::{PipelineTimings, RenderOptions, RenderResult};
 pub use crate::diagnostics::{a11y_lines, has_visible_pixels};
 pub use layout::{A11yNode, A11yRole};
 
-use crate::script_execution::{execute_inline_scripts, execute_scripts};
+use crate::script_execution::execute_scripts;
 use css::{CascadeResolver, Origin, parse_stylesheet};
 use html::parse_html_with_styles;
 use networking::NetworkClient;
@@ -66,6 +66,7 @@ pub async fn navigate_and_render_with_controller(
 /// # Errors
 ///
 /// Returns `NavigationError` if no navigation is active or rendering fails.
+#[allow(clippy::too_many_lines)]
 pub async fn render_active_navigation(
     controller: &mut NavigationController,
     client: &NetworkClient,
@@ -116,31 +117,37 @@ pub async fn render_active_navigation(
         .map_err(|e| NavigationError::Other(format!("non-UTF8 response body: {e}")))?;
 
     // Parse Content Security Policy if provided in document response headers.
-    let csp = response
-        .headers
-        .get("content-security-policy")
-        .map(|h| networking::CspPolicy::parse(h));
+    let mut csp_policies: Vec<networking::CspPolicy> = Vec::new();
+    if let Some(h) = response.header("content-security-policy") {
+        csp_policies.push(networking::CspPolicy::parse(h));
+    }
 
     // Stage 2: parse document and extract author `<style>` sheets.
     let parse_start = Instant::now();
     let (doc, mut style_sources) = parse_html_with_styles(&html);
     timings.parse = parse_start.elapsed();
 
+    // Extract CSP from <meta http-equiv="Content-Security-Policy" content="...">.
+    for meta_csp in extract_csp_meta_policies(&doc) {
+        csp_policies.push(meta_csp);
+    }
+    let csp_slice: &[networking::CspPolicy] = &csp_policies;
+
     // Stage 2.5: fetch external scripts and execute all scripts in document order.
-    let external_scripts = load_subresource_scripts(client, &url, &doc, csp.as_ref()).await;
+    let external_scripts = load_subresource_scripts(client, &url, &doc, csp_slice).await;
     let doc = execute_scripts(
         doc,
         Some(&url),
         Some(client),
         Some(&external_scripts),
-        csp.as_ref(),
+        csp_slice,
     )?;
     let title = document_title(&doc, &url);
 
     // Stage 3: fetch + decode `<img>` and `<link rel="stylesheet">` subresources.
     let images_start = Instant::now();
-    let images = load_subresource_images(client, &url, &doc, csp.as_ref()).await;
-    let external_stylesheets = load_subresource_stylesheets(client, &url, &doc, csp.as_ref()).await;
+    let images = load_subresource_images(client, &url, &doc, csp_slice).await;
+    let external_stylesheets = load_subresource_stylesheets(client, &url, &doc, csp_slice).await;
     style_sources.extend(external_stylesheets);
     timings.images = images_start.elapsed();
 
@@ -213,7 +220,8 @@ pub fn render_html_to_buffer(
 
     let parse_start = Instant::now();
     let (doc, style_sources) = parse_html_with_styles(html);
-    let doc = execute_inline_scripts(doc, None, None)?;
+    let csp_policies = extract_csp_meta_policies(&doc);
+    let doc = execute_scripts(doc, None, None, None, &csp_policies)?;
     let mut timings = PipelineTimings {
         parse: parse_start.elapsed(),
         ..Default::default()
@@ -238,4 +246,30 @@ pub fn render_html_to_buffer(
     let _ = controller.handle_loaded(id);
 
     Ok((pixel_buffer, a11y_tree, timings))
+}
+
+/// Extracts `Content-Security-Policy` directives from `<meta http-equiv>` tags.
+#[must_use]
+pub fn extract_csp_meta_policies(doc: &dom::Document) -> Vec<networking::CspPolicy> {
+    let mut policies = Vec::new();
+    for meta_id in doc.get_elements_by_tag_name("meta") {
+        let Some(node) = doc.get_node(meta_id) else {
+            continue;
+        };
+        let dom::NodeData::Element(elem) = &node.data else {
+            continue;
+        };
+        let Some(http_equiv) = elem.attr("http-equiv") else {
+            continue;
+        };
+        if !http_equiv.eq_ignore_ascii_case("content-security-policy") {
+            continue;
+        }
+        if let Some(content) = elem.attr("content")
+            && !content.trim().is_empty()
+        {
+            policies.push(networking::CspPolicy::parse(content));
+        }
+    }
+    policies
 }

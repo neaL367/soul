@@ -12,7 +12,7 @@ pub(super) async fn load_subresource_images(
     client: &NetworkClient,
     document_url: &Url,
     doc: &Document,
-    csp: Option<&CspPolicy>,
+    csp: &[CspPolicy],
 ) -> HashMap<NodeId, DecodedImage> {
     let mut images = HashMap::new();
 
@@ -31,8 +31,9 @@ pub(super) async fn load_subresource_images(
             continue;
         };
 
-        if let Some(policy) = csp
-            && !policy.allows(CspDirective::ImgSrc, &url, document_url)
+        if csp
+            .iter()
+            .any(|p| !p.allows(CspDirective::ImgSrc, &url, document_url))
         {
             tracing::warn!(url = %url, "Blocked image by Content Security Policy (img-src)");
             continue;
@@ -74,7 +75,7 @@ pub(super) async fn load_subresource_stylesheets(
     client: &NetworkClient,
     document_url: &Url,
     doc: &Document,
-    csp: Option<&CspPolicy>,
+    csp: &[CspPolicy],
 ) -> Vec<String> {
     let mut sheets = Vec::new();
 
@@ -105,8 +106,9 @@ pub(super) async fn load_subresource_stylesheets(
             continue;
         };
 
-        if let Some(policy) = csp
-            && !policy.allows(CspDirective::StyleSrc, &url, document_url)
+        if csp
+            .iter()
+            .any(|p| !p.allows(CspDirective::StyleSrc, &url, document_url))
         {
             tracing::warn!(url = %url, "Blocked stylesheet by Content Security Policy (style-src)");
             continue;
@@ -140,7 +142,7 @@ pub(super) async fn load_subresource_scripts(
     client: &NetworkClient,
     document_url: &Url,
     doc: &Document,
-    csp: Option<&CspPolicy>,
+    csp: &[CspPolicy],
 ) -> HashMap<NodeId, String> {
     let mut scripts = HashMap::new();
 
@@ -159,8 +161,9 @@ pub(super) async fn load_subresource_scripts(
             continue;
         };
 
-        if let Some(policy) = csp
-            && !policy.allows(CspDirective::ScriptSrc, &url, document_url)
+        if csp
+            .iter()
+            .any(|p| !p.allows(CspDirective::ScriptSrc, &url, document_url))
         {
             tracing::warn!(url = %url, "Blocked external script by Content Security Policy (script-src)");
             continue;
