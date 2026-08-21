@@ -89,6 +89,12 @@ impl DisplayListBuilder {
             return;
         };
 
+        if style.visibility == css::Visibility::Hidden
+            || style.visibility == css::Visibility::Collapse
+        {
+            return;
+        }
+
         let has_transform =
             !style.transform.is_empty() && layout_box.dimensions.border_box().is_finite();
         if has_transform {
@@ -163,6 +169,13 @@ impl DisplayListBuilder {
     ) {
         match &layout_box.box_type {
             BoxType::TextNode(_, text) => {
+                if layout_box
+                    .style
+                    .as_ref()
+                    .is_some_and(|s| s.visibility != css::Visibility::Visible)
+                {
+                    return;
+                }
                 let default_color = Color::BLACK;
                 let color = layout_box.style.as_ref().map_or(default_color, |s| s.color);
                 let font_size = layout_box.style.as_ref().map_or(16.0, |s| s.font_size);

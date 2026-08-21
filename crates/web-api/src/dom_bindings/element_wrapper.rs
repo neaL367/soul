@@ -19,7 +19,7 @@ pub struct NodeHolder(
 );
 
 /// Constructs a rich JavaScript `Element` wrapper around a specific `NodeId`.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
 pub fn create_element_wrapper(
     ctx: &mut Context,
     document: Arc<Mutex<Document>>,
@@ -97,6 +97,159 @@ pub fn create_element_wrapper(
     )
     .build();
 
+    let append_child_fn = FunctionObjectBuilder::new(
+        ctx.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, captures, ctx| {
+                let child_val = args.get_or_undefined(0);
+                if let Some(child_obj) = child_val.as_object() {
+                    let id_val = child_obj.get(js_string!("__soul_node_id__"), ctx)?;
+                    let child_id = NodeId(id_val.to_u32(ctx).unwrap_or(0) as usize);
+                    if let Ok(mut doc) = captures.0.lock() {
+                        doc.append_child(captures.1, child_id);
+                    }
+                }
+                Ok(child_val.clone())
+            },
+            holder.clone(),
+        ),
+    )
+    .build();
+
+    let remove_child_fn = FunctionObjectBuilder::new(
+        ctx.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, captures, ctx| {
+                let child_val = args.get_or_undefined(0);
+                if let Some(child_obj) = child_val.as_object() {
+                    let id_val = child_obj.get(js_string!("__soul_node_id__"), ctx)?;
+                    let child_id = NodeId(id_val.to_u32(ctx).unwrap_or(0) as usize);
+                    if let Ok(mut doc) = captures.0.lock() {
+                        doc.remove_child(captures.1, child_id);
+                    }
+                }
+                Ok(child_val.clone())
+            },
+            holder.clone(),
+        ),
+    )
+    .build();
+
+    let replace_child_fn = FunctionObjectBuilder::new(
+        ctx.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, captures, ctx| {
+                let new_child_val = args.get_or_undefined(0);
+                let old_child_val = args.get_or_undefined(1);
+                if let (Some(new_obj), Some(old_obj)) =
+                    (new_child_val.as_object(), old_child_val.as_object())
+                {
+                    let new_id = NodeId(
+                        new_obj
+                            .get(js_string!("__soul_node_id__"), ctx)?
+                            .to_u32(ctx)
+                            .unwrap_or(0) as usize,
+                    );
+                    let old_id = NodeId(
+                        old_obj
+                            .get(js_string!("__soul_node_id__"), ctx)?
+                            .to_u32(ctx)
+                            .unwrap_or(0) as usize,
+                    );
+                    if let Ok(mut doc) = captures.0.lock() {
+                        doc.replace_child(captures.1, new_id, old_id);
+                    }
+                }
+                Ok(old_child_val.clone())
+            },
+            holder.clone(),
+        ),
+    )
+    .build();
+
+    let clone_node_fn = FunctionObjectBuilder::new(
+        ctx.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, captures, ctx| {
+                let deep = args.get_or_undefined(0).to_boolean();
+                let cloned_id = captures
+                    .0
+                    .lock()
+                    .map_or(NodeId(0), |mut doc| doc.clone_node(captures.1, deep));
+                let clone_wrapper = create_element_wrapper(ctx, captures.0.clone(), cloned_id);
+                Ok(JsValue::from(clone_wrapper))
+            },
+            holder.clone(),
+        ),
+    )
+    .build();
+
+    let contains_fn = FunctionObjectBuilder::new(
+        ctx.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, captures, ctx| {
+                let other_val = args.get_or_undefined(0);
+                if let Some(other_obj) = other_val.as_object() {
+                    let other_id = NodeId(
+                        other_obj
+                            .get(js_string!("__soul_node_id__"), ctx)?
+                            .to_u32(ctx)
+                            .unwrap_or(0) as usize,
+                    );
+                    let is_contained = captures
+                        .0
+                        .lock()
+                        .is_ok_and(|doc| doc.contains(captures.1, other_id));
+                    return Ok(JsValue::from(is_contained));
+                }
+                Ok(JsValue::from(false))
+            },
+            holder.clone(),
+        ),
+    )
+    .build();
+
+    let matches_fn = FunctionObjectBuilder::new(
+        ctx.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, captures, ctx| {
+                let sel = args
+                    .get_or_undefined(0)
+                    .to_string(ctx)?
+                    .to_std_string_escaped();
+                let is_match = captures
+                    .0
+                    .lock()
+                    .is_ok_and(|doc| doc.matches(captures.1, &sel));
+                Ok(JsValue::from(is_match))
+            },
+            holder.clone(),
+        ),
+    )
+    .build();
+
+    let closest_fn = FunctionObjectBuilder::new(
+        ctx.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            |_this, args, captures, ctx| {
+                let sel = args
+                    .get_or_undefined(0)
+                    .to_string(ctx)?
+                    .to_std_string_escaped();
+                let target_id = captures.0.lock().ok().and_then(|doc| doc.closest(captures.1, &sel));
+                target_id.map_or_else(
+                    || Ok(JsValue::null()),
+                    |tid| {
+                        let wrapper = create_element_wrapper(ctx, captures.0.clone(), tid);
+                        Ok(JsValue::from(wrapper))
+                    },
+                )
+            },
+            holder.clone(),
+        ),
+    )
+    .build();
+
     let class_list_obj = create_class_list_wrapper(ctx, holder.clone());
 
     let (tag_name, text_content) = holder.0.lock().map_or_else(
@@ -142,8 +295,14 @@ pub fn create_element_wrapper(
         None
     };
 
+    #[allow(clippy::cast_possible_truncation)]
     let mut builder = ObjectInitializer::new(ctx);
     builder
+        .property(
+            js_string!("__soul_node_id__"),
+            JsValue::from(node_id.0 as u32),
+            Attribute::all(),
+        )
         .property(
             js_string!("tagName"),
             js_string!(tag_name),
@@ -172,6 +331,41 @@ pub fn create_element_wrapper(
         .property(
             js_string!("removeAttribute"),
             JsValue::from(remove_attr_fn),
+            Attribute::WRITABLE | Attribute::CONFIGURABLE | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("appendChild"),
+            JsValue::from(append_child_fn),
+            Attribute::WRITABLE | Attribute::CONFIGURABLE | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("removeChild"),
+            JsValue::from(remove_child_fn),
+            Attribute::WRITABLE | Attribute::CONFIGURABLE | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("replaceChild"),
+            JsValue::from(replace_child_fn),
+            Attribute::WRITABLE | Attribute::CONFIGURABLE | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("cloneNode"),
+            JsValue::from(clone_node_fn),
+            Attribute::WRITABLE | Attribute::CONFIGURABLE | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("contains"),
+            JsValue::from(contains_fn),
+            Attribute::WRITABLE | Attribute::CONFIGURABLE | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("matches"),
+            JsValue::from(matches_fn),
+            Attribute::WRITABLE | Attribute::CONFIGURABLE | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("closest"),
+            JsValue::from(closest_fn),
             Attribute::WRITABLE | Attribute::CONFIGURABLE | Attribute::ENUMERABLE,
         )
         .property(

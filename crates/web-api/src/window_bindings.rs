@@ -48,11 +48,7 @@ pub fn register_window(context: &mut Context, current_url: &str) -> JsResult<()>
         .map_or_else(String::new, |f| format!("#{f}"));
 
     let location_obj = ObjectInitializer::new(context)
-        .property(
-            js_string!("href"),
-            js_string!(href),
-            Attribute::READONLY | Attribute::ENUMERABLE,
-        )
+        .property(js_string!("href"), js_string!(href), Attribute::all())
         .property(
             js_string!("origin"),
             js_string!(origin),
@@ -61,39 +57,25 @@ pub fn register_window(context: &mut Context, current_url: &str) -> JsResult<()>
         .property(
             js_string!("protocol"),
             js_string!(protocol),
-            Attribute::READONLY | Attribute::ENUMERABLE,
+            Attribute::all(),
         )
-        .property(
-            js_string!("host"),
-            js_string!(host),
-            Attribute::READONLY | Attribute::ENUMERABLE,
-        )
+        .property(js_string!("host"), js_string!(host), Attribute::all())
         .property(
             js_string!("hostname"),
             js_string!(hostname),
-            Attribute::READONLY | Attribute::ENUMERABLE,
+            Attribute::all(),
         )
-        .property(
-            js_string!("port"),
-            js_string!(port),
-            Attribute::READONLY | Attribute::ENUMERABLE,
-        )
+        .property(js_string!("port"), js_string!(port), Attribute::all())
         .property(
             js_string!("pathname"),
             js_string!(pathname),
-            Attribute::READONLY | Attribute::ENUMERABLE,
+            Attribute::all(),
         )
-        .property(
-            js_string!("search"),
-            js_string!(search),
-            Attribute::READONLY | Attribute::ENUMERABLE,
-        )
-        .property(
-            js_string!("hash"),
-            js_string!(hash),
-            Attribute::READONLY | Attribute::ENUMERABLE,
-        )
+        .property(js_string!("search"), js_string!(search), Attribute::all())
+        .property(js_string!("hash"), js_string!(hash), Attribute::all())
         .build();
+
+    let clipboard_obj = crate::clipboard_binding::create_clipboard_object(context);
 
     let navigator_obj = ObjectInitializer::new(context)
         .property(
@@ -119,6 +101,11 @@ pub fn register_window(context: &mut Context, current_url: &str) -> JsResult<()>
         .property(
             js_string!("cookieEnabled"),
             true,
+            Attribute::READONLY | Attribute::ENUMERABLE,
+        )
+        .property(
+            js_string!("clipboard"),
+            clipboard_obj,
             Attribute::READONLY | Attribute::ENUMERABLE,
         )
         .build();

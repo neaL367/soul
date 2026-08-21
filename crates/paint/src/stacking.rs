@@ -99,8 +99,9 @@ fn creates_stacking_context(layout_box: &LayoutBox) -> bool {
     let is_positioned = style.position != Position::Static;
     let has_z_index = style.z_index.is_some();
     let has_opacity = style.opacity < 1.0 - f32::EPSILON;
+    let has_transform = !style.transform.is_empty();
 
-    (is_positioned && has_z_index) || has_opacity
+    (is_positioned && has_z_index) || has_opacity || has_transform
 }
 
 fn sort_stacking_context_children(context: &mut StackingContext) {

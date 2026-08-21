@@ -222,3 +222,63 @@ fn test_window_location_and_navigator_bindings() {
     assert_eq!(language.trim_matches('"'), "en-US");
     assert_eq!(on_line, "true");
 }
+
+#[test]
+fn test_dom_clone_replace_matches_closest() {
+    let html = r#"<html><body>
+        <div id="container" class="layout">
+            <span id="btn" class="clickable active">Click Me</span>
+        </div>
+    </body></html>"#;
+    let doc = Arc::new(Mutex::new(parse_html(html)));
+
+    let mut runtime = JsRuntime::new();
+    bind_web_apis(&mut runtime.context, Some(doc), None, None, None)
+        .expect("bind_web_apis failed");
+
+    let js = r"
+        const container = document.getElementById('container');
+        const btn = document.getElementById('btn');
+
+        const isMatch = btn.matches('.clickable');
+        const closestDiv = btn.closest('#container');
+        const isClosestMatch = closestDiv !== null && closestDiv.getAttribute('class') === 'layout';
+        const isContained = container.contains(btn);
+
+        const clone = btn.cloneNode(true);
+        const isCloneValid = clone.getAttribute('id') === 'btn';
+
+        ({ isMatch, isClosestMatch, isContained, isCloneValid })
+    ";
+
+    let res = runtime
+        .context
+        .eval(boa_engine::Source::from_bytes(js.as_bytes()))
+        .expect("eval failed");
+    let obj = res.as_object().unwrap();
+
+    let is_match = obj
+        .get(boa_engine::js_string!("isMatch"), &mut runtime.context)
+        .unwrap()
+        .to_boolean();
+    let is_closest = obj
+        .get(
+            boa_engine::js_string!("isClosestMatch"),
+            &mut runtime.context,
+        )
+        .unwrap()
+        .to_boolean();
+    let is_contained = obj
+        .get(boa_engine::js_string!("isContained"), &mut runtime.context)
+        .unwrap()
+        .to_boolean();
+    let is_clone = obj
+        .get(boa_engine::js_string!("isCloneValid"), &mut runtime.context)
+        .unwrap()
+        .to_boolean();
+
+    assert!(is_match);
+    assert!(is_closest);
+    assert!(is_contained);
+    assert!(is_clone);
+}

@@ -255,4 +255,23 @@ impl Document {
             current = next;
         }
     }
+
+    /// Replaces `old_child` with `new_child` under `parent_id`.
+    ///
+    /// Inserts `new_child` immediately before `old_child` and then removes `old_child`.
+    pub fn replace_child(&mut self, parent_id: NodeId, new_child: NodeId, old_child: NodeId) {
+        if self
+            .get_node(old_child)
+            .is_none_or(|n| n.parent != Some(parent_id))
+        {
+            return;
+        }
+
+        if new_child == old_child {
+            return;
+        }
+
+        self.insert_before(parent_id, new_child, Some(old_child));
+        self.remove_child(parent_id, old_child);
+    }
 }

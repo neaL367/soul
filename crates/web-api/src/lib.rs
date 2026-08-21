@@ -1,14 +1,18 @@
 //! Web APIs implementation including DOM, Console, Timers, Web Storage, Fetch,
 //! Workers, `EventTarget`, `MutationObserver`, Web Cryptography, URL, and Performance.
 
+pub mod abort_binding;
+pub mod base64_binding;
 pub mod blob_binding;
 pub mod canvas_binding;
+pub mod clipboard_binding;
 pub mod console;
 pub mod crypto_binding;
 pub mod dom_bindings;
 pub mod event_binding;
 pub mod fetch_binding;
 pub mod form_data_binding;
+pub mod history_binding;
 pub mod indexeddb_binding;
 pub mod media_binding;
 pub mod media_query_binding;
@@ -21,8 +25,11 @@ pub mod websocket_binding;
 pub mod window_bindings;
 pub mod worker;
 
+pub use abort_binding::{create_abort_signal, register_abort};
+pub use base64_binding::{decode_base64, encode_base64, register_base64};
 pub use blob_binding::{create_blob_instance, register_blob};
 pub use canvas_binding::{create_canvas_context_2d, create_canvas_element, register_canvas};
+pub use clipboard_binding::create_clipboard_object;
 pub use console::register_console;
 pub use crypto_binding::register_crypto;
 pub use dom_bindings::register_dom;
@@ -32,6 +39,7 @@ pub use fetch_binding::{
     register_rich_fetch,
 };
 pub use form_data_binding::{create_form_data_instance, register_form_data};
+pub use history_binding::{create_history_object, register_history};
 pub use indexeddb_binding::register_indexeddb;
 pub use media_binding::{create_audio_element, create_video_element, register_media};
 pub use media_query_binding::{evaluate_media_query, register_match_media};
@@ -91,6 +99,9 @@ pub fn bind_web_apis(
     register_form_data(context);
     register_blob(context);
     register_media(context);
+    register_base64(context);
+    register_abort(context);
+    register_history(context, "about:blank");
 
     let global = context.global_object();
     let _ = global.set(

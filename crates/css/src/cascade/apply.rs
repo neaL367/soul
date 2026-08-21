@@ -18,6 +18,7 @@ use self::values::{
 use crate::properties::{
     AlignItems, AlignSelf, BoxSizing, Color, ComputedStyle, Display, FlexDirection, FlexWrap,
     FontStyle, FontWeight, GridTrack, JustifyContent, Position, TextAlign, TextDecoration,
+    Visibility,
 };
 use crate::rule::Declaration;
 
@@ -55,6 +56,12 @@ pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
             "absolute" => style.position = Position::Absolute,
             "fixed" => style.position = Position::Fixed,
             "sticky" => style.position = Position::Sticky,
+            _ => {}
+        },
+        "visibility" => match value {
+            "visible" => style.visibility = Visibility::Visible,
+            "hidden" => style.visibility = Visibility::Hidden,
+            "collapse" => style.visibility = Visibility::Collapse,
             _ => {}
         },
         "box-sizing" => match value {

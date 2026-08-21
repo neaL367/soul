@@ -227,3 +227,15 @@ impl GridTrack {
         }
     }
 }
+
+/// CSS `visibility` property values (W3C CSS2.1 §11.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Visibility {
+    /// The generated box is visible (default).
+    #[default]
+    Visible,
+    /// The generated box is invisible (fully transparent), but still affects layout.
+    Hidden,
+    /// For table elements removes row/column; otherwise behaves as `hidden`.
+    Collapse,
+}

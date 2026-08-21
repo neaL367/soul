@@ -64,4 +64,38 @@ impl Document {
             node.dirty_flags.paint = true;
         }
     }
+
+    /// Clones a node and optionally all of its descendants.
+    pub fn clone_node(&mut self, node_id: NodeId, deep: bool) -> NodeId {
+        let Some(node) = self.get_node(node_id) else {
+            return self.root_id;
+        };
+
+        let cloned_data = match &node.data {
+            NodeData::Element(elem) => {
+                let mut new_elem = ElementData::new(&elem.tag_name, elem.attributes.clone());
+                new_elem.id.clone_from(&elem.id);
+                new_elem.classes.clone_from(&elem.classes);
+                NodeData::Element(new_elem)
+            }
+            NodeData::Text(text) => NodeData::Text(text.clone()),
+            NodeData::Comment(text) => NodeData::Comment(text.clone()),
+            NodeData::DocumentType(doctype) => NodeData::DocumentType(doctype.clone()),
+            NodeData::Document => NodeData::Document,
+            NodeData::DocumentFragment => NodeData::DocumentFragment,
+            NodeData::ShadowRoot(mode) => NodeData::ShadowRoot(*mode),
+        };
+
+        let new_id = self.alloc_node(cloned_data);
+
+        if deep {
+            let children = self.children(node_id);
+            for child in children {
+                let cloned_child = self.clone_node(child, true);
+                self.append_child(new_id, cloned_child);
+            }
+        }
+
+        new_id
+    }
 }

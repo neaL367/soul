@@ -15,6 +15,7 @@ pub use properties::{
     AlignItems, AlignSelf, BoxShadow, BoxSizing, Color, ColorStop, ComputedStyle, Display,
     FlexDirection, FlexWrap, FontStyle, FontWeight, Gradient, GridTrack, JustifyContent, Length,
     Position, TextAlign, TextDecoration, TimingFunction, Transform2D, TransformOp, Transition,
+    Visibility,
 };
 pub use rule::{Declaration, Origin, Rule, Selector, Specificity, StyleSheet};
 pub use selector_impl::{DomElement, SoulParser, SoulSelectorImpl};

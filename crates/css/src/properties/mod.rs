@@ -9,7 +9,7 @@ use std::collections::HashMap;
 pub use color::Color;
 pub use enums::{
     AlignItems, AlignSelf, BoxSizing, Display, FlexDirection, FlexWrap, FontStyle, FontWeight,
-    GridTrack, JustifyContent, Length, Position, TextAlign, TextDecoration,
+    GridTrack, JustifyContent, Length, Position, TextAlign, TextDecoration, Visibility,
 };
 pub use transform::{ColorStop, Gradient, TimingFunction, Transform2D, TransformOp, Transition};
 
@@ -20,6 +20,8 @@ pub struct ComputedStyle {
     pub display: Display,
     /// Positioning scheme.
     pub position: Position,
+    /// Element visibility.
+    pub visibility: Visibility,
     /// Box sizing model (`ContentBox` vs `BorderBox`).
     pub box_sizing: BoxSizing,
     /// Text foreground color (inherited).
@@ -169,6 +171,7 @@ impl ComputedStyle {
         Self {
             display: Display::Inline,
             position: Position::Static,
+            visibility: Visibility::Visible,
             box_sizing: BoxSizing::ContentBox,
             color: Color::BLACK,
             background_color: Color::TRANSPARENT,
@@ -242,6 +245,7 @@ impl ComputedStyle {
         self.line_height = parent.line_height;
         self.letter_spacing = parent.letter_spacing;
         self.word_spacing = parent.word_spacing;
+        self.visibility = parent.visibility;
         self.custom_properties.clone_from(&parent.custom_properties);
     }
 }

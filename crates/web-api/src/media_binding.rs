@@ -81,8 +81,10 @@ fn create_media_element_base(context: &mut Context, is_video: bool) -> JsObject 
     let get_src = FunctionObjectBuilder::new(
         context.realm(),
         NativeFunction::from_fn_ptr(|this, _args, ctx| {
-            this.as_object()
-                .map_or_else(|| Ok(JsValue::undefined()), |o| o.get(js_string!(MEDIA_SRC_PROP), ctx))
+            this.as_object().map_or_else(
+                || Ok(JsValue::undefined()),
+                |o| o.get(js_string!(MEDIA_SRC_PROP), ctx),
+            )
         }),
     )
     .build();
@@ -102,8 +104,10 @@ fn create_media_element_base(context: &mut Context, is_video: bool) -> JsObject 
     let get_paused = FunctionObjectBuilder::new(
         context.realm(),
         NativeFunction::from_fn_ptr(|this, _args, ctx| {
-            this.as_object()
-                .map_or_else(|| Ok(JsValue::from(true)), |o| o.get(js_string!(MEDIA_PAUSED_PROP), ctx))
+            this.as_object().map_or_else(
+                || Ok(JsValue::from(true)),
+                |o| o.get(js_string!(MEDIA_PAUSED_PROP), ctx),
+            )
         }),
     )
     .build();
@@ -150,8 +154,10 @@ fn create_media_element_base(context: &mut Context, is_video: bool) -> JsObject 
     let get_muted = FunctionObjectBuilder::new(
         context.realm(),
         NativeFunction::from_fn_ptr(|this, _args, ctx| {
-            this.as_object()
-                .map_or_else(|| Ok(JsValue::from(false)), |o| o.get(js_string!(MEDIA_MUTED_PROP), ctx))
+            this.as_object().map_or_else(
+                || Ok(JsValue::from(false)),
+                |o| o.get(js_string!(MEDIA_MUTED_PROP), ctx),
+            )
         }),
     )
     .build();
@@ -176,8 +182,10 @@ fn create_media_element_base(context: &mut Context, is_video: bool) -> JsObject 
     let get_volume = FunctionObjectBuilder::new(
         context.realm(),
         NativeFunction::from_fn_ptr(|this, _args, ctx| {
-            this.as_object()
-                .map_or_else(|| Ok(JsValue::from(1.0)), |o| o.get(js_string!(MEDIA_VOLUME_PROP), ctx))
+            this.as_object().map_or_else(
+                || Ok(JsValue::from(1.0)),
+                |o| o.get(js_string!(MEDIA_VOLUME_PROP), ctx),
+            )
         }),
     )
     .build();

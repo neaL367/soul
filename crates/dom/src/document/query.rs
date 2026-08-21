@@ -84,4 +84,40 @@ impl Document {
             })
             .collect()
     }
+
+    /// Returns `true` if the element matches the given selector.
+    #[must_use]
+    pub fn matches(&self, node_id: NodeId, selector: &str) -> bool {
+        let Some(node) = self.get_node(node_id) else {
+            return false;
+        };
+        let Some(elem) = node.as_element() else {
+            return false;
+        };
+
+        let sel = selector.trim();
+        if let Some(id_sel) = sel.strip_prefix('#') {
+            return elem.id.as_deref() == Some(id_sel);
+        }
+        if let Some(class_sel) = sel.strip_prefix('.') {
+            return elem.has_class(class_sel);
+        }
+        if sel == "*" {
+            return true;
+        }
+        elem.tag_name.eq_ignore_ascii_case(sel)
+    }
+
+    /// Finds the closest ancestor (or self) matching the given selector.
+    #[must_use]
+    pub fn closest(&self, node_id: NodeId, selector: &str) -> Option<NodeId> {
+        let mut cur = Some(node_id);
+        while let Some(id) = cur {
+            if self.matches(id, selector) {
+                return Some(id);
+            }
+            cur = self.get_node(id).and_then(|n| n.parent);
+        }
+        None
+    }
 }
