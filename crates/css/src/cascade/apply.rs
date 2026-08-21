@@ -2,12 +2,13 @@
 
 use crate::properties::{
     AlignItems, AlignSelf, BoxSizing, Color, ComputedStyle, Display, FlexDirection, FlexWrap,
-    FontStyle, FontWeight, JustifyContent, Length, Position, TextAlign, TextDecoration,
+    FontStyle, FontWeight, GridTrack, JustifyContent, Length, Position, TextAlign, TextDecoration,
 };
 use crate::rule::Declaration;
 
+/// Applies a parsed CSS `Declaration` to a `ComputedStyle`.
 #[allow(clippy::too_many_lines)]
-pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
+pub fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
     match decl.property.as_str() {
         "display" => match decl.value.as_str() {
             "block" => style.display = Display::Block,
@@ -290,6 +291,30 @@ pub(super) fn apply_declaration(style: &mut ComputedStyle, decl: &Declaration) {
                 style.flex_basis = Length::Percent(pct);
             }
         }
+        "grid-template-columns" => {
+            if let Some(tracks) = parse_grid_tracks(&decl.value) {
+                style.grid_template_columns = tracks;
+            }
+        }
+        "grid-template-rows" => {
+            if let Some(tracks) = parse_grid_tracks(&decl.value) {
+                style.grid_template_rows = tracks;
+            }
+        }
+        "gap" | "grid-gap" => {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
+                style.grid_gap = px;
+            } else if let Some(GridTrack::Px(px)) =
+                parse_grid_tracks(&decl.value).and_then(|t| t.into_iter().next())
+            {
+                style.grid_gap = px;
+            }
+        }
+        "row-gap" | "grid-row-gap" | "column-gap" | "grid-column-gap" => {
+            if let Some(px) = parse_non_negative_px(&decl.value) {
+                style.grid_gap = px;
+            }
+        }
         _ => {}
     }
 }
@@ -388,4 +413,49 @@ fn parse_4_edges(value: &str) -> Option<(f32, f32, f32, f32)> {
         }
         _ => None,
     }
+}
+
+fn parse_grid_tracks(value: &str) -> Option<Vec<GridTrack>> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut tracks = Vec::new();
+    for part in trimmed.split_whitespace() {
+        // Handle repeat() and minmax() by skipping them for MVP - treat as auto
+        if part.contains('(') {
+            tracks.push(GridTrack::Auto);
+            continue;
+        }
+        {
+            let track = parse_grid_track(part)?;
+            tracks.push(track);
+        }
+    }
+    if tracks.is_empty() {
+        None
+    } else {
+        Some(tracks)
+    }
+}
+
+fn parse_grid_track(value: &str) -> Option<GridTrack> {
+    let lower = value.to_ascii_lowercase();
+    if lower == "auto" {
+        return Some(GridTrack::Auto);
+    }
+    if let Some(fr_str) = lower.strip_suffix("fr")
+        && let Ok(v) = fr_str.trim().parse::<f32>()
+        && v.is_finite()
+        && v >= 0.0
+    {
+        return Some(GridTrack::Fr(v));
+    }
+    if let Some(px) = parse_non_negative_px(value) {
+        return Some(GridTrack::Px(px));
+    }
+    if let Some(pct) = parse_percent(value) {
+        return Some(GridTrack::Percent(pct));
+    }
+    None
 }

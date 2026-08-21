@@ -3,6 +3,7 @@
 use crate::box_tree::LayoutBox;
 use crate::flex::layout_flex;
 use crate::geometry::{Dimensions, EdgeSizes};
+use crate::grid::layout_grid;
 use css::{BoxSizing, ComputedStyle, Display, Length, Position};
 
 /// Maximum depth of recursive block layout before child layout is skipped.
@@ -44,6 +45,14 @@ fn is_flex_container(layout_box: &LayoutBox) -> bool {
         .is_some_and(|s| s.display == Display::Flex)
 }
 
+/// Returns `true` if the box is a grid container (`display: grid`).
+fn is_grid_container(layout_box: &LayoutBox) -> bool {
+    layout_box
+        .style
+        .as_ref()
+        .is_some_and(|s| s.display == Display::Grid)
+}
+
 /// Returns `true` if the box is out-of-flow (absolute or fixed).
 fn is_out_of_flow(layout_box: &LayoutBox) -> bool {
     layout_box
@@ -52,12 +61,14 @@ fn is_out_of_flow(layout_box: &LayoutBox) -> bool {
         .is_some_and(|s| matches!(s.position, Position::Absolute | Position::Fixed))
 }
 
-/// Lays out a container's children, dispatching flex containers to the flex
-/// algorithm and everything else to normal flow block layout.
+/// Lays out a container's children, dispatching flex/grid containers to the
+/// appropriate algorithm and everything else to normal flow block layout.
 /// Out-of-flow children are positioned in a second pass.
 fn layout_children(layout_box: &mut LayoutBox, depth: usize) {
     if is_flex_container(layout_box) {
         layout_flex_children(layout_box, depth);
+    } else if is_grid_container(layout_box) {
+        layout_grid_children(layout_box, depth);
     } else {
         layout_block_children(layout_box, depth);
     }
@@ -299,6 +310,60 @@ fn layout_flex_children(layout_box: &mut LayoutBox, depth: usize) {
     }
 
     layout_box.dimensions.content.height = flex.container.content.height;
+}
+
+/// Lays out the children of a grid container via taffy.
+fn layout_grid_children(layout_box: &mut LayoutBox, depth: usize) {
+    let Some(container_style) = layout_box.style.clone() else {
+        return;
+    };
+    let container_width = layout_box.dimensions.content.width;
+
+    let owned_styles: Vec<(usize, ComputedStyle)> = layout_box
+        .children
+        .iter()
+        .enumerate()
+        .filter(|(_, child)| !is_out_of_flow(child))
+        .map(|(i, child)| (i, child.style.clone().unwrap_or_default()))
+        .collect();
+    let child_refs: Vec<(usize, &ComputedStyle)> =
+        owned_styles.iter().map(|(i, style)| (*i, style)).collect();
+    let grid = layout_grid(&container_style, container_width, &child_refs);
+
+    let origin_x = layout_box.dimensions.content.x;
+    let origin_y = layout_box.dimensions.content.y;
+    for result in &grid.items {
+        let child = &mut layout_box.children[result.index];
+        if child.style.is_some() {
+            calculate_block_width(child, &layout_box.dimensions);
+        } else {
+            child.dimensions.padding = EdgeSizes::default();
+            child.dimensions.border = EdgeSizes::default();
+            child.dimensions.margin = EdgeSizes::default();
+        }
+        let border_box = &result.dimensions.content;
+        let pad_left = child.dimensions.padding.left;
+        let pad_top = child.dimensions.padding.top;
+        let border_left = child.dimensions.border.left;
+        let border_top = child.dimensions.border.top;
+        let pad_border_right = child.dimensions.padding.right + child.dimensions.border.right;
+        let pad_border_bottom = child.dimensions.padding.bottom + child.dimensions.border.bottom;
+        child.dimensions.content.x = origin_x + border_box.x + border_left + pad_left;
+        child.dimensions.content.y = origin_y + border_box.y + border_top + pad_top;
+        child.dimensions.content.width =
+            (border_box.width - border_left - pad_left - pad_border_right).max(0.0);
+        child.dimensions.content.height =
+            (border_box.height - border_top - pad_top - pad_border_bottom).max(0.0);
+    }
+
+    for i in 0..layout_box.children.len() {
+        if depth < MAX_LAYOUT_DEPTH {
+            layout_children(&mut layout_box.children[i], depth + 1);
+        }
+        calculate_block_height(&mut layout_box.children[i]);
+    }
+
+    layout_box.dimensions.content.height = grid.container.content.height;
 }
 
 #[allow(clippy::cast_precision_loss)]

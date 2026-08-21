@@ -1,9 +1,9 @@
 //! Cascade algorithm, selector matching, and top-down computed style resolution.
 
-mod apply;
+pub mod apply;
 mod matching;
 
-use apply::apply_declaration;
+pub use apply::apply_declaration;
 use matching::matches_selector;
 
 use crate::properties::ComputedStyle;

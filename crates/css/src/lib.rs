@@ -7,11 +7,11 @@ pub mod rule;
 pub mod selector_impl;
 pub mod ua;
 
-pub use cascade::CascadeResolver;
+pub use cascade::{CascadeResolver, apply_declaration};
 pub use parser::parse_stylesheet;
 pub use properties::{
     AlignItems, AlignSelf, BoxSizing, Color, ComputedStyle, Display, FlexDirection, FlexWrap,
-    FontStyle, FontWeight, JustifyContent, Length, Position, TextAlign, TextDecoration,
+    FontStyle, FontWeight, GridTrack, JustifyContent, Length, Position, TextAlign, TextDecoration,
 };
 pub use rule::{Declaration, Origin, Rule, Selector, Specificity, StyleSheet};
 pub use selector_impl::{DomElement, SoulParser, SoulSelectorImpl};

@@ -14,7 +14,10 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+base64 = "0.22"
 bytes = "1"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+signature = "2"
 thiserror.workspace = true
 soul-core = { path = "../soul-core" }
 soul-ui = { path = "../soul-ui" }

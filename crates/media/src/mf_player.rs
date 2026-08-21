@@ -122,21 +122,19 @@ impl MfPlayer {
         header_bytes: &[u8],
     ) -> Result<MediaStreamDescriptor, MediaError> {
         // Try real Media Foundation probe if src_url is a file path that exists.
-        if let Some(path) = Self::url_to_file_path(src_url) {
-            if path.exists() {
-                if let Ok(reader) = Self::create_video_reader(&path) {
-                    if let Ok((w, h)) = Self::query_video_dimensions(&reader) {
-                        return Ok(MediaStreamDescriptor {
-                            format: Self::sniff_format(header_bytes),
-                            duration: Duration::from_mins(1),
-                            video_dimensions: Some((w, h)),
-                            has_audio: false,
-                            has_video: true,
-                            codec: "h264".to_string(),
-                        });
-                    }
-                }
-            }
+        if let Some(path) = Self::url_to_file_path(src_url)
+            && path.exists()
+            && let Ok(reader) = Self::create_video_reader(&path)
+            && let Ok((w, h)) = Self::query_video_dimensions(&reader)
+        {
+            return Ok(MediaStreamDescriptor {
+                format: Self::sniff_format(header_bytes),
+                duration: Duration::from_mins(1),
+                video_dimensions: Some((w, h)),
+                has_audio: false,
+                has_video: true,
+                codec: "h264".to_string(),
+            });
         }
 
         let format = Self::sniff_format(header_bytes);

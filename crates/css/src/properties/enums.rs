@@ -187,3 +187,37 @@ pub enum AlignSelf {
     /// Align to baseline.
     Baseline,
 }
+
+/// CSS Grid track sizing function.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum GridTrack {
+    /// `auto` track.
+    #[default]
+    Auto,
+    /// Fixed pixel length.
+    Px(f32),
+    /// Fractional `fr` unit.
+    Fr(f32),
+    /// Percentage of container.
+    Percent(f32),
+}
+
+impl GridTrack {
+    /// Returns the `fr` value if this is an `Fr` track.
+    #[must_use]
+    pub const fn to_fr(self) -> Option<f32> {
+        match self {
+            Self::Fr(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// Returns the percentage value if this is a `Percent` track.
+    #[must_use]
+    pub const fn to_percent(self) -> Option<f32> {
+        match self {
+            Self::Percent(v) => Some(v),
+            _ => None,
+        }
+    }
+}

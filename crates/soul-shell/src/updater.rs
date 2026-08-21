@@ -1,5 +1,6 @@
 //! Browser auto-updater checking, version comparison, signature verification, and atomic staging.
 
+use signature::Verifier as _;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -275,7 +276,12 @@ pub fn verify_payload_checksum(payload_bytes: &[u8], expected_sha256: &str) -> b
     computed.eq_ignore_ascii_case(expected_sha256.trim())
 }
 
-/// Verifies manifest digital signature against a trusted public key token.
+/// Verifies manifest digital signature against a trusted Ed25519 public key.
+///
+/// Accepts both the new asymmetric Ed25519 base64 signature and the legacy
+/// symmetric token-derived SHA-256 hex for backwards compatibility. The Ed25519
+/// message is `"{version}:{sha256}:{download_url}"` signed with the private
+/// key; `public_key_token` is base64-encoded 32-byte Ed25519 verifying key.
 ///
 /// # Errors
 ///
@@ -290,7 +296,14 @@ pub fn verify_manifest_signature(
         });
     }
 
-    // Keyed signature payload: version + sha256 + download_url + public_key_token
+    // Attempt Ed25519 verification first (base64 32-byte pubkey, 64-byte sig).
+    if let Ok(verified) = verify_ed25519_manifest(manifest, public_key_token)
+        && verified
+    {
+        return Ok(true);
+    }
+
+    // Fallback: legacy symmetric token-derived SHA-256 hex (backwards compat).
     let sign_payload = format!(
         "{}:{}:{}:{}",
         manifest.version, manifest.sha256, manifest.download_url, public_key_token
@@ -304,6 +317,57 @@ pub fn verify_manifest_signature(
             version: manifest.version.clone(),
         })
     }
+}
+
+fn verify_ed25519_manifest(
+    manifest: &UpdateManifest,
+    public_key_base64: &str,
+) -> Result<bool, UpdateError> {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use ed25519_dalek::{Signature, VerifyingKey};
+
+    let pubkey_bytes =
+        BASE64
+            .decode(public_key_base64.trim())
+            .map_err(|_| UpdateError::InvalidSignature {
+                version: manifest.version.clone(),
+            })?;
+    let sig_bytes =
+        BASE64
+            .decode(manifest.signature.trim())
+            .map_err(|_| UpdateError::InvalidSignature {
+                version: manifest.version.clone(),
+            })?;
+
+    if pubkey_bytes.len() != 32 || sig_bytes.len() != 64 {
+        return Err(UpdateError::InvalidSignature {
+            version: manifest.version.clone(),
+        });
+    }
+
+    let verifying_key = VerifyingKey::from_bytes(&pubkey_bytes.try_into().map_err(|_| {
+        UpdateError::InvalidSignature {
+            version: manifest.version.clone(),
+        }
+    })?)
+    .map_err(|_| UpdateError::InvalidSignature {
+        version: manifest.version.clone(),
+    })?;
+
+    let signature = Signature::from_bytes(&sig_bytes.try_into().map_err(|_| {
+        UpdateError::InvalidSignature {
+            version: manifest.version.clone(),
+        }
+    })?);
+
+    // Message is version:sha256:download_url (without token)
+    let message = format!(
+        "{}:{}:{}",
+        manifest.version, manifest.sha256, manifest.download_url
+    );
+
+    Ok(verifying_key.verify(message.as_bytes(), &signature).is_ok())
 }
 
 /// Stages an update payload to disk, verifying its SHA-256 hash before final renaming.

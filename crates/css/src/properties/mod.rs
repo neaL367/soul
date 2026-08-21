@@ -6,7 +6,7 @@ pub mod enums;
 pub use color::Color;
 pub use enums::{
     AlignItems, AlignSelf, BoxSizing, Display, FlexDirection, FlexWrap, FontStyle, FontWeight,
-    JustifyContent, Length, Position, TextAlign, TextDecoration,
+    GridTrack, JustifyContent, Length, Position, TextAlign, TextDecoration,
 };
 
 /// Fully resolved computed styles for a single DOM element.
@@ -105,6 +105,12 @@ pub struct ComputedStyle {
     pub flex_shrink: f32,
     /// Flex basis: the initial main-size before flex adjustment.
     pub flex_basis: Length,
+    /// Grid template columns.
+    pub grid_template_columns: Vec<GridTrack>,
+    /// Grid template rows.
+    pub grid_template_rows: Vec<GridTrack>,
+    /// Grid gap (both row and column).
+    pub grid_gap: f32,
 }
 
 impl Default for ComputedStyle {
@@ -164,6 +170,9 @@ impl ComputedStyle {
             flex_grow: 0.0,
             flex_shrink: 1.0,
             flex_basis: Length::Auto,
+            grid_template_columns: Vec::new(),
+            grid_template_rows: Vec::new(),
+            grid_gap: 0.0,
         }
     }
 
