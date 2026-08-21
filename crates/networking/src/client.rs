@@ -50,16 +50,21 @@ impl Default for HttpClient {
     }
 }
 
+/// Creates a standard Rustls client configuration using system webpki roots.
+#[must_use]
+pub fn create_default_tls_config() -> rustls::ClientConfig {
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth()
+}
+
 impl HttpClient {
     /// Creates a new `HttpClient` with the given configuration.
     #[must_use]
     pub fn new(config: HttpClientConfig) -> Self {
-        let mut root_store = rustls::RootCertStore::empty();
-        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-
-        let mut tls_config = rustls::ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_no_client_auth();
+        let mut tls_config = create_default_tls_config();
         tls_config.alpn_protocols = vec![b"http/1.1".to_vec()];
 
         let dns_resolver = DnsResolver::new(config.dns_ttl);

@@ -11,6 +11,7 @@ pub mod network_client;
 pub mod service;
 pub mod streaming;
 pub mod types;
+pub mod websocket;
 
 pub use client::{HttpClient, HttpClientConfig};
 pub use cors::CorsEvaluator;
@@ -23,3 +24,4 @@ pub use network_client::{NetworkClient, NetworkClientConfig};
 pub use service::NetworkService;
 pub use streaming::{MAX_DOWNLOAD_BYTES, StreamingResponse};
 pub use types::{HttpRequest, HttpResponse};
+pub use websocket::{Frame, OpCode, WebSocketClient, WebSocketMessage};

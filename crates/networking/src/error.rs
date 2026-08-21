@@ -77,6 +77,10 @@ pub enum NetworkError {
     #[error("Decompression failed: {0}")]
     DecompressionFailed(String),
 
+    /// WebSocket protocol or framing violation.
+    #[error("WebSocket protocol error: {0}")]
+    WebSocketProtocol(String),
+
     /// Generic unexpected error.
     #[error("Network error: {0}")]
     Other(String),

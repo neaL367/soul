@@ -9,6 +9,7 @@ pub mod indexeddb_binding;
 pub mod mutation_observer;
 pub mod storage_binding;
 pub mod timers;
+pub mod websocket_binding;
 pub mod window_bindings;
 pub mod worker;
 
@@ -26,6 +27,10 @@ pub use mutation_observer::{
 };
 pub use storage_binding::{register_local_storage, register_session_storage};
 pub use timers::{TimerQueue, TimerState, register_timers};
+pub use websocket_binding::{
+    CLOSED, CLOSING, CONNECTING, MockWebSocketSession, OPEN, WebSocketFactory, WebSocketSession,
+    register_websocket,
+};
 pub use window_bindings::register_window;
 pub use worker::WebWorker;
 
@@ -34,7 +39,7 @@ use dom::Document;
 use std::sync::{Arc, Mutex};
 
 /// Registers common Web APIs (`console`, `timers`, `document`, `CustomEvent`,
-/// `MutationObserver`) into a Boa `Context`.
+/// `MutationObserver`, `WebSocket`) into a Boa `Context`.
 ///
 /// # Errors
 ///
@@ -61,6 +66,8 @@ pub fn bind_web_apis(
     if let Some(mq) = mutation_queue {
         register_mutation_observer(context, mq)?;
     }
+
+    register_websocket(context, None)?;
 
     Ok(())
 }
