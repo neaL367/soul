@@ -108,3 +108,116 @@ fn test_cdp_query_selector_and_clearing() {
     assert_eq!(clear_resp.id, 11);
     assert_eq!(server.console.get_messages().len(), 0);
 }
+
+#[test]
+fn test_cdp_dom_mutations_and_outer_html() {
+    let mut server = CdpServer::new();
+    let mut doc = Document::new();
+    let root = doc.root_id();
+    let div = doc.create_element("div");
+    doc.set_attribute(div, "id", "box");
+    doc.append_child(root, div);
+
+    // Test getOuterHTML
+    let html_req = CdpRequest {
+        id: 20,
+        method: "DOM.getOuterHTML".to_string(),
+        params: Some(serde_json::json!({ "nodeId": div.0 })),
+    };
+    let html_resp = server.handle_request(&html_req, Some(&doc));
+    assert!(
+        html_resp
+            .result
+            .unwrap()
+            .get("outerHTML")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("<div id=\"box\">")
+    );
+
+    // Test setAttributeValue
+    let set_attr_req = CdpRequest {
+        id: 21,
+        method: "DOM.setAttributeValue".to_string(),
+        params: Some(serde_json::json!({ "nodeId": div.0, "name": "data-test", "value": "123" })),
+    };
+    let set_resp = server.handle_request_mut(&set_attr_req, Some(&mut doc));
+    assert!(set_resp.error.is_none());
+    if let Some(node) = doc.get_node(div)
+        && let dom::NodeData::Element(elem) = &node.data
+    {
+        assert_eq!(elem.attributes.get("data-test"), Some(&"123".to_string()));
+    } else {
+        panic!("expected element node");
+    }
+
+    // Test removeAttribute
+    let rem_attr_req = CdpRequest {
+        id: 22,
+        method: "DOM.removeAttribute".to_string(),
+        params: Some(serde_json::json!({ "nodeId": div.0, "name": "data-test" })),
+    };
+    let rem_resp = server.handle_request_mut(&rem_attr_req, Some(&mut doc));
+    assert!(rem_resp.error.is_none());
+    if let Some(node) = doc.get_node(div)
+        && let dom::NodeData::Element(elem) = &node.data
+    {
+        assert_eq!(elem.attributes.get("data-test"), None);
+    }
+
+    // Test removeNode
+    let rem_node_req = CdpRequest {
+        id: 23,
+        method: "DOM.removeNode".to_string(),
+        params: Some(serde_json::json!({ "nodeId": div.0 })),
+    };
+    let rem_node_resp = server.handle_request_mut(&rem_node_req, Some(&mut doc));
+    assert!(rem_node_resp.error.is_none());
+    assert_eq!(doc.children(root).len(), 0);
+}
+
+#[test]
+fn test_cdp_runtime_and_page_domains() {
+    let mut server = CdpServer::new();
+
+    // Runtime.evaluate
+    let eval_req = CdpRequest {
+        id: 30,
+        method: "Runtime.evaluate".to_string(),
+        params: Some(serde_json::json!({ "expression": "20 + 22" })),
+    };
+    let eval_resp = server.handle_request(&eval_req, None);
+    assert_eq!(eval_resp.id, 30);
+    assert!(
+        eval_resp
+            .result
+            .unwrap()
+            .get("result")
+            .unwrap()
+            .get("value")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("42")
+    );
+
+    // Page.navigate
+    let nav_req = CdpRequest {
+        id: 31,
+        method: "Page.navigate".to_string(),
+        params: Some(serde_json::json!({ "url": "https://example.com" })),
+    };
+    let nav_resp = server.handle_request(&nav_req, None);
+    assert_eq!(nav_resp.id, 31);
+    assert_eq!(
+        nav_resp
+            .result
+            .unwrap()
+            .get("url")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        "https://example.com"
+    );
+}

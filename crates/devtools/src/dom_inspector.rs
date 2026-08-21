@@ -2,6 +2,7 @@
 
 use dom::{Document, NodeData, NodeId};
 use serde_json::json;
+use std::fmt::Write;
 
 /// Inspector utility traversing the DOM arena into serialized CDP nodes.
 pub struct DomInspector;
@@ -53,5 +54,38 @@ impl DomInspector {
             "childNodeCount": children_json.len(),
             "children": children_json,
         })
+    }
+
+    /// Serializes a node and all its descendants into valid HTML.
+    #[must_use]
+    pub fn get_outer_html(doc: &Document, node_id: NodeId) -> String {
+        let Some(node) = doc.get_node(node_id) else {
+            return String::new();
+        };
+
+        match &node.data {
+            NodeData::Element(elem) => {
+                let mut out = format!("<{}", elem.tag_name);
+                for (k, v) in &elem.attributes {
+                    let _ = write!(out, " {k}=\"{v}\"");
+                }
+                out.push('>');
+                for child_id in doc.children(node_id) {
+                    out.push_str(&Self::get_outer_html(doc, child_id));
+                }
+                let _ = write!(out, "</{}>", elem.tag_name);
+                out
+            }
+            NodeData::Text(txt) => txt.clone(),
+            NodeData::Comment(cmt) => format!("<!--{cmt}-->"),
+            NodeData::DocumentType(dt) => format!("<!DOCTYPE {}>", dt.name),
+            NodeData::Document | NodeData::DocumentFragment | NodeData::ShadowRoot(_) => {
+                let mut out = String::new();
+                for child_id in doc.children(node_id) {
+                    out.push_str(&Self::get_outer_html(doc, child_id));
+                }
+                out
+            }
+        }
     }
 }

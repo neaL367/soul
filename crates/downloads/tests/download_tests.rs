@@ -231,3 +231,29 @@ async fn test_download_rejects_non_success_status() {
     );
     let _ = fs::remove_file(&dest);
 }
+
+#[tokio::test]
+async fn test_download_pause_resume_and_cancel_lifecycle() {
+    let manager = DownloadManager::new();
+    let dest = std::env::temp_dir().join("soul_pause_resume_test.bin");
+    let _ = fs::remove_file(&dest);
+
+    let id = manager
+        .start_download("http://127.0.0.1:9/invalid", dest.clone())
+        .await
+        .unwrap();
+
+    // Test pause
+    let paused = manager.pause_download(id).await;
+    assert!(paused);
+
+    let resumed = manager.resume_download(id).await;
+    assert!(resumed);
+
+    // Test cancel
+    let cancelled = manager.cancel_download(id).await;
+    assert!(cancelled);
+    let item = manager.get_download(id).await.unwrap();
+    assert_eq!(item.state, DownloadState::Cancelled);
+    assert!(!dest.exists());
+}

@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
-use tokio::fs::File;
+use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use url::Url;
@@ -77,9 +77,81 @@ impl DownloadManager {
             lock.insert(id, item);
         }
 
+        self.spawn_download_task(id, parsed_url, destination, 0);
+        Ok(id)
+    }
+
+    /// Pauses an active or queued downloading item.
+    #[allow(clippy::significant_drop_tightening)]
+    pub async fn pause_download(&self, id: u64) -> bool {
+        let mut lock = self.downloads.lock().await;
+        if let Some(d) = lock.get_mut(&id)
+            && matches!(
+                d.state,
+                DownloadState::Downloading { .. } | DownloadState::Queued
+            )
+        {
+            d.state = DownloadState::Paused;
+            return true;
+        }
+        false
+    }
+
+    /// Resumes a paused download, requesting remaining bytes via HTTP Range request.
+    #[allow(clippy::significant_drop_tightening)]
+    pub async fn resume_download(&self, id: u64) -> bool {
+        let (url_str, destination, received_bytes) = {
+            let mut lock = self.downloads.lock().await;
+            let Some(d) = lock.get_mut(&id) else {
+                return false;
+            };
+            if !matches!(d.state, DownloadState::Paused) {
+                return false;
+            }
+            d.state = DownloadState::Queued;
+            let existing_len = tokio::fs::metadata(&d.destination_path)
+                .await
+                .map_or(0, |m| m.len());
+            (d.url.clone(), d.destination_path.clone(), existing_len)
+        };
+
+        Url::parse(&url_str).is_ok_and(|parsed_url| {
+            self.spawn_download_task(id, parsed_url, destination, received_bytes);
+            true
+        })
+    }
+
+    /// Cancels an active or paused download and deletes any partially downloaded file.
+    #[allow(clippy::significant_drop_tightening)]
+    pub async fn cancel_download(&self, id: u64) -> bool {
+        let dest = {
+            let mut lock = self.downloads.lock().await;
+            if let Some(d) = lock.get_mut(&id) {
+                d.state = DownloadState::Cancelled;
+                Some(d.destination_path.clone())
+            } else {
+                None
+            }
+        };
+
+        if let Some(path) = dest {
+            let _ = tokio::fs::remove_file(path).await;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn spawn_download_task(
+        &self,
+        id: u64,
+        parsed_url: Url,
+        destination: PathBuf,
+        resume_offset: u64,
+    ) {
         let downloads_clone = self.downloads.clone();
         let client_clone = self.client.clone();
-        let url_copy = url_str.to_string();
+        let url_copy = parsed_url.to_string();
 
         tokio::spawn(async move {
             let started = Instant::now();
@@ -100,9 +172,9 @@ impl DownloadManager {
                         return;
                     }
 
-                    let total_bytes = stream.content_length();
+                    let total_bytes = stream.content_length().map(|c| c + resume_offset);
                     let final_url = stream.url.to_string();
-                    Self::mark_downloading(&downloads_clone, id, 0, total_bytes).await;
+                    Self::mark_downloading(&downloads_clone, id, resume_offset, total_bytes).await;
 
                     match Self::write_stream_to_disk(
                         stream.into_body(),
@@ -110,20 +182,27 @@ impl DownloadManager {
                         &downloads_clone,
                         id,
                         total_bytes,
+                        resume_offset > 0,
                     )
                     .await
                     {
                         Ok(received) => {
+                            let total_received = resume_offset + received;
                             let elapsed_ms = u64::try_from(started.elapsed().as_millis())
                                 .unwrap_or(1)
                                 .max(1);
-                            let speed_bps = received.saturating_mul(1000) / elapsed_ms;
+                            let speed_bps = total_received.saturating_mul(1000) / elapsed_ms;
 
                             // MOTW must reflect the final, post-redirect URL.
                             let _ = attach_zone_identifier(&destination, &final_url);
 
                             let mut lock = downloads_clone.lock().await;
-                            if let Some(d) = lock.get_mut(&id) {
+                            if let Some(d) = lock.get_mut(&id)
+                                && !matches!(
+                                    d.state,
+                                    DownloadState::Cancelled | DownloadState::Paused
+                                )
+                            {
                                 d.speed_bps = speed_bps;
                                 d.state = DownloadState::Completed;
                             }
@@ -139,8 +218,6 @@ impl DownloadManager {
                 }
             }
         });
-
-        Ok(id)
     }
 
     /// Streams a response body to `destination` in bounded-memory frames,
@@ -151,10 +228,21 @@ impl DownloadManager {
         downloads: &Arc<Mutex<HashMap<u64, DownloadItem>>>,
         id: u64,
         total_bytes: Option<u64>,
+        append: bool,
     ) -> Result<u64, String> {
-        let mut file = File::create(destination)
-            .await
-            .map_err(|e| format!("Failed to create download file: {e}"))?;
+        let mut file = if append {
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(destination)
+                .await
+                .map_err(|e| format!("Failed to open download file for appending: {e}"))?
+        } else {
+            File::create(destination)
+                .await
+                .map_err(|e| format!("Failed to create download file: {e}"))?
+        };
+
         let mut received: u64 = 0;
         let mut next_update = PROGRESS_UPDATE_INTERVAL_BYTES;
 
@@ -164,6 +252,16 @@ impl DownloadManager {
             .transpose()
             .map_err(|e| format!("Failed to read download body: {e}"))?
         {
+            // Check if paused or cancelled mid-transfer
+            {
+                let lock = downloads.lock().await;
+                if let Some(item) = lock.get(&id)
+                    && matches!(item.state, DownloadState::Paused | DownloadState::Cancelled)
+                {
+                    return Ok(received);
+                }
+            }
+
             if let Ok(data) = frame.into_data() {
                 file.write_all(&data)
                     .await
@@ -189,7 +287,9 @@ impl DownloadManager {
         total: Option<u64>,
     ) {
         let mut lock = downloads.lock().await;
-        if let Some(d) = lock.get_mut(&id) {
+        if let Some(d) = lock.get_mut(&id)
+            && !matches!(d.state, DownloadState::Paused | DownloadState::Cancelled)
+        {
             d.state = DownloadState::Downloading {
                 received_bytes: received,
                 total_bytes: total,

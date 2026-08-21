@@ -2,12 +2,14 @@
 
 #![allow(unsafe_code)]
 
+pub mod appcontainer;
 pub mod error;
 pub mod job_object;
 pub mod launcher;
 pub mod profile;
 pub mod restricted_token;
 
+pub use appcontainer::{AppContainerCapability, AppContainerProfile};
 pub use error::SandboxError;
 pub use job_object::{JobAccounting, JobObject};
 pub use launcher::{ProcessLauncher, SandboxedChild};

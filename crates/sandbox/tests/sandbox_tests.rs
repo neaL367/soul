@@ -59,3 +59,20 @@ fn test_process_launcher_sandboxed_execution() {
     let status = child.wait().expect("wait for sandboxed child");
     assert!(status.success());
 }
+
+#[test]
+fn test_appcontainer_profile_and_sid_derivation() {
+    use sandbox::{AppContainerCapability, AppContainerProfile};
+
+    let renderer_ac = AppContainerProfile::for_renderer(42);
+    assert_eq!(renderer_ac.package_name, "SoulBrowser.Renderer.42");
+    assert!(renderer_ac.capabilities.is_empty());
+    let sid = renderer_ac.derive_sid_string();
+    assert!(sid.starts_with("S-1-15-2-"));
+    assert!(renderer_ac.validate().is_ok());
+
+    let network_ac = AppContainerProfile::for_network()
+        .with_capability(AppContainerCapability::InternetClientServer);
+    assert_eq!(network_ac.capabilities.len(), 2);
+    assert!(network_ac.validate().is_ok());
+}

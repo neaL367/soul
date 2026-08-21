@@ -1615,6 +1615,7 @@ dependencies = [
  "common",
  "css",
  "dom",
+ "javascript",
  "serde",
  "serde_json",
  "storage",
