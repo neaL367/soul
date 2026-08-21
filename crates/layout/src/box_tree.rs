@@ -158,12 +158,12 @@ pub fn build_box_tree_with_intrinsics<S: BuildHasher, S2: BuildHasher>(
 /// Flex containers instead always wrap inline children in anonymous block boxes
 /// (anonymous flex items, CSS Flexbox §4), so every child is a flex item.
 fn normalize_box_children(parent_box: &mut LayoutBox) {
-    let is_flex = parent_box
+    let is_flex_or_grid = parent_box
         .style
         .as_ref()
-        .is_some_and(|s| s.display == Display::Flex);
+        .is_some_and(|s| matches!(s.display, Display::Flex | Display::Grid));
 
-    if is_flex {
+    if is_flex_or_grid {
         wrap_inline_runs(&mut parent_box.children);
         return;
     }

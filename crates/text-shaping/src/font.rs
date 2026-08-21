@@ -1,5 +1,9 @@
 //! Font loading, system font discovery, and typographic metrics.
 
+#![allow(clippy::pedantic)]
+#![allow(clippy::nursery)]
+#![allow(clippy::significant_drop_tightening)]
+
 use cosmic_text::FontSystem;
 use fontdb::{Database, Family, Query, Source};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -30,6 +34,9 @@ impl FontMetrics {
     }
 
     /// Calculates precise typographic metrics for a font family at a given size.
+    ///
+    /// Attempts to read real font metrics via `swash`; falls back to synthetic
+    /// ratios when the font is not found or metrics cannot be read.
     #[must_use]
     pub fn from_database(font_db: &FontDatabase, family_name: &str, font_size: f32) -> Self {
         let font_size = if font_size.is_finite() {
@@ -38,8 +45,20 @@ impl FontMetrics {
             0.0
         };
 
+        if font_size <= 0.0 {
+            return Self {
+                ascent: 0.0,
+                descent: 0.0,
+                line_height: 0.0,
+            };
+        }
+
+        if let Some(metrics) = Self::read_real_metrics(font_db, family_name, font_size) {
+            return metrics;
+        }
+
+        // Fallback to synthetic ratios tuned per generic family.
         let lower = family_name.to_ascii_lowercase();
-        let _ = font_db.query_font(family_name);
         let (ascent_ratio, descent_ratio, line_height_ratio) = match lower.as_str() {
             "monospace" | "courier new" | "consolas" => (0.75, 0.25, 1.25),
             "serif" | "times new roman" | "georgia" => (0.82, 0.22, 1.22),
@@ -50,6 +69,50 @@ impl FontMetrics {
             ascent: font_size * ascent_ratio,
             descent: font_size * descent_ratio,
             line_height: font_size * line_height_ratio,
+        }
+    }
+
+    fn read_real_metrics(
+        font_db: &FontDatabase,
+        family_name: &str,
+        font_size: f32,
+    ) -> Option<Self> {
+        let face_id = font_db.query_font(family_name)?;
+        let db = font_db.inner.lock().ok()?;
+        let face = db.face(face_id)?;
+        let data = Self::load_face_data(face)?;
+        let font = swash::FontRef::from_index(&data, face.index as usize)?;
+        let metrics = font.metrics(&[]);
+
+        let upem = metrics.units_per_em as f32;
+        if upem <= 0.0 {
+            return None;
+        }
+        // `ascent` is positive, `descent` is positive after handling sign, `leading` is line gap.
+        let ascent = (metrics.ascent / upem) * font_size;
+        let descent = (metrics.descent / upem) * font_size;
+        let leading = (metrics.leading / upem) * font_size;
+
+        // Guard against degenerate metrics.
+        if !ascent.is_finite() || !descent.is_finite() || !leading.is_finite() {
+            return None;
+        }
+        let line_height = ascent + descent + leading.max(0.0);
+        if line_height <= 0.0 {
+            return None;
+        }
+
+        Some(Self {
+            ascent,
+            descent: descent.max(0.0),
+            line_height,
+        })
+    }
+
+    fn load_face_data(face: &fontdb::FaceInfo) -> Option<Vec<u8>> {
+        match &face.source {
+            Source::Binary(data) => Some(data.as_ref().as_ref().to_vec()),
+            Source::File(path) | Source::SharedFile(path, _) => std::fs::read(path).ok(),
         }
     }
 }

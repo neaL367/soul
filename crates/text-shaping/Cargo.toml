@@ -12,8 +12,8 @@ workspace = true
 common = { path = "../common" }
 cosmic-text = { version = "0.14", default-features = false, features = ["std", "swash"] }
 fontdb = "0.16"
-
 rustybuzz = "0.18"
+swash = "0.1"
 thiserror.workspace = true
 tracing.workspace = true
 unicode-linebreak = "0.1"

@@ -232,7 +232,8 @@ pub fn rasterize_text_to_callback(
         .lock()
         .expect("swash cache lock poisoned");
 
-    let metrics = Metrics::new(font_size, font_size * 1.2);
+    let font_metrics = FontMetrics::from_database(FontDatabase::global(), font_family, font_size);
+    let metrics = Metrics::new(font_size, font_metrics.line_height);
     let mut buffer = Buffer::new(&mut font_system, metrics);
     let attrs = Attrs::new().family(family).weight(weight);
 

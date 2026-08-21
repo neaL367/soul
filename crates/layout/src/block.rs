@@ -3,7 +3,7 @@
 use crate::box_tree::LayoutBox;
 use crate::flex::layout_flex;
 use crate::geometry::{Dimensions, EdgeSizes};
-use css::{BoxSizing, ComputedStyle, Display, Length};
+use css::{BoxSizing, ComputedStyle, Display, Length, Position};
 
 /// Maximum depth of recursive block layout before child layout is skipped.
 ///
@@ -44,14 +44,25 @@ fn is_flex_container(layout_box: &LayoutBox) -> bool {
         .is_some_and(|s| s.display == Display::Flex)
 }
 
+/// Returns `true` if the box is out-of-flow (absolute or fixed).
+fn is_out_of_flow(layout_box: &LayoutBox) -> bool {
+    layout_box
+        .style
+        .as_ref()
+        .is_some_and(|s| matches!(s.position, Position::Absolute | Position::Fixed))
+}
+
 /// Lays out a container's children, dispatching flex containers to the flex
 /// algorithm and everything else to normal flow block layout.
+/// Out-of-flow children are positioned in a second pass.
 fn layout_children(layout_box: &mut LayoutBox, depth: usize) {
     if is_flex_container(layout_box) {
         layout_flex_children(layout_box, depth);
     } else {
         layout_block_children(layout_box, depth);
     }
+    // Second pass for out-of-flow children (absolute/fixed).
+    layout_out_of_flow_children(layout_box, depth);
 }
 
 fn calculate_block_width(layout_box: &mut LayoutBox, containing_block: &Dimensions) {
@@ -136,9 +147,18 @@ fn collapse_vertical_margins(prev_bottom: f32, current_top: f32) -> f32 {
 }
 
 fn layout_block_children(layout_box: &mut LayoutBox, depth: usize) {
-    if layout_box.children.iter().any(LayoutBox::is_inline) {
+    // Only in-flow children participate in normal flow.
+    let has_in_flow_inline = layout_box
+        .children
+        .iter()
+        .filter(|c| !is_out_of_flow(c))
+        .any(LayoutBox::is_inline);
+    if has_in_flow_inline {
         let max_w = layout_box.dimensions.content.width;
         let inline_h = crate::inline::layout_inline_context(layout_box, max_w);
+        // Out-of-flow children were skipped inside inline context; they will be
+        // positioned in the second pass, so we do not include them in height here
+        // beyond what inline context already did (which ignores them).
         layout_box.dimensions.content.height = inline_h;
         return;
     }
@@ -148,6 +168,9 @@ fn layout_block_children(layout_box: &mut LayoutBox, depth: usize) {
     let mut is_first = true;
 
     for child in &mut layout_box.children {
+        if is_out_of_flow(child) {
+            continue;
+        }
         if child.is_block() {
             calculate_block_width(child, &layout_box.dimensions);
 
@@ -184,6 +207,32 @@ fn layout_block_children(layout_box: &mut LayoutBox, depth: usize) {
     layout_box.dimensions.content.height = vertical_offset;
 }
 
+fn layout_out_of_flow_children(layout_box: &mut LayoutBox, depth: usize) {
+    // Position absolute/fixed children out-of-flow; they do not affect parent height.
+    // For MVP, containing block is the direct parent's content box.
+    let containing = layout_box.dimensions;
+    for child in &mut layout_box.children {
+        if !is_out_of_flow(child) {
+            continue;
+        }
+        calculate_block_width(child, &containing);
+        // Place at containing block's content origin (top-left), offset by margin/border/padding.
+        child.dimensions.content.x = containing.content.x
+            + child.dimensions.margin.left
+            + child.dimensions.border.left
+            + child.dimensions.padding.left;
+        child.dimensions.content.y = containing.content.y
+            + child.dimensions.margin.top
+            + child.dimensions.border.top
+            + child.dimensions.padding.top;
+
+        if depth < MAX_LAYOUT_DEPTH {
+            layout_children(child, depth + 1);
+        }
+        calculate_block_height(child);
+    }
+}
+
 /// Lays out the children of a flex container.
 ///
 /// The flex algorithm (taffy) resolves each child's border-box location and
@@ -201,6 +250,7 @@ fn layout_flex_children(layout_box: &mut LayoutBox, depth: usize) {
         .children
         .iter()
         .enumerate()
+        .filter(|(_, child)| !is_out_of_flow(child))
         .map(|(i, child)| (i, child.style.clone().unwrap_or_default()))
         .collect();
     let child_refs: Vec<(usize, &ComputedStyle)> =

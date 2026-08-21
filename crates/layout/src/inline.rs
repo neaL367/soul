@@ -2,8 +2,8 @@
 
 use crate::box_tree::{BoxType, LayoutBox};
 use crate::geometry::Rect;
-use css::FontWeight;
-use text_shaping::{TextShaper, break_lines};
+use css::{FontWeight, Position};
+use text_shaping::{FontDatabase, FontMetrics, TextShaper, break_lines};
 
 /// Single styled fragment of text positioned within a line box.
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +56,13 @@ pub fn layout_inline_context(parent_box: &mut LayoutBox, max_width: f32) -> f32 
     let mut cursor_y = 0.0;
 
     for child in &mut parent_box.children {
+        if child
+            .style
+            .as_ref()
+            .is_some_and(|s| matches!(s.position, Position::Absolute | Position::Fixed))
+        {
+            continue;
+        }
         let (text, font_size, font_family, is_bold) = match &child.box_type {
             BoxType::TextNode(_, text) => {
                 let font_size = child
@@ -106,6 +113,10 @@ pub fn layout_inline_context(parent_box: &mut LayoutBox, max_width: f32) -> f32 
             continue;
         }
 
+        let metrics = FontMetrics::from_database(FontDatabase::global(), &font_family, font_size);
+        let line_h = metrics.line_height;
+        let baseline = metrics.ascent;
+
         let spans = break_lines(&text, max_width, |seg| {
             shaper
                 .shape_text(seg, &font_family, font_size, is_bold)
@@ -114,13 +125,10 @@ pub fn layout_inline_context(parent_box: &mut LayoutBox, max_width: f32) -> f32 
 
         for span in spans {
             if cursor_x > 0.0 && cursor_x + span.width > max_width {
-                cursor_y += current_line.bounds.height.max(font_size * 1.2);
+                cursor_y += current_line.bounds.height.max(line_h);
                 current_line = LineBox::new(cursor_y);
                 cursor_x = 0.0;
             }
-
-            let line_h = font_size * 1.2;
-            let baseline = font_size * 0.8;
 
             current_line.fragments.push(InlineFragment {
                 text: span.text,
@@ -135,7 +143,7 @@ pub fn layout_inline_context(parent_box: &mut LayoutBox, max_width: f32) -> f32 
             current_line.baseline = current_line.baseline.max(baseline);
 
             if span.is_hard_break {
-                cursor_y += current_line.bounds.height.max(font_size * 1.2);
+                cursor_y += current_line.bounds.height.max(line_h);
                 current_line = LineBox::new(cursor_y);
                 cursor_x = 0.0;
             }
@@ -146,10 +154,17 @@ pub fn layout_inline_context(parent_box: &mut LayoutBox, max_width: f32) -> f32 
         cursor_y += current_line.bounds.height;
     }
 
-    // Update child bounding positions
+    // Update child bounding positions (skip out-of-flow; they are handled in second pass)
     let parent_x = parent_box.dimensions.content.x;
     let parent_y = parent_box.dimensions.content.y;
     for child in &mut parent_box.children {
+        if child
+            .style
+            .as_ref()
+            .is_some_and(|s| matches!(s.position, Position::Absolute | Position::Fixed))
+        {
+            continue;
+        }
         child.dimensions.content.x = parent_x;
         child.dimensions.content.y = parent_y;
         child.dimensions.content.width = max_width;
